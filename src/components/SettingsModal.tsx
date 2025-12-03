@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { AppSettings, UserAPIKey } from '../types';
@@ -12,40 +11,78 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, updateSettings }) => {
-  const [newKey, setNewKey] = useState('');
+  const [newKeyInput, setNewKeyInput] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleAddKey = async () => {
-    if (!newKey.trim()) return;
+  const handleAddKeys = async () => {
+    if (!newKeyInput.trim()) return;
     
-    // Check duplicates
-    if (settings.apiKeys.some(k => k.key === newKey.trim())) {
-      setValidationError('این کلید قبلاً اضافه شده است.');
-      return;
-    }
-
     setIsValidating(true);
     setValidationError(null);
+    setSuccessMessage(null);
 
-    const isValid = await validateAPIConnection(newKey.trim());
+    // Split input by newlines, commas, or spaces to support bulk paste
+    const rawKeys = newKeyInput.split(/[\n\r, ]+/);
+    // Explicitly type uniqueCandidates as string[] to ensure keyStr is typed correctly in map
+    const uniqueCandidates: string[] = [...new Set(rawKeys.map(k => k.trim()).filter(k => k.length > 0))];
 
-    if (isValid) {
-      const newKeyObj: UserAPIKey = {
-        key: newKey.trim(),
-        isValid: true,
-        isRateLimited: false,
-        addedAt: Date.now(),
-        label: `Personal Key ${settings.apiKeys.length + 1}`
-      };
-      
-      updateSettings({ apiKeys: [...settings.apiKeys, newKeyObj] });
-      setNewKey('');
-    } else {
-      setValidationError('کلید نامعتبر است یا امکان اتصال وجود ندارد.');
+    if (uniqueCandidates.length === 0) {
+        setIsValidating(false);
+        return;
     }
+
+    const keysToAdd: UserAPIKey[] = [];
+    let duplicateCount = 0;
+    let invalidCount = 0;
+
+    // Process validations concurrently
+    await Promise.all(uniqueCandidates.map(async (keyStr) => {
+        // Check local duplicates
+        if (settings.apiKeys.some(k => k.key === keyStr)) {
+            duplicateCount++;
+            return;
+        }
+
+        const isValid = await validateAPIConnection(keyStr);
+        if (isValid) {
+            keysToAdd.push({
+                key: keyStr,
+                isValid: true,
+                isRateLimited: false,
+                addedAt: Date.now(),
+                label: `Personal Key` // Will update index after sorting/adding
+            });
+        } else {
+            invalidCount++;
+        }
+    }));
+
+    if (keysToAdd.length > 0) {
+        const startIndex = settings.apiKeys.length + 1;
+        const labeledKeys = keysToAdd.map((k, i) => ({
+            ...k,
+            label: `Personal Key ${startIndex + i}`
+        }));
+        
+        updateSettings({ apiKeys: [...settings.apiKeys, ...labeledKeys] });
+        setNewKeyInput('');
+        
+        let msg = `${keysToAdd.length} کلید با موفقیت اضافه شد.`;
+        if (duplicateCount > 0) msg += ` (${duplicateCount} تکراری)`;
+        if (invalidCount > 0) msg += ` (${invalidCount} نامعتبر)`;
+        setSuccessMessage(msg);
+    } else {
+        if (duplicateCount > 0 && invalidCount === 0) {
+            setValidationError('همه کلیدهای وارد شده تکراری هستند.');
+        } else {
+            setValidationError('هیچ کلید معتبری یافت نشد. لطفاً از صحت کلیدها اطمینان حاصل کنید.');
+        }
+    }
+
     setIsValidating(false);
   };
 
@@ -82,46 +119,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               
               <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-4">
                 <p className="text-xs text-white/60 leading-relaxed">
-                  نرم‌افزار برای عملکرد نیاز به کلیدهای API شخصی شما دارد. چندین کلید وارد کنید تا در صورت اتمام اعتبار یکی، به صورت خودکار از بعدی استفاده شود.
+                  کلیدهای API خود را وارد کنید. می‌توانید چندین کلید را به صورت همزمان (هر کدام در یک خط) وارد کنید. سیستم به صورت خودکار اعتبار آن‌ها را بررسی کرده و در صورت بروز محدودیت، بین آن‌ها جابجا می‌شود.
                 </p>
 
-                {/* Input Area */}
-                <div className="flex gap-2">
-                  <input 
-                    type="password"
-                    value={newKey}
-                    onChange={(e) => { setNewKey(e.target.value); setValidationError(null); }}
-                    placeholder="کلید API جدید را وارد کنید..."
-                    className="flex-1 bg-[#0a0e27] border border-white/10 rounded-lg px-4 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none"
+                {/* Bulk Input Area */}
+                <div className="flex flex-col gap-2">
+                  <textarea 
+                    value={newKeyInput}
+                    onChange={(e) => { setNewKeyInput(e.target.value); setValidationError(null); setSuccessMessage(null); }}
+                    placeholder="کلیدهای API را اینجا وارد کنید (هر کلید در یک خط)..."
+                    className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:border-[#00f0ff] focus:outline-none min-h-[100px] resize-y custom-scrollbar font-mono leading-6"
                   />
                   <button 
-                    onClick={handleAddKey}
-                    disabled={!newKey || isValidating}
-                    className="bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 px-4 rounded-lg flex items-center justify-center transition-all disabled:opacity-50"
+                    onClick={handleAddKeys}
+                    disabled={!newKeyInput.trim() || isValidating}
+                    className="w-full bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isValidating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                    <span>{isValidating ? 'در حال بررسی اعتبار کلیدها...' : 'افزودن کلیدها'}</span>
                   </button>
                 </div>
                 
                 {validationError && (
-                  <p className="text-xs text-red-400 flex items-center gap-1 animate-in fade-in">
+                  <p className="text-xs text-red-400 flex items-center gap-1 animate-in fade-in bg-red-500/5 p-2 rounded border border-red-500/10">
                     <AlertTriangle className="w-3 h-3" />
                     {validationError}
                   </p>
                 )}
+                
+                {successMessage && (
+                  <p className="text-xs text-green-400 flex items-center gap-1 animate-in fade-in bg-green-500/5 p-2 rounded border border-green-500/10">
+                    <CheckCircle className="w-3 h-3" />
+                    {successMessage}
+                  </p>
+                )}
 
                 {/* Key List */}
-                <div className="space-y-2 mt-4">
-                  {/* User Keys */}
+                <div className="space-y-2 mt-4 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
                   {settings.apiKeys.map((k, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 bg-[#0a0e27] rounded-lg border border-white/10 group hover:border-white/20 transition-all">
                       <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${k.isValid ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div>
-                        <div className="flex flex-col">
-                           <span className="text-xs text-white font-mono">
-                             {k.key.slice(0, 4)}...{k.key.slice(-4)}
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${k.isValid ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div>
+                        <div className="flex flex-col min-w-0">
+                           <span className="text-xs text-white font-mono truncate">
+                             {k.key.slice(0, 8)}...{k.key.slice(-6)}
                            </span>
-                           <span className="text-[10px] text-white/40">
+                           <span className="text-[10px] text-white/40 truncate">
                              {k.label} {k.isRateLimited && <span className="text-yellow-500 font-bold ml-1">(Rate Limited)</span>}
                            </span>
                         </div>
@@ -129,6 +172,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       <button 
                         onClick={() => removeKey(k.key)}
                         className="text-white/20 hover:text-red-400 transition-colors p-1"
+                        title="حذف کلید"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -182,7 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                           {settings.model === 'professional' && <div className="w-2 h-2 rounded-full bg-[#ff00ea]" />}
                       </div>
                       <div>
-                        <h3 className="text-white font-medium text-sm">پردازش حرفه‌ای (Gemini 3 Pro)</h3>
+                        <h3 className="text-white font-medium text-sm">پردازش حرفه‌ای (Gemini 3 Pro Preview)</h3>
                         <p className="text-xs text-white/50 mt-1">دقت بالاتر برای متون تخصصی. (ممکن است کندتر باشد)</p>
                       </div>
                   </div>
