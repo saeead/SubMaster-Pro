@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SubMaster Pro | مترجم هوشمند زیرنویس</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/misc/Farsi-digits/font-face.css" rel="stylesheet" type="text/css" />
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --glass-bg: rgba(255, 255, 255, 0.05);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --neon-primary: #00f0ff;
+        --neon-secondary: #ff00ea;
+        --bg-dark: #0a0e27;
+        --text-primary: #ffffff;
+        --text-secondary: #a0aec0;
+      }
+      body {
+        font-family: 'Vazirmatn', sans-serif;
+        background-color: var(--bg-dark);
+        color: var(--text-primary);
+        background-image: 
+          radial-gradient(circle at 10% 20%, rgba(0, 240, 255, 0.1) 0%, transparent 20%),
+          radial-gradient(circle at 90% 80%, rgba(255, 0, 234, 0.1) 0%, transparent 20%);
+        min-height: 100vh;
+      }
+      .font-montserrat {
+        font-family: 'Montserrat', sans-serif;
+      }
+      
+      .glass {
+        background: var(--glass-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+      }
+      
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: rgba(10, 14, 39, 0.5); }
+      ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+      @keyframes pulse-neon {
+        0%, 100% { box-shadow: 0 0 10px var(--neon-primary); }
+        50% { box-shadow: 0 0 20px var(--neon-primary), 0 0 10px var(--neon-secondary); }
+      }
+      .animate-pulse-neon { animation: pulse-neon 2s infinite; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
