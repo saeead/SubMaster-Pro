@@ -9,7 +9,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { Toast } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking } from './services/subtitleUtils';
-import { translateBatch, validateAPIConnection } from './services/geminiService';
+import { translateBatch } from './services/geminiService';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, APP_CONFIG } from './constants';
 import { Loader2 } from 'lucide-react';
 
@@ -26,7 +26,6 @@ const App: React.FC = () => {
   const [progressMessage, setProgressMessage] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [processingDuration, setProcessingDuration] = useState<string | null>(null);
   const [completionToast, setCompletionToast] = useState<boolean>(false);
@@ -65,18 +64,6 @@ const App: React.FC = () => {
     if (savedVersion) {
         APP_CONFIG.version = savedVersion;
     }
-  }, []);
-
-  // Check SYSTEM API Key on Mount
-  useEffect(() => {
-    const checkConnection = async () => {
-      // Validate system key
-      const isValid = await validateAPIConnection();
-      setApiKeyValid(isValid);
-      // We don't error immediately if system key is invalid, 
-      // because user might provide their own keys in settings.
-    };
-    checkConnection();
   }, []);
 
   // Easter Egg: Check for "Upgrade Version"
@@ -262,10 +249,11 @@ const App: React.FC = () => {
   };
 
   const startTranslation = () => {
-    // Check if we have any valid keys (system or user)
+    // Check if we have any valid keys (user only)
     const hasUserKeys = settings.apiKeys.some(k => k.isValid);
-    if (apiKeyValid === false && !hasUserKeys) {
-      setErrorMsg("هیچ کلید API معتبری یافت نشد. لطفاً در تنظیمات کلید شخصی اضافه کنید یا متغیرهای محیطی را بررسی کنید.");
+    if (!hasUserKeys) {
+      setErrorMsg("هیچ کلید API معتبری یافت نشد. لطفاً در تنظیمات کلید شخصی اضافه کنید.");
+      setIsSettingsOpen(true);
       return;
     }
 
@@ -355,7 +343,6 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         updateSettings={updateSettings}
-        apiKeyValid={apiKeyValid}
       />
 
        {status === AppStatus.TRANSLATING && (

@@ -21,12 +21,11 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * Validates a specific API Key by making a lightweight call
  */
-export const validateAPIConnection = async (apiKey?: string): Promise<boolean> => {
-  const keyToTest = apiKey || process.env.API_KEY;
-  if (!keyToTest) return false;
+export const validateAPIConnection = async (apiKey: string): Promise<boolean> => {
+  if (!apiKey) return false;
 
   try {
-     const ai = new GoogleGenAI({ apiKey: keyToTest });
+     const ai = new GoogleGenAI({ apiKey: apiKey });
      // Lightweight check to verify API key validity
      await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -34,7 +33,7 @@ export const validateAPIConnection = async (apiKey?: string): Promise<boolean> =
      });
      return true;
   } catch (e) {
-     console.error("API Connection Validation Failed for key ending in ...", keyToTest.slice(-4), e);
+     console.error("API Connection Validation Failed for provided key ending in ...", apiKey.slice(-4), e);
      return false;
   }
 };
@@ -43,7 +42,7 @@ export const validateAPIConnection = async (apiKey?: string): Promise<boolean> =
  * Manages rotation and fallback of API Keys
  */
 class APIKeyManager {
-  private keys: { key: string; isRateLimited: boolean; source: 'USER' | 'SYSTEM' }[] = [];
+  private keys: { key: string; isRateLimited: boolean; source: 'USER' }[] = [];
   private currentIndex = 0;
 
   constructor(userKeys: UserAPIKey[]) {
@@ -54,15 +53,13 @@ class APIKeyManager {
       }
     });
 
-    // 2. Add System Key (Process Env) as backup
-    if (process.env.API_KEY) {
-      this.keys.push({ key: process.env.API_KEY, isRateLimited: false, source: 'SYSTEM' });
-    }
+    // Note: System Key (process.env.API_KEY) support has been removed.
+    // The application relies strictly on user-provided keys.
   }
 
   public getActiveKey(): string {
     if (this.keys.length === 0) {
-      throw new Error("No valid API Keys available.");
+      throw new Error("No valid API Keys available. Please add a valid API Key in settings.");
     }
 
     // Find the first key that is NOT rate limited
@@ -86,9 +83,6 @@ class APIKeyManager {
       this.keys[this.currentIndex].isRateLimited = true;
       // Move to next
       this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-      
-      // Optional: Set a timeout to un-flag it after a minute? 
-      // For now, simple rotation is sufficient for immediate batch processing.
     }
   }
 

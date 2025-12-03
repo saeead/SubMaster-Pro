@@ -9,10 +9,9 @@ interface SettingsModalProps {
   onClose: () => void;
   settings: AppSettings;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
-  apiKeyValid: boolean | null; // System key status
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, updateSettings, apiKeyValid }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, updateSettings }) => {
   const [newKey, setNewKey] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -83,7 +82,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               
               <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-4">
                 <p className="text-xs text-white/60 leading-relaxed">
-                  با افزودن کلیدهای شخصی خود، از محدودیت‌های سرویس عمومی عبور کنید. در صورت بروز خطا یا اتمام اعتبار یک کلید، سیستم به صورت خودکار از کلید بعدی استفاده خواهد کرد.
+                  نرم‌افزار برای عملکرد نیاز به کلیدهای API شخصی شما دارد. چندین کلید وارد کنید تا در صورت اتمام اعتبار یکی، به صورت خودکار از بعدی استفاده شود.
                 </p>
 
                 {/* Input Area */}
@@ -113,15 +112,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
                 {/* Key List */}
                 <div className="space-y-2 mt-4">
-                  {/* System Key Display */}
-                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5 opacity-70">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${apiKeyValid ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div>
-                      <span className="text-xs text-white/60 font-mono">System Default Key</span>
-                    </div>
-                    <span className="text-[10px] uppercase bg-white/10 px-2 py-0.5 rounded text-white/40">Fallback</span>
-                  </div>
-
                   {/* User Keys */}
                   {settings.apiKeys.map((k, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 bg-[#0a0e27] rounded-lg border border-white/10 group hover:border-white/20 transition-all">
@@ -146,8 +136,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   ))}
                   
                   {settings.apiKeys.length === 0 && (
-                     <div className="text-center py-2 text-xs text-white/20 italic">
-                        هنوز کلید شخصی اضافه نشده است.
+                     <div className="text-center py-4 text-xs text-red-400/80 bg-red-500/5 rounded-lg border border-red-500/10">
+                        ⚠️ هیچ کلید API تعریف نشده است. لطفا حداقل یک کلید وارد کنید.
                      </div>
                   )}
                 </div>
