@@ -18,17 +18,14 @@
     "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
- "baseUrl": ".",
+    "baseUrl": ".",
     "paths": {
       "@/*": [
-        "src/*"
+        "./src/*"
       ]
-    },
-    // ...
-  },
-  "include": ["src"],
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": ["src"]
 }
