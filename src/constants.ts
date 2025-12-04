@@ -19,9 +19,12 @@ export const APP_CONFIG = {
 
 // Configuration for Smart Block Merging
 export const OPTIMIZATION_CONFIG = {
-  MAX_MERGE_CHARACTERS: 85, // Don't merge if resulting line is longer than this
-  MAX_MERGE_GAP_MS: 1000, // Don't merge if gap between lines is > 1 second (implies scene change)
-  MIN_DURATION_MS: 2000, // Try to merge blocks shorter than this
+  MAX_MERGE_CHARACTERS: 120, // Increased to accommodate word limits
+  MIN_WORDS_PER_BLOCK: 12,   // Target minimum words
+  MAX_WORDS_PER_BLOCK: 24,   // Absolute maximum words
+  MAX_MERGE_GAP_MS: 1200,    // Max gap allowed to merge (scene change detection)
+  STANDARD_GAP_MS: 50,       // Standard gap between blocks
+  MS_PER_WORD: 350,          // Target duration per word for readability
 };
 
 export const BATCH_SIZE = 50;
@@ -52,12 +55,13 @@ const SYSTEM_PROMPTS = {
 2. **ادغام معنایی:** اگر متن انگلیسی شکسته است، در فارسی آن را به یک جمله روان و یکپارچه تبدیل کنید.
 3. **زمان‌بندی:** ما بلاک‌ها را ادغام کرده‌ایم تا زمان کافی برای خواندن وجود داشته باشد. شما فقط روی روانی متن تمرکز کنید.
 4. **تعداد:** ترجمه باید دقیقاً ۱ به ۱ باشد.
+5. **حذف حشو و کلمات اضافی (بسیار مهم):** از ترجمه کلمات پرکننده (Filler Words) مانند "Well", "So", "And", "You know", "Like" در ابتدای جملات که تاثیری در معنای اصلی ندارند، اکیداً خودداری کنید. مثلا "So, we went..." باید به "ما رفتیم..." ترجمه شود، نه "پس، ما رفتیم...". جمله باید سلیس، مفید و بدون اضافات باشد.
 
 فرمت خروجی (JSON Array):
 [
   {
     "id": 1,
-    "translatedText": "متن فارسی روان و کامل"
+    "translatedText": "متن فارسی روان، کامل و بدون حشو"
   }
 ]
 

@@ -82,47 +82,90 @@ export const parseVTT = (content: string): SubtitleBlock[] => {
 };
 
 /**
- * OPTIMIZES subtitle blocks by merging short, fragmented lines.
- * This ensures "Complete Sentences" for the AI and better flow.
+ * Counts words in a string accurately
+ */
+const countWords = (text: string): number => {
+  return text.trim().split(/\s+/).length;
+};
+
+/**
+ * Checks if text ends with sentence-ending punctuation
+ */
+const isSentenceComplete = (text: string): boolean => {
+  return /[.?!؟]$/.test(text.trim());
+};
+
+/**
+ * OPTIMIZES subtitle blocks by merging them to fit word count constraints.
+ * Enforces:
+ * 1. Min 12 words / Max 24 words per block (where possible).
+ * 2. Sentence integrity (avoid splitting S-V-O).
+ * 3. Dynamic timing based on reading speed.
+ * 4. Standard gaps between blocks.
  */
 export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[]): SubtitleBlock[] => {
   if (blocks.length === 0) return [];
 
   const optimized: SubtitleBlock[] = [];
-  let current = { ...blocks[0] }; // Start with first block
+  let current = { ...blocks[0] }; 
 
   for (let i = 1; i < blocks.length; i++) {
     const next = blocks[i];
     
-    // Logic for deciding to merge
-    const currentDuration = timeToMs(current.endTime) - timeToMs(current.startTime);
-    const gap = timeToMs(next.startTime) - timeToMs(current.endTime);
-    const combinedTextLength = current.originalText.length + next.originalText.length;
+    // 1. Calculate Metrics
+    const currentWordCount = countWords(current.originalText);
+    const nextWordCount = countWords(next.originalText);
+    const totalWords = currentWordCount + nextWordCount;
     
-    // Check for Sentence Endings (., ?, !)
-    const isSentenceEnd = /[.?!]$/.test(current.originalText);
+    const currentEndTimeMs = timeToMs(current.endTime);
+    const nextStartTimeMs = timeToMs(next.startTime);
+    const gap = nextStartTimeMs - currentEndTimeMs;
+
+    // 2. Conditions to MERGE
+    // We merge if:
+    // - Gap implies continuous speech (not a scene change)
+    // - AND (Current block is too short OR Sentence is incomplete)
+    // - AND Merging won't exceed maximum word limit
     
-    // Conditions to MERGE:
-    // 1. Current block is short duration OR Gap is very small (continuous speech)
-    // 2. Not a sentence end (implies fragmented thought)
-    // 3. Combined length is within limits
-    // 4. Gap isn't a "Scene Change" (> MAX_MERGE_GAP_MS)
-    
-    const shouldMerge = 
-      !isSentenceEnd && 
-      gap <= OPTIMIZATION_CONFIG.MAX_MERGE_GAP_MS &&
-      combinedTextLength <= OPTIMIZATION_CONFIG.MAX_MERGE_CHARACTERS &&
-      (currentDuration < OPTIMIZATION_CONFIG.MIN_DURATION_MS || gap < 200);
+    const isGapAcceptable = gap <= OPTIMIZATION_CONFIG.MAX_MERGE_GAP_MS;
+    const isUnderMaxLimit = totalWords <= OPTIMIZATION_CONFIG.MAX_WORDS_PER_BLOCK;
+    const needsMoreWords = currentWordCount < OPTIMIZATION_CONFIG.MIN_WORDS_PER_BLOCK;
+    const sentenceIncomplete = !isSentenceComplete(current.originalText);
+
+    const shouldMerge = isGapAcceptable && isUnderMaxLimit && (needsMoreWords || sentenceIncomplete);
 
     if (shouldMerge) {
       // MERGE ACTION
-      // Extend current block's end time to next block's end time
-      current.endTime = next.endTime;
-      // Combine text with space
+      current.endTime = next.endTime; // Extend duration to cover next block
       current.originalText = `${current.originalText} ${next.originalText}`;
-      // Note: We keep current.startTime and current.id
+      // Continue loop to try merging more into 'current'
     } else {
-      // PUSH & RESET
+      // COMMIT ACTION
+      // Before pushing, optimize timing for readability
+      
+      // Calculate target duration based on reading speed
+      const targetDuration = countWords(current.originalText) * OPTIMIZATION_CONFIG.MS_PER_WORD;
+      const currentStartMs = timeToMs(current.startTime);
+      let calculatedEndMs = currentStartMs + targetDuration;
+      
+      // Ensure we don't overlap with the NEXT block (which is 'next')
+      // Leave a standard gap
+      const maxAllowedEndMs = timeToMs(next.startTime) - OPTIMIZATION_CONFIG.STANDARD_GAP_MS;
+      
+      // We can extend ONLY if there is room. We shouldn't shrink drastically unless necessary.
+      // Use the actual end time if it's longer than target, but clamp to next start.
+      const originalEndMs = timeToMs(current.endTime);
+      
+      // Rule: Extend if too fast, but don't overlap next block.
+      // Rule: Keep original duration if it's already long enough.
+      const finalEndMs = Math.min(Math.max(calculatedEndMs, originalEndMs), maxAllowedEndMs);
+      
+      // If finalEndMs < currentStartMs, it means overlap was inevitable or data issue.
+      // Fallback to original end time or a small duration.
+      if (finalEndMs > currentStartMs) {
+         current.endTime = msToTime(finalEndMs);
+      }
+
       optimized.push(current);
       current = { ...next };
     }
@@ -131,7 +174,24 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[]): SubtitleBlock[]
   // Push the final block
   optimized.push(current);
 
-  // Re-index the blocks to be sequential (1, 2, 3...)
+  // Final Pass: Ensure Standard Gaps globally
+  // (The merge loop ensures gaps between current & next, but let's double check sequential integrity)
+  for (let i = 0; i < optimized.length - 1; i++) {
+     const b1 = optimized[i];
+     const b2 = optimized[i+1];
+     const end1 = timeToMs(b1.endTime);
+     const start2 = timeToMs(b2.startTime);
+     
+     if (end1 >= start2 - OPTIMIZATION_CONFIG.STANDARD_GAP_MS) {
+         // Fix overlap or too small gap
+         const newEnd = start2 - OPTIMIZATION_CONFIG.STANDARD_GAP_MS;
+         if (newEnd > timeToMs(b1.startTime)) {
+             b1.endTime = msToTime(newEnd);
+         }
+     }
+  }
+
+  // Re-index
   return optimized.map((b, idx) => ({
     ...b,
     id: idx + 1,

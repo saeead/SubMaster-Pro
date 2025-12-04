@@ -28,7 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     // Split input by newlines, commas, or spaces to support bulk paste
     const rawKeys = newKeyInput.split(/[\n\r, ]+/);
     // Explicitly type uniqueCandidates as string[] to ensure keyStr is typed correctly in map
-    const uniqueCandidates: string[] = [...new Set(rawKeys.map(k => k.trim()).filter(k => k.length > 0))];
+    const uniqueCandidates: string[] = Array.from(new Set(rawKeys.map(k => k.trim()).filter(k => k.length > 0)));
 
     if (uniqueCandidates.length === 0) {
         setIsValidating(false);

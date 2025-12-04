@@ -34,7 +34,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     tone: 'conversational',
     topic: 'educational',
-    outputFormat: 'srt',
+    outputFormat: 'vtt', // Default output format set to VTT
     model: 'standard',
     customPrompt: '',
     apiKeys: [] // Initialize empty array for user keys
@@ -108,8 +108,10 @@ const App: React.FC = () => {
     setFilename(name);
     setFileSize(size);
     setOriginalType(type);
-    // Auto-select output format based on input, but allow user override via settings later
-    updateSettings({ outputFormat: type === 'SRT' ? 'srt' : 'vtt' });
+    
+    // Auto-selection of output format removed. 
+    // We now stick to the user's preference (or default 'vtt') regardless of input type.
+    
     setStatus(AppStatus.READY);
     setProcessedCount(0);
     setProgressMessage('');
