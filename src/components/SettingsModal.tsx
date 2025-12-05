@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft } from 'lucide-react';
 import { AppSettings, UserAPIKey } from '../types';
 import { validateAPIConnection } from '../services/geminiService';
@@ -18,6 +18,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [memSize, setMemSize] = useState(getMemorySize());
+
+  // Update memory size whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setMemSize(getMemorySize());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

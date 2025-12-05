@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -160,6 +155,32 @@ const App: React.FC = () => {
 
   const updateBlock = (id: number, text: string) => {
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, translatedText: text } : b));
+  };
+
+  const handleFindReplace = (find: string, replace: string) => {
+    if (!find) return;
+    
+    let occurrences = 0;
+    const newBlocks = blocks.map(block => {
+      if (block.translatedText && block.translatedText.includes(find)) {
+        // Use global replacement
+        const newText = block.translatedText.replaceAll(find, replace);
+        
+        // Basic check to see if it actually changed to increment counter
+        if (newText !== block.translatedText) {
+          occurrences++;
+        }
+        return { ...block, translatedText: newText };
+      }
+      return block;
+    });
+
+    if (occurrences > 0) {
+      setBlocks(newBlocks);
+      showToast(`${occurrences} مورد با موفقیت جایگزین شد.`, 'success');
+    } else {
+      showToast('موردی برای جایگزینی یافت نشد.', 'warning');
+    }
   };
 
   const handleTimingAdjustment = (config: AdjustmentConfig) => {
@@ -451,6 +472,7 @@ const App: React.FC = () => {
                         blocks={blocks} 
                         onUpdateBlock={updateBlock} 
                         validationErrors={netflixErrors}
+                        onFindReplace={handleFindReplace}
                     />
                 </>
             )}
