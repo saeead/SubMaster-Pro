@@ -2,6 +2,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -10,9 +12,10 @@ import { StatsCard } from './components/StatsCard';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { SettingsModal } from './components/SettingsModal';
 import { TimingModal } from './components/TimingModal';
-import { ExportModal } from './components/ExportModal'; 
+import { ExportModal } from './components/ExportModal';
+import { GlossaryModal } from './components/GlossaryModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig } from './types';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig, GlossaryItem } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
@@ -36,7 +39,8 @@ const App: React.FC = () => {
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false); 
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isGlossaryModalOpen, setIsGlossaryModalOpen] = useState(false);
   const [netflixErrors, setNetflixErrors] = useState<NetflixError[]>([]);
   
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -52,7 +56,8 @@ const App: React.FC = () => {
     model: 'standard',
     customPrompt: '',
     apiKeys: [],
-    enableTranslationMemory: true 
+    enableTranslationMemory: true,
+    glossary: []
   });
 
   const statusRef = useRef<AppStatus>(AppStatus.IDLE);
@@ -70,6 +75,7 @@ const App: React.FC = () => {
         if (!parsed.apiKeys) parsed.apiKeys = [];
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
+        if (!parsed.glossary) parsed.glossary = [];
         setSettings(prev => ({ ...prev, ...parsed }));
       } catch (error) {
         console.error('Failed to load settings from local storage:', error);
@@ -111,6 +117,10 @@ const App: React.FC = () => {
     });
   };
 
+  const handleUpdateGlossary = (newGlossary: GlossaryItem[]) => {
+      updateSettings({ glossary: newGlossary });
+  };
+
   const showToast = (msg: string, type: ToastType = 'error') => {
     setToast({ msg, type });
   };
@@ -150,10 +160,6 @@ const App: React.FC = () => {
 
   const updateBlock = (id: number, text: string) => {
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, translatedText: text } : b));
-    
-    // Optional: If user manually edits a block, should we update memory?
-    // Let's decide NOT to auto-update memory on manual edit to prevent polluting memory with context-specific edits,
-    // unless we add an explicit "Save to Memory" button later.
   };
 
   const handleTimingAdjustment = (config: AdjustmentConfig) => {
@@ -264,7 +270,6 @@ const App: React.FC = () => {
 
       const targetRequest: BatchRequest[] = effectiveTarget.map(b => ({ id: b.id, text: b.originalText }));
       
-      // Context should include the just-cached items to keep context flow valid
       const preContextReq: BatchRequest[] = preContextBlocks.map(b => ({ id: b.id, text: `${b.originalText} (Persian: ${b.translatedText || 'N/A'})` }));
       const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
@@ -385,6 +390,7 @@ const App: React.FC = () => {
         settings={settings} 
         updateSettings={updateSettings} 
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenGlossary={() => setIsGlossaryModalOpen(true)}
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden">
@@ -474,6 +480,13 @@ const App: React.FC = () => {
         onClose={() => setIsExportModalOpen(false)}
         onConfirm={handleConfirmDownload}
         defaultFormat={settings.outputFormat}
+      />
+
+      <GlossaryModal 
+        isOpen={isGlossaryModalOpen}
+        onClose={() => setIsGlossaryModalOpen(false)}
+        glossary={settings.glossary}
+        onUpdate={handleUpdateGlossary}
       />
 
        {status === AppStatus.TRANSLATING && (

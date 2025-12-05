@@ -45,6 +45,11 @@ export interface UserAPIKey {
   label?: string;
 }
 
+export interface GlossaryItem {
+  term: string;
+  translation: string;
+}
+
 export type ToneType = 'conversational' | 'formal' | 'news' | 'movie' | 'podcast';
 export type TopicType = 'educational' | 'entertainment' | 'podcast' | 'news' | 'sports';
 export type ModelType = 'standard' | 'professional';
@@ -58,6 +63,7 @@ export interface AppSettings {
   customPrompt: string;
   apiKeys: UserAPIKey[];
   enableTranslationMemory: boolean;
+  glossary: GlossaryItem[];
 }
 
 // --- NEW TYPES FOR TIMING & QC ---

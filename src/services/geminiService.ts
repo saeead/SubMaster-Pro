@@ -1,5 +1,6 @@
 
 
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey } from "../types";
 import { APP_CONFIG, getSystemInstruction } from "../constants";
@@ -194,8 +195,14 @@ export const translateBatch = async (
       
       userPrompt += "\n\nTask: Translate the TARGET BLOCKS to Persian following the system instructions. Return ONLY the JSON array.";
 
-      // Include outputStandard in system instruction generation
-      const systemInstruction = getSystemInstruction(settings.tone, settings.topic, settings.customPrompt, settings.outputStandard);
+      // Include outputStandard and glossary in system instruction generation
+      const systemInstruction = getSystemInstruction(
+        settings.tone, 
+        settings.topic, 
+        settings.customPrompt, 
+        settings.outputStandard,
+        settings.glossary // Pass the glossary here
+      );
 
       const response = await ai.models.generateContent({
         model: modelName,

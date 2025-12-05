@@ -1,9 +1,9 @@
 
 
-import { ToneType, TopicType } from "./types";
+import { ToneType, TopicType, GlossaryItem } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.11",
+  version: "1.12",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB
@@ -149,7 +149,13 @@ const SYSTEM_PROMPTS = {
   }
 };
 
-export const getSystemInstruction = (tone: ToneType, topic: TopicType, customPrompt: string, outputStandard: 'normal' | 'netflix') => {
+export const getSystemInstruction = (
+  tone: ToneType, 
+  topic: TopicType, 
+  customPrompt: string, 
+  outputStandard: 'normal' | 'netflix',
+  glossary: GlossaryItem[] = []
+) => {
   let prompt = SYSTEM_PROMPTS.base + '\n\n';
   
   // Inject Netflix instructions if enabled
@@ -167,6 +173,17 @@ export const getSystemInstruction = (tone: ToneType, topic: TopicType, customPro
      prompt += `--- ${SYSTEM_PROMPTS.topics.podcast} ---\n\n`;
   } else if (SYSTEM_PROMPTS.topics[topic]) {
      prompt += `--- ${SYSTEM_PROMPTS.topics[topic]} ---\n\n`;
+  }
+
+  // Inject Glossary if exists
+  if (glossary.length > 0) {
+    prompt += `
+--- واژه‌نامه اختصاصی (Custom Glossary) ---
+دستورالعمل مهم: در متن ورودی، هرگاه به کلمات زیر برخورد کردید، الزاماً باید از معادل ذکر شده در مقابل آن استفاده کنید (حتی اگر ترجمه دیگری به نظر شما می‌رسد).
+فرمت: [واژه اصلی] -> [ترجمه الزامی]
+
+${glossary.map(item => `- ${item.term} -> ${item.translation}`).join('\n')}
+\n`;
   }
 
   if (customPrompt) {

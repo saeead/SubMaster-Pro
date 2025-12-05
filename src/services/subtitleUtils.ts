@@ -1,6 +1,5 @@
 
 
-
 import { SubtitleBlock, AdjustmentConfig, NetflixError, VttStyleConfig } from '../types';
 import { BATCH_SIZE, OVERLAP_SIZE, OPTIMIZATION_CONFIG } from '../constants';
 
@@ -163,6 +162,7 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
   if (blocks.length === 0) return [];
 
   const config = standard === 'netflix' ? OPTIMIZATION_CONFIG.NETFLIX : OPTIMIZATION_CONFIG.NORMAL;
+  const MAX_DURATION_MS = standard === 'netflix' ? 7000 : 12000;
   
   const optimized: SubtitleBlock[] = [];
   let current = { ...blocks[0] }; 
@@ -179,37 +179,54 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
     const nextChars = countChars(next.originalText);
     const totalChars = currentChars + nextChars;
     
+    const currentStartMs = timeToMs(current.startTime);
     const currentEndTimeMs = timeToMs(current.endTime);
     const nextStartTimeMs = timeToMs(next.startTime);
+    const nextEndTimeMs = timeToMs(next.endTime);
+    
     const gap = nextStartTimeMs - currentEndTimeMs;
+    const combinedDuration = nextEndTimeMs - currentStartMs;
 
     const isGapAcceptable = gap <= config.MAX_MERGE_GAP_MS;
     const isUnderMaxLimit = totalWords <= config.MAX_WORDS_PER_BLOCK && totalChars <= config.MAX_MERGE_CHARACTERS;
+    const isDurationAcceptable = combinedDuration <= MAX_DURATION_MS;
+    
     const needsMoreWords = currentWordCount < config.MIN_WORDS_PER_BLOCK;
     const sentenceIncomplete = !isSentenceComplete(current.originalText);
+
+    // Check for distinct dialogue speakers to prevent bad merges
+    // Example: "- Hi" and "- Hello" should likely remain separate unless very short.
+    const isDialogueMismatch = current.originalText.trim().startsWith('-') && next.originalText.trim().startsWith('-');
 
     // Merge logic:
     // If we MUST merge (sentence incomplete) or we SHOULD merge (block too short), try to merge.
     // But never exceed hard limits.
-    const shouldMerge = isGapAcceptable && isUnderMaxLimit && (needsMoreWords || sentenceIncomplete);
+    const shouldMerge = isGapAcceptable && isUnderMaxLimit && isDurationAcceptable && !isDialogueMismatch && (needsMoreWords || sentenceIncomplete);
 
     if (shouldMerge) {
       current.endTime = next.endTime;
-      current.originalText = `${current.originalText} ${next.originalText}`;
+      // Maintain separation for dialogue or existing multiline blocks
+      if (next.originalText.trim().startsWith('-') || current.originalText.includes('\n')) {
+          current.originalText = `${current.originalText}\n${next.originalText}`;
+      } else {
+          current.originalText = `${current.originalText} ${next.originalText}`;
+      }
     } else {
-      // Recalculate end time for readability if not merging
-      const targetDuration = countWords(current.originalText) * config.MS_PER_WORD;
-      const currentStartMs = timeToMs(current.startTime);
-      let calculatedEndMs = currentStartMs + targetDuration;
+      // Recalculate end time for readability if not merging (only if duration is suspiciously short)
+      // This helps with "flashing" subtitles in source files
+      const minReadingTime = countWords(current.originalText) * config.MS_PER_WORD;
+      const originalDuration = currentEndTimeMs - currentStartMs;
       
-      const maxAllowedEndMs = timeToMs(next.startTime) - config.STANDARD_GAP_MS;
-      const originalEndMs = timeToMs(current.endTime);
-      
-      // We take the larger of original vs calculated, but clamped by next block start
-      const finalEndMs = Math.min(Math.max(calculatedEndMs, originalEndMs), maxAllowedEndMs);
-      
-      if (finalEndMs > currentStartMs) {
-         current.endTime = msToTime(finalEndMs);
+      if (originalDuration < minReadingTime) {
+          const maxAllowedEndMs = nextStartTimeMs - config.STANDARD_GAP_MS;
+          const targetEndMs = currentStartMs + minReadingTime;
+          
+          // Extend, but don't overlap next block
+          const finalEndMs = Math.min(targetEndMs, maxAllowedEndMs);
+          
+          if (finalEndMs > currentStartMs) {
+             current.endTime = msToTime(finalEndMs);
+          }
       }
 
       optimized.push(current);

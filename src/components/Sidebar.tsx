@@ -1,6 +1,7 @@
 
+
 import React from 'react';
-import { Settings, Check, FileText } from 'lucide-react';
+import { Settings, Check, FileText, BookOpen } from 'lucide-react';
 import { AppSettings, ToneType, TopicType } from '../types';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 
@@ -8,9 +9,10 @@ interface SidebarProps {
   settings: AppSettings;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   onOpenSettings: () => void;
+  onOpenGlossary: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOpenSettings }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOpenSettings, onOpenGlossary }) => {
   return (
     <aside className="w-full md:w-72 glass flex flex-col h-auto md:h-screen md:sticky md:top-0 p-6 gap-8 border-l border-white/10 z-20">
       
@@ -55,6 +57,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
           </div>
         </div>
       </div>
+
+      {/* Custom Glossary Button (Educational Only) */}
+      {settings.topic === 'educational' && (
+         <div className="animate-in fade-in slide-in-from-right-4">
+             <button 
+                onClick={onOpenGlossary}
+                className="w-full py-3 px-4 rounded-xl border border-[#ff00ea]/30 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-white font-medium flex items-center justify-between group transition-all"
+             >
+                <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-[#ff00ea]" />
+                    <span className="text-sm">واژه‌نامه اختصاصی</span>
+                </div>
+                {settings.glossary && settings.glossary.length > 0 && (
+                    <span className="bg-[#ff00ea] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+                        {settings.glossary.length}
+                    </span>
+                )}
+             </button>
+             <p className="text-[10px] text-white/40 mt-2 px-1">
+                تعریف معادل‌های ثابت برای کلمات تخصصی
+             </p>
+         </div>
+      )}
 
       {/* Output Format */}
       <div className="space-y-3">
