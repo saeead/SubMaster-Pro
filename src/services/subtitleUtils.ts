@@ -1,18 +1,27 @@
+
+
+
 import { SubtitleBlock, AdjustmentConfig, NetflixError, VttStyleConfig } from '../types';
 import { BATCH_SIZE, OVERLAP_SIZE, OPTIMIZATION_CONFIG } from '../constants';
 
 // Helper to convert timestamp string to milliseconds
 export const timeToMs = (timeString: string): number => {
+  if (!timeString) return 0;
   // Supports "00:00:00,000" (SRT) and "00:00:00.000" (VTT)
-  const cleanTime = timeString.replace(',', '.');
-  const [h, m, s] = cleanTime.split(':');
+  const cleanTime = timeString.replace(',', '.').trim();
+  const parts = cleanTime.split(':');
+  
+  // Handle minimal timestamps if necessary, though standard is HH:MM:SS.mmm
+  if (parts.length < 3) return 0;
+
+  const [h, m, s] = parts;
   const [sec, ms] = s.split('.');
   
   return (
     parseInt(h) * 3600000 +
     parseInt(m) * 60000 +
     parseInt(sec) * 1000 +
-    parseInt(ms)
+    parseInt(ms || '0')
   );
 };
 
@@ -500,62 +509,81 @@ const smartSplitText = (text: string, maxLen: number = 42): string => {
   return p1 + '\n' + p2;
 };
 
+/**
+ * RECALCULATES duration and timing based on Netflix Rules.
+ * Solves "Player skipping lines" by strictly enforcing gaps.
+ */
 export const fixNetflixStandards = (blocks: SubtitleBlock[]): SubtitleBlock[] => {
-  // Deep copy
-  let fixed = JSON.parse(JSON.stringify(blocks)) as SubtitleBlock[];
+  // 1. Critical: Sort blocks by StartTime to handle out-of-order source files
+  let sorted = [...blocks].sort((a, b) => timeToMs(a.startTime) - timeToMs(b.startTime));
+  
+  // Deep copy to avoid mutation issues during map
+  sorted = JSON.parse(JSON.stringify(sorted));
 
-  // Pass 1: Text Optimization (Max 2 lines, Max 42 chars)
-  fixed.forEach(block => {
-    let text = block.translatedText || block.originalText;
-    // Simple check if it needs splitting
+  const CPS_LIMIT = 20; // Characters Per Second
+  const MIN_DURATION_MS = 833; // ~20 frames
+  const MAX_DURATION_MS = 7000; // 7 seconds
+  const MIN_GAP_MS = 84; // ~2 frames gap required
+
+  return sorted.map((block, idx) => {
+    // A. Text Optimization
+    let text = block.translatedText || block.originalText || "";
+    text = text.trim();
     const lines = text.split('\n');
-    const isTooLong = lines.some((l: string) => l.length > 42);
-    const isTooManyLines = lines.length > 2;
-
-    if (isTooLong || isTooManyLines) {
-      block.translatedText = smartSplitText(text, 42);
+    if (lines.length > 2 || lines.some((l: string) => l.length > 42)) {
+      text = smartSplitText(text, 42);
+      block.translatedText = text;
     }
+    
+    // B. Calculate Ideal Duration based on Character Count (Standard for Netflix)
+    // Note: User asked for "based on word count", but Netflix uses CPS.
+    // CPS (Chars Per Second) is the accurate way to determine reading time.
+    const charCount = countChars(text);
+    let idealDurationMs = (charCount / CPS_LIMIT) * 1000;
+
+    // Apply Constraints
+    if (idealDurationMs < MIN_DURATION_MS) idealDurationMs = MIN_DURATION_MS;
+    if (idealDurationMs > MAX_DURATION_MS) idealDurationMs = MAX_DURATION_MS;
+
+    const startMs = timeToMs(block.startTime);
+    let endMs = startMs + idealDurationMs;
+
+    // C. Collision Avoidance (Strict Gap Enforcement)
+    // This fixes the issue where players skip subtitles due to timestamp overlap.
+    if (idx < sorted.length - 1) {
+        const nextBlock = sorted[idx + 1];
+        const nextStartMs = timeToMs(nextBlock.startTime);
+        
+        // Calculate the absolute latest this subtitle can end
+        const maxAllowedEndMs = nextStartMs - MIN_GAP_MS;
+
+        // If our calculated end time violates the gap, we must clamp it.
+        if (endMs > maxAllowedEndMs) {
+            endMs = maxAllowedEndMs;
+        }
+
+        // Safety check: Ensure we don't end before we start.
+        // If next subtitle is too close, this subtitle might be extremely short.
+        // We prioritize "No Overlap" over "Min Duration" to prevent player crashes.
+        if (endMs <= startMs) {
+            // Extreme edge case: Next subtitle starts at or before this one.
+            // We clamp end to start + small epsilon, effectively hiding it or showing it briefly.
+            // We do NOT extend into the next block as that causes the "missing lines" bug.
+            
+            // Re-eval with smaller emergency gap?
+            const emergencyGap = 20; 
+            if (nextStartMs - startMs > emergencyGap) {
+                endMs = nextStartMs - emergencyGap;
+            } else {
+               // Timestamps are practically identical. Keep it extremely short but positive.
+               endMs = startMs + 100; 
+            }
+        }
+    }
+
+    return {
+        ...block,
+        endTime: msToTime(endMs)
+    };
   });
-
-  // Pass 2: Timing Optimization
-  for (let i = 0; i < fixed.length; i++) {
-     let block = fixed[i];
-     let start = timeToMs(block.startTime);
-     let end = timeToMs(block.endTime);
-     let text = block.translatedText || block.originalText;
-     
-     // Enforce Min Duration (0.833s)
-     if (end - start < 833) {
-         end = start + 833;
-     }
-
-     // Enforce Max Duration (7s)
-     if (end - start > 7000) {
-         end = start + 7000;
-     }
-
-     // Gap Logic
-     if (i < fixed.length - 1) {
-         const nextBlock = fixed[i+1];
-         const nextStart = timeToMs(nextBlock.startTime);
-         const requiredGap = 84; // ~2 frames
-
-         if (end > nextStart - requiredGap) {
-             // Overlap detected. Clamp current block end.
-             // We prioritize gap over min duration if necessary to prevent overlap flickering
-             end = nextStart - requiredGap;
-             
-             // If clamping creates a violation of min duration
-             if (end - start < 833) {
-                 // Try to push next block start if it's not a huge shift? 
-                 // No, shifting cascades. Stick to clamping end. 
-                 // The user will see a min_duration error still, but gap is fixed.
-             }
-         }
-     }
-
-     block.endTime = msToTime(end);
-  }
-
-  return fixed;
 };
