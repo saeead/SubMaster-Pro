@@ -33,7 +33,21 @@ export const validateAPIConnection = async (apiKey: string): Promise<boolean> =>
         contents: 'test',
      });
      return true;
-  } catch (e) {
+  } catch (e: any) {
+     const errorMessage = e.message || JSON.stringify(e);
+     
+     // 429 / Resource Exhausted means the key IS valid (auth succeeded), just out of quota.
+     // We should allow adding it so the rotation manager can use it later.
+     if (
+         errorMessage.includes("429") || 
+         errorMessage.includes("quota") || 
+         errorMessage.includes("RESOURCE_EXHAUSTED") ||
+         errorMessage.includes("Too Many Requests")
+     ) {
+         console.warn(`API Key validation (..${apiKey.slice(-4)}): Key is valid but currently Rate Limited.`);
+         return true;
+     }
+
      console.error("API Connection Validation Failed for provided key ending in ...", apiKey.slice(-4), e);
      return false;
   }
@@ -179,7 +193,10 @@ export const translateBatch = async (
 
     } catch (error: any) {
       const errorMessage = error.message || error.toString();
-      const isRateLimit = errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("Too Many Requests");
+      const isRateLimit = errorMessage.includes("429") || 
+                          errorMessage.includes("quota") || 
+                          errorMessage.includes("Too Many Requests") ||
+                          errorMessage.includes("RESOURCE_EXHAUSTED");
       
       if (isRateLimit) {
         console.warn(`Rate Limit hit on attempt ${attempt + 1}. Switching keys...`);

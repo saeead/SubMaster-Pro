@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Download, X, Palette, Type, LayoutTemplate } from 'lucide-react';
 import { VttStyleConfig } from '../types';
@@ -49,11 +50,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
     onConfirm(format, { ...styles, useStyles });
   };
 
-  // Convert hex to rgba for background preview if needed, 
-  // but for VTT strictly we pass what is in the config.
-  // The user input for color is usually hex. 
-  // Background color input is hex, we might need opacity.
-  
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onClose}></div>
@@ -100,15 +96,39 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
           {/* VTT Styling Options */}
           {format === 'vtt' && (
             <div className="space-y-6 animate-in slide-in-from-top-2">
-               <div className="flex items-center gap-3">
-                  <div className={`w-10 h-6 rounded-full p-1 cursor-pointer transition-colors ${useStyles ? 'bg-[#ff00ea]' : 'bg-white/10'}`} onClick={() => setUseStyles(!useStyles)}>
-                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${useStyles ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                  </div>
-                  <span className="text-white font-medium">فعال‌سازی تنظیمات ظاهری</span>
-               </div>
+               
+               {/* Improved Toggle Switch UI */}
+               <div 
+                    onClick={() => setUseStyles(!useStyles)}
+                    className={`
+                        flex items-center justify-between p-4 rounded-xl border transition-all cursor-pointer select-none group
+                        ${useStyles 
+                            ? 'bg-[#ff00ea]/10 border-[#ff00ea]/50 shadow-[0_0_15px_rgba(255,0,234,0.1)]' 
+                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/30'
+                        }
+                    `}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg transition-colors ${useStyles ? 'bg-[#ff00ea] text-white' : 'bg-white/10 text-white/50'}`}>
+                            <Palette className="w-5 h-5" />
+                        </div>
+                        <div className="flex flex-col">
+                            <span className={`text-sm font-bold transition-colors ${useStyles ? 'text-white' : 'text-white/70'}`}>
+                                تنظیمات ظاهری (Styles)
+                            </span>
+                            <span className="text-xs text-white/40">
+                                تغییر رنگ، فونت و سایز زیرنویس
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className={`relative w-12 h-7 rounded-full transition-colors duration-300 ${useStyles ? 'bg-[#ff00ea]' : 'bg-[#0a0e27] border border-white/20'}`}>
+                        <div className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-lg transform transition-transform duration-300 ${useStyles ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </div>
+                </div>
 
                {useStyles && (
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-4">
                     {/* Controls */}
                     <div className="space-y-5">
                        
