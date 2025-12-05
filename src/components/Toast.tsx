@@ -1,3 +1,5 @@
+
+
 import React, { useEffect } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 
@@ -8,7 +10,8 @@ interface ToastProps {
 
 export const Toast: React.FC<ToastProps> = ({ message, onClose }) => {
   useEffect(() => {
-    const timer = setTimeout(onClose, 5000);
+    // Increased duration to 12s to allow reading detailed error messages
+    const timer = setTimeout(onClose, 12000);
     return () => clearTimeout(timer);
   }, [onClose]);
 

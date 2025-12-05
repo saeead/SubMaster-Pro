@@ -20,6 +20,56 @@ const responseSchema: Schema = {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
+ * Transforms raw API errors into user-friendly Persian messages with actionable advice.
+ */
+const getFriendlyErrorMessage = (error: any, modelName: string): string => {
+  const msg = error.message || error.toString();
+
+  // 400 Bad Request
+  if (msg.includes('400') || msg.includes('INVALID_ARGUMENT')) {
+    return 'خطای درخواست (400): اطلاعات ارسالی به هوش مصنوعی نامعتبر است. این ممکن است به دلیل فرمت نامناسب فایل یا کاراکترهای خاص باشد.';
+  }
+
+  // 401 Unauthorized / Invalid API Key
+  if (msg.includes('401') || msg.includes('API key not valid') || msg.includes('UNAUTHENTICATED')) {
+    return 'خطای احراز هویت (401): کلید API وارد شده نامعتبر یا منقضی شده است. لطفاً به بخش تنظیمات بروید و کلید خود را بررسی کنید.';
+  }
+  
+  // 403 Permission Denied
+  if (msg.includes('403') || msg.includes('permission denied') || msg.includes('PERMISSION_DENIED')) {
+    return 'خطای دسترسی (403): کلید API شما اجازه استفاده از این مدل را ندارد. اگر از کلید رایگان استفاده می‌کنید، ممکن است منطقه (Region) شما تحریم شده باشد. لطفاً از نرم‌افزار تغییر IP معتبر استفاده کنید یا پروژه جدیدی در گوگل کنسول بسازید.';
+  }
+
+  // 404 Not Found (Model Name Error)
+  if (msg.includes('404') || msg.includes('not found') || msg.includes('NOT_FOUND')) {
+    return `خطای مدل (404): مدل انتخاب شده "${modelName}" یافت نشد. این مدل ممکن است منقضی شده باشد یا برای کلید شما فعال نباشد. لطفاً در تنظیمات، مدل را تغییر دهید (مثلاً از Professional به Standard یا برعکس).`;
+  }
+
+  // 429 Rate Limit
+  if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+    return 'محدودیت تعداد درخواست (429): سهمیه استفاده از کلید API تمام شده است. لطفاً کلیدهای بیشتری اضافه کنید، چند دقیقه صبر کنید، یا از مدل Standard استفاده کنید.';
+  }
+
+  // 5xx Server Errors
+  if (msg.includes('500') || msg.includes('503') || msg.includes('internal') || msg.includes('UNAVAILABLE')) {
+    return 'خطای سرور گوگل (503): سرویس هوش مصنوعی موقتاً در دسترس نیست. لطفاً چند دقیقه دیگر تلاش کنید.';
+  }
+  
+  // Safety Filters
+  if (msg.includes('safety') || msg.includes('blocked') || msg.includes('finishReason')) {
+    return 'خطای محتوا: ترجمه توسط فیلترهای ایمنی گوگل مسدود شد. ممکن است بخشی از متن شامل محتوای حساس باشد که هوش مصنوعی از ترجمه آن خودداری می‌کند.';
+  }
+
+  // Network / Fetch Errors
+  if (msg.includes('fetch failed') || msg.includes('NetworkError') || msg.includes('Load failed')) {
+    return 'خطای شبکه: امکان برقراری ارتباط با سرور گوگل وجود ندارد. لطفاً اتصال اینترنت خود را بررسی کنید و حتماً از نرم‌افزار تغییر IP (فیلترشکن) استفاده نمایید.';
+  }
+
+  // Fallback
+  return `خطای ناشناخته در ارتباط با هوش مصنوعی: ${msg.substring(0, 150)}...`;
+};
+
+/**
  * Validates a specific API Key by making a lightweight call
  */
 export const validateAPIConnection = async (apiKey: string): Promise<boolean> => {
@@ -67,9 +117,6 @@ class APIKeyManager {
         this.keys.push({ key: k.key, isRateLimited: false, source: 'USER' });
       }
     });
-
-    // Note: System Key (process.env.API_KEY) support has been removed.
-    // The application relies strictly on user-provided keys.
   }
 
   public getActiveKey(): string {
@@ -209,7 +256,8 @@ export const translateBatch = async (
       }
 
       if (attempt >= maxRetries * 2) { // Hard stop
-        throw error;
+        // Use the friendly error generator to throw a helpful message to the UI
+        throw new Error(getFriendlyErrorMessage(error, modelName));
       }
 
       // Exponential Backoff

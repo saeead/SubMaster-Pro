@@ -269,9 +269,11 @@ const App: React.FC = () => {
         // Delay between batches to be nice to API
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
 
-      } catch (err) {
+      } catch (err: any) {
         console.error("Batch processing error:", err);
-        setErrorMsg(`خطا در پردازش بخش ${chunk.id + 1}. لطفاً اتصال اینترنت خود و کلیدهای API را بررسی کنید.`);
+        // Use the friendly message from the service if available
+        const msg = err.message || `خطا در پردازش بخش ${chunk.id + 1}.`;
+        setErrorMsg(msg);
         setStatus(AppStatus.ERROR);
         return;
       }
