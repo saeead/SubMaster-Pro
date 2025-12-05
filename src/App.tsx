@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -8,11 +10,12 @@ import { StatsCard } from './components/StatsCard';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { SettingsModal } from './components/SettingsModal';
 import { TimingModal } from './components/TimingModal';
-import { ExportModal } from './components/ExportModal'; // New Import
-import { Toast } from './components/Toast';
+import { ExportModal } from './components/ExportModal'; 
+import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
+import { getFromMemory, addToMemory } from './services/translationMemory';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, APP_CONFIG } from './constants';
 import { Loader2 } from 'lucide-react';
 
@@ -27,11 +30,13 @@ const App: React.FC = () => {
   const [originalType, setOriginalType] = useState<'SRT' | 'VTT'>('SRT');
   const [processedCount, setProcessedCount] = useState<number>(0);
   const [progressMessage, setProgressMessage] = useState<string>('');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+  // Toast States
+  const [toast, setToast] = useState<{msg: string, type: ToastType} | null>(null);
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false); // New State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false); 
   const [netflixErrors, setNetflixErrors] = useState<NetflixError[]>([]);
   
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -42,11 +47,12 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     tone: 'conversational',
     topic: 'educational',
-    outputFormat: 'vtt', // Default output format set to VTT
+    outputFormat: 'vtt', 
     outputStandard: 'normal',
     model: 'standard',
     customPrompt: '',
-    apiKeys: [] // Initialize empty array for user keys
+    apiKeys: [],
+    enableTranslationMemory: true 
   });
 
   const statusRef = useRef<AppStatus>(AppStatus.IDLE);
@@ -61,10 +67,9 @@ const App: React.FC = () => {
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
-        // Ensure apiKeys exists in loaded settings (migration support)
         if (!parsed.apiKeys) parsed.apiKeys = [];
-        // Ensure outputStandard exists
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
+        if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         setSettings(prev => ({ ...prev, ...parsed }));
       } catch (error) {
         console.error('Failed to load settings from local storage:', error);
@@ -77,25 +82,18 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Easter Egg: Check for "Upgrade Version"
   const checkForUpgrade = (input: string) => {
     if (input.toLowerCase().includes('upgrade version')) {
        let currentVersion = APP_CONFIG.version;
-       // Handle "1.05" -> "1.06" or "1.0.5" -> "1.0.6"
        const parts = currentVersion.split('.');
-       
        if (parts.length >= 2) {
-         // Increment the last part
          const lastIndex = parts.length - 1;
          const lastPart = parseInt(parts[lastIndex]);
-         
          if (!isNaN(lastPart)) {
-             parts[lastIndex] = (lastPart + 1).toString().padStart(parts[lastIndex].length, '0'); // Keep padding if present "05" -> "06"
+             parts[lastIndex] = (lastPart + 1).toString().padStart(parts[lastIndex].length, '0');
              const newVersion = parts.join('.');
              APP_CONFIG.version = newVersion;
              localStorage.setItem(VERSION_STORAGE_KEY, newVersion);
-             
-             console.log(`System upgraded to v${newVersion}`);
              alert(`System upgraded to v${newVersion} [Simulated]`);
          }
        }
@@ -103,7 +101,6 @@ const App: React.FC = () => {
   };
 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
-    // Check easter egg in customPrompt
     if (newSettings.customPrompt) {
         checkForUpgrade(newSettings.customPrompt);
     }
@@ -114,26 +111,27 @@ const App: React.FC = () => {
     });
   };
 
+  const showToast = (msg: string, type: ToastType = 'error') => {
+    setToast({ msg, type });
+  };
+
   const handleFileLoad = (loadedBlocks: SubtitleBlock[], name: string, type: 'SRT' | 'VTT', size: number) => {
     setBlocks(loadedBlocks);
     setFilename(name);
     setFileSize(size);
     setOriginalType(type);
     
-    // Auto-selection of output format removed. 
-    // We now stick to the user's preference (or default 'vtt') regardless of input type.
-    
     setStatus(AppStatus.READY);
     setProcessedCount(0);
     setProgressMessage('');
-    setErrorMsg(null);
+    setToast(null);
     setProcessingDuration(null);
     setCompletionToast(false);
     setNetflixErrors([]);
   };
 
   const handleFileError = (msg: string) => {
-    setErrorMsg(msg);
+    showToast(msg, 'error');
   };
 
   const resetProject = () => {
@@ -142,7 +140,7 @@ const App: React.FC = () => {
     setFilename('');
     setFileSize(0);
     setProcessedCount(0);
-    setErrorMsg(null);
+    setToast(null);
     setProgressMessage('');
     setProcessingDuration(null);
     setStartTime(null);
@@ -152,12 +150,15 @@ const App: React.FC = () => {
 
   const updateBlock = (id: number, text: string) => {
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, translatedText: text } : b));
+    
+    // Optional: If user manually edits a block, should we update memory?
+    // Let's decide NOT to auto-update memory on manual edit to prevent polluting memory with context-specific edits,
+    // unless we add an explicit "Save to Memory" button later.
   };
 
   const handleTimingAdjustment = (config: AdjustmentConfig) => {
     const updatedBlocks = adjustBlockTiming(blocks, config);
     setBlocks(updatedBlocks);
-    // Clear netflix errors as they might be stale now
     setNetflixErrors([]);
   };
 
@@ -165,8 +166,7 @@ const App: React.FC = () => {
     const errors = validateNetflixStandards(blocks);
     setNetflixErrors(errors);
     if (errors.length === 0) {
-       setErrorMsg("هیچ خطایی مطابق استاندارد نتفلیکس یافت نشد (تبریک!).");
-       setTimeout(() => setErrorMsg(null), 3000); // Auto clear
+       showToast("هیچ خطایی مطابق استاندارد نتفلیکس یافت نشد.", 'success');
     }
   };
 
@@ -174,27 +174,22 @@ const App: React.FC = () => {
     const fixedBlocks = fixNetflixStandards(blocks);
     setBlocks(fixedBlocks);
     
-    // Re-validate to check if anything remains
     const errors = validateNetflixStandards(fixedBlocks);
     setNetflixErrors(errors);
     
     if (errors.length === 0) {
-        setErrorMsg("تمامی خطاها با موفقیت برطرف شدند!");
-        setTimeout(() => setErrorMsg(null), 3000);
+        showToast("تمامی خطاها با موفقیت برطرف شدند!", 'success');
     } else {
-        setErrorMsg(`اصلاح خودکار انجام شد. ${errors.length} مورد باقی مانده است که نیاز به بررسی دستی دارد.`);
+        showToast(`اصلاح خودکار انجام شد. ${errors.length} مورد باقی مانده است.`, 'warning');
     }
   };
 
-  // Triggered by StatsCard button
   const handleOpenExportModal = () => {
     setIsExportModalOpen(true);
   };
 
-  // Triggered by ExportModal confirmation
   const handleConfirmDownload = (format: 'srt' | 'vtt', styles?: VttStyleConfig) => {
     const outputName = filename.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
-    // Generate file with optional styles
     const content = generateSubtitleFile(blocks, format, styles);
     downloadFile(outputName, content);
     setIsExportModalOpen(false);
@@ -213,27 +208,52 @@ const App: React.FC = () => {
   const processChunks = async () => {
     const allBlocks = blocksRef.current;
     
-    // Step 1: Chunking
     setProgressMessage('در حال تقسیم‌بندی فایل...');
-    await new Promise(r => setTimeout(r, 100)); // UI update delay
+    await new Promise(r => setTimeout(r, 100)); 
     const chunks = smartChunking(allBlocks, BATCH_SIZE);
     
     let completed = 0;
     const totalChunks = chunks.length;
 
+    // Callback to handle API Key Rotation Updates
+    const onKeyRateLimit = (failedKey: string) => {
+        showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
+        setSettings(prev => ({
+            ...prev,
+            apiKeys: prev.apiKeys.map(k => k.key === failedKey ? { ...k, isRateLimited: true } : k)
+        }));
+    };
+
     for (let i = 0; i < totalChunks; i++) {
       if (statusRef.current !== AppStatus.TRANSLATING) break;
       const chunk = chunks[i];
 
-      // UI Update
       setProgressMessage(`پردازش بخش ${i + 1} از ${totalChunks}...`);
 
-      // Identify Context vs Target
       const preContextBlocks = chunk.blocks.slice(0, chunk.targetStartIndex);
       const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
       const postContextBlocks = chunk.blocks.slice(chunk.targetEndIndex);
 
-      // Filter only untranslated blocks for the target batch
+      // --- TRANSLATION MEMORY LOGIC ---
+      let cachedCount = 0;
+      if (settings.enableTranslationMemory) {
+        targetBlocks.forEach(block => {
+          if (!block.translatedText) {
+            const cached = getFromMemory(block.originalText);
+            if (cached) {
+              block.translatedText = cached;
+              cachedCount++;
+            }
+          }
+        });
+
+        // Update UI immediately if we found cached items
+        if (cachedCount > 0) {
+          setBlocks(prev => [...prev]); // Trigger re-render with updated block references
+        }
+      }
+
+      // Filter out blocks that already have a translation (either from Memory or manual)
       const effectiveTarget = targetBlocks.filter(b => !b.translatedText);
       
       if (effectiveTarget.length === 0) {
@@ -242,22 +262,28 @@ const App: React.FC = () => {
         continue;
       }
 
-      // Prepare request payloads
       const targetRequest: BatchRequest[] = effectiveTarget.map(b => ({ id: b.id, text: b.originalText }));
+      
+      // Context should include the just-cached items to keep context flow valid
       const preContextReq: BatchRequest[] = preContextBlocks.map(b => ({ id: b.id, text: `${b.originalText} (Persian: ${b.translatedText || 'N/A'})` }));
       const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
       try {
-        const results = await translateBatch(targetRequest, preContextReq, postContextReq, settings);
+        const results = await translateBatch(targetRequest, preContextReq, postContextReq, settings, onKeyRateLimit);
 
-        // Update state with results
         setBlocks(prev => {
           const newBlocks = [...prev];
           results.forEach(res => {
+            const formattedText = formatPersianSubtitle(res.translatedText);
             const idx = newBlocks.findIndex(b => b.id === res.id);
             if (idx !== -1) {
-              // Apply formatting Logic here
-              newBlocks[idx].translatedText = formatPersianSubtitle(res.translatedText);
+              const block = newBlocks[idx];
+              block.translatedText = formattedText;
+              
+              // Save to Translation Memory
+              if (settings.enableTranslationMemory) {
+                 addToMemory(block.originalText, formattedText);
+              }
             }
           });
           return newBlocks;
@@ -266,14 +292,12 @@ const App: React.FC = () => {
         completed += targetBlocks.length;
         setProcessedCount(completed);
 
-        // Delay between batches to be nice to API
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
 
       } catch (err: any) {
         console.error("Batch processing error:", err);
-        // Use the friendly message from the service if available
         const msg = err.message || `خطا در پردازش بخش ${chunk.id + 1}.`;
-        setErrorMsg(msg);
+        showToast(msg, 'error');
         setStatus(AppStatus.ERROR);
         return;
       }
@@ -281,22 +305,19 @@ const App: React.FC = () => {
 
     if (statusRef.current === AppStatus.TRANSLATING) {
       
-      // NEW: Apply Netflix Standards if enabled
       if (settings.outputStandard === 'netflix') {
          setProgressMessage('بهینه‌سازی برای استاندارد Netflix...');
-         await new Promise(r => setTimeout(r, 800)); // Visual delay
+         await new Promise(r => setTimeout(r, 800)); 
          
-         const currentBlocks = blocksRef.current; // Get latest state
+         const currentBlocks = blocksRef.current; 
          const fixedBlocks = fixNetflixStandards(currentBlocks);
          setBlocks(fixedBlocks);
          blocksRef.current = fixedBlocks; 
          
-         // Update error state to match new reality (should be clean)
          const errors = validateNetflixStandards(fixedBlocks);
          setNetflixErrors(errors);
       }
 
-      // Step 5: Final Validation
       setProgressMessage('اعتبارسنجی نهایی...');
       await new Promise(r => setTimeout(r, 500));
 
@@ -304,14 +325,12 @@ const App: React.FC = () => {
       const missingCount = finalBlocks.filter(b => !b.translatedText).length;
 
       if (missingCount > 0) {
-        console.warn(`${missingCount} blocks were skipped or failed.`);
-        setErrorMsg(`توجه: ${missingCount} خط ترجمه نشده باقی ماند.`);
+        showToast(`توجه: ${missingCount} خط ترجمه نشده باقی ماند.`, 'warning');
       } else {
          setProgressMessage('تکمیل شد!');
          setCompletionToast(true);
       }
       
-      // Calculate duration
       if (startTime) {
         const duration = Date.now() - startTime;
         setProcessingDuration(formatDuration(duration));
@@ -322,20 +341,27 @@ const App: React.FC = () => {
   };
 
   const startTranslation = () => {
-    // Check if we have any valid keys (user only)
-    const hasUserKeys = settings.apiKeys.some(k => k.isValid);
-    if (!hasUserKeys) {
-      setErrorMsg("هیچ کلید API معتبری یافت نشد. لطفاً در تنظیمات کلید شخصی اضافه کنید.");
+    const hasAvailableKeys = settings.apiKeys.some(k => k.isValid && !k.isRateLimited);
+    
+    if (settings.apiKeys.length === 0) {
+      showToast("هیچ کلید API تعریف نشده است. لطفاً در تنظیمات کلید شخصی اضافه کنید.", 'error');
       setIsSettingsOpen(true);
       return;
+    }
+    
+    if (!hasAvailableKeys) {
+        setSettings(prev => ({
+            ...prev,
+            apiKeys: prev.apiKeys.map(k => ({...k, isRateLimited: false}))
+        }));
     }
 
     setStartTime(Date.now());
     setStatus(AppStatus.TRANSLATING);
-    setErrorMsg(null);
+    setToast(null);
     setProcessingDuration(null);
     setCompletionToast(false);
-    // Start the async processing loop
+    
     setTimeout(() => {
         processChunks();
     }, 100);
@@ -378,7 +404,6 @@ const App: React.FC = () => {
                              مترجم هوشمند با قابلیت تشخیص لحن و موضوع. فایل خود را آپلود کنید و از نتیجه حرفه‌ای لذت ببرید.
                         </p>
                     </div>
-                    {/* Passed outputStandard to FileUpload to enable pre-translation optimization */}
                     <FileUpload 
                         onLoad={handleFileLoad} 
                         onError={handleFileError} 
@@ -396,7 +421,7 @@ const App: React.FC = () => {
                         onStart={startTranslation}
                         onPause={pauseTranslation}
                         onCancel={cancelTranslation}
-                        onDownload={handleOpenExportModal} // Changed from handleDownload to open modal
+                        onDownload={handleOpenExportModal} 
                         onNewProject={resetProject}
                         onOpenTimingTools={() => setIsTimingModalOpen(true)}
                         currentFileName={filename}
@@ -407,7 +432,6 @@ const App: React.FC = () => {
                         onFixErrors={handleFixNetflixErrors}
                     />
 
-                    {/* Custom Prompt Area */}
                     <div className="mb-6 glass p-4 rounded-xl border border-white/10">
                          <textarea 
                             value={settings.customPrompt}
@@ -445,7 +469,6 @@ const App: React.FC = () => {
         onNetflixCheck={handleNetflixCheck}
       />
 
-      {/* New Export Modal */}
       <ExportModal 
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
@@ -466,9 +489,13 @@ const App: React.FC = () => {
             </div>
         )}
 
-        {/* Global Error Toast */}
-        {errorMsg && (
-            <Toast message={errorMsg} onClose={() => setErrorMsg(null)} />
+        {/* Global Toast System */}
+        {toast && (
+            <Toast 
+                message={toast.msg} 
+                type={toast.type} 
+                onClose={() => setToast(null)} 
+            />
         )}
         
         {/* Completion Toast */}

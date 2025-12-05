@@ -1,7 +1,9 @@
+
 import React, { useState } from 'react';
-import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft } from 'lucide-react';
 import { AppSettings, UserAPIKey } from '../types';
 import { validateAPIConnection } from '../services/geminiService';
+import { getMemorySize, clearMemory } from '../services/translationMemory';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -15,6 +17,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [memSize, setMemSize] = useState(getMemorySize());
 
   if (!isOpen) return null;
 
@@ -25,9 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     setValidationError(null);
     setSuccessMessage(null);
 
-    // Split input by newlines, commas, or spaces to support bulk paste
     const rawKeys = newKeyInput.split(/[\n\r, ]+/);
-    // Explicitly type uniqueCandidates as string[] to ensure keyStr is typed correctly in map
     const uniqueCandidates: string[] = Array.from(new Set(rawKeys.map(k => k.trim()).filter(k => k.length > 0)));
 
     if (uniqueCandidates.length === 0) {
@@ -39,9 +40,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     let duplicateCount = 0;
     let invalidCount = 0;
 
-    // Process validations concurrently
     await Promise.all(uniqueCandidates.map(async (keyStr) => {
-        // Check local duplicates
         if (settings.apiKeys.some(k => k.key === keyStr)) {
             duplicateCount++;
             return;
@@ -54,7 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 isValid: true,
                 isRateLimited: false,
                 addedAt: Date.now(),
-                label: `Personal Key` // Will update index after sorting/adding
+                label: `Personal Key`
             });
         } else {
             invalidCount++;
@@ -90,12 +89,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     updateSettings({ apiKeys: settings.apiKeys.filter(k => k.key !== keyToRemove) });
   };
 
+  const handleClearMemory = () => {
+      if (confirm('آیا از پاک کردن تمام حافظه ترجمه اطمینان دارید؟')) {
+          clearMemory();
+          setMemSize(0);
+      }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
       
-      {/* Modal Content */}
       <div className="relative w-full max-w-lg glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
         <div className="p-6 overflow-y-auto custom-scrollbar">
           <div className="flex justify-between items-center mb-6">
@@ -110,7 +114,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
           <div className="space-y-8">
             
-            {/* API Key Management Section */}
+            {/* Translation Memory */}
+            <div className="space-y-4">
+                <h3 className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
+                    <Database className="w-4 h-4" />
+                    حافظه ترجمه (Translation Memory)
+                </h3>
+                
+                <div 
+                    onClick={() => updateSettings({ enableTranslationMemory: !settings.enableTranslationMemory })}
+                    className={`
+                        cursor-pointer flex items-center justify-between p-4 rounded-xl border transition-all
+                        ${settings.enableTranslationMemory ? 'bg-[#00f0ff]/10 border-[#00f0ff] shadow-[0_0_15px_rgba(0,240,255,0.15)]' : 'bg-white/5 border-white/10 hover:bg-white/10'}
+                    `}
+                >
+                    <div className="flex flex-col">
+                        <span className="text-white font-medium text-sm">استفاده از حافظه ترجمه</span>
+                        <span className="text-xs text-white/50 mt-1">
+                            ذخیره و استفاده مجدد از جملات تکراری برای افزایش سرعت و کاهش هزینه. ({memSize} جمله ذخیره شده)
+                        </span>
+                    </div>
+                    <div className={`transition-colors ${settings.enableTranslationMemory ? 'text-[#00f0ff]' : 'text-white/30'}`}>
+                        {settings.enableTranslationMemory ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8" />}
+                    </div>
+                </div>
+                
+                {settings.enableTranslationMemory && memSize > 0 && (
+                    <button 
+                        onClick={handleClearMemory}
+                        className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-2 py-1 rounded hover:bg-red-500/10 transition-colors"
+                    >
+                        <Trash2 className="w-3 h-3" />
+                        پاکسازی حافظه
+                    </button>
+                )}
+            </div>
+
+            {/* API Key Management */}
             <div className="space-y-4">
               <h3 className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
                 <Key className="w-4 h-4" />
@@ -119,15 +159,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               
               <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-4">
                 <p className="text-xs text-white/60 leading-relaxed">
-                  کلیدهای API خود را وارد کنید. می‌توانید چندین کلید را به صورت همزمان (هر کدام در یک خط) وارد کنید. سیستم به صورت خودکار اعتبار آن‌ها را بررسی کرده و در صورت بروز محدودیت، بین آن‌ها جابجا می‌شود.
+                  کلیدهای API خود را وارد کنید. می‌توانید چندین کلید را به صورت همزمان وارد کنید.
                 </p>
 
-                {/* Bulk Input Area */}
                 <div className="flex flex-col gap-2">
                   <textarea 
                     value={newKeyInput}
                     onChange={(e) => { setNewKeyInput(e.target.value); setValidationError(null); setSuccessMessage(null); }}
-                    placeholder="کلیدهای API را اینجا وارد کنید (هر کلید در یک خط)..."
+                    placeholder="کلیدهای API را اینجا وارد کنید..."
                     className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:border-[#00f0ff] focus:outline-none min-h-[100px] resize-y custom-scrollbar font-mono leading-6"
                   />
                   <button 
@@ -136,7 +175,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                     className="w-full bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isValidating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-                    <span>{isValidating ? 'در حال بررسی اعتبار کلیدها...' : 'افزودن کلیدها'}</span>
+                    <span>{isValidating ? 'در حال بررسی...' : 'افزودن کلیدها'}</span>
                   </button>
                 </div>
                 
@@ -154,7 +193,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   </p>
                 )}
 
-                {/* Key List */}
                 <div className="space-y-2 mt-4 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
                   {settings.apiKeys.map((k, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 bg-[#0a0e27] rounded-lg border border-white/10 group hover:border-white/20 transition-all">
@@ -178,12 +216,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       </button>
                     </div>
                   ))}
-                  
-                  {settings.apiKeys.length === 0 && (
-                     <div className="text-center py-4 text-xs text-red-400/80 bg-red-500/5 rounded-lg border border-red-500/10">
-                        ⚠️ هیچ کلید API تعریف نشده است. لطفا حداقل یک کلید وارد کنید.
-                     </div>
-                  )}
                 </div>
               </div>
             </div>

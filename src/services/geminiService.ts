@@ -47,7 +47,7 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
 
   // 429 Rate Limit
   if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
-    return 'محدودیت تعداد درخواست (429): سهمیه استفاده از کلید API تمام شده است. لطفاً کلیدهای بیشتری اضافه کنید، چند دقیقه صبر کنید، یا از مدل Standard استفاده کنید.';
+    return 'پایان اعتبار تمام کلیدها (429): تمامی کلیدهای API وارد شده به سقف مجاز (Quota) رسیده‌اند. لطفاً کلیدهای جدید اضافه کنید یا فردا مجدداً تلاش نمایید.';
   }
 
   // 5xx Server Errors
@@ -114,46 +114,34 @@ class APIKeyManager {
     // 1. Add Valid User Keys
     userKeys.forEach(k => {
       if (k.isValid) {
-        this.keys.push({ key: k.key, isRateLimited: false, source: 'USER' });
+        this.keys.push({ key: k.key, isRateLimited: k.isRateLimited, source: 'USER' });
       }
     });
   }
 
   public getActiveKey(): string {
-    if (this.keys.length === 0) {
-      throw new Error("No valid API Keys available. Please add a valid API Key in settings.");
-    }
-
     // Find the first key that is NOT rate limited
-    // We try starting from currentIndex to rotate load, but if that's limited, we search others
-    for (let i = 0; i < this.keys.length; i++) {
-      const ptr = (this.currentIndex + i) % this.keys.length;
-      if (!this.keys[ptr].isRateLimited) {
-        this.currentIndex = ptr;
-        return this.keys[ptr].key;
+    const availableKeyIndex = this.keys.findIndex(k => !k.isRateLimited);
+    
+    if (availableKeyIndex === -1) {
+      if (this.keys.length === 0) {
+          throw new Error("No valid API Keys available.");
       }
+      throw new Error("429: All API Keys are Rate Limited.");
     }
-
-    // If all are rate limited, return the current one and hope for the best (or we could wait)
-    console.warn("All API keys are marked as Rate Limited. Retrying with current key...");
+    
+    this.currentIndex = availableKeyIndex;
     return this.keys[this.currentIndex].key;
   }
 
   public markCurrentAsRateLimited() {
     if (this.keys.length > 0) {
-      console.warn(`Key ending in ...${this.keys[this.currentIndex].key.slice(-4)} marked as Rate Limited. Switching...`);
       this.keys[this.currentIndex].isRateLimited = true;
-      // Move to next
-      this.currentIndex = (this.currentIndex + 1) % this.keys.length;
     }
   }
 
   public hasAvailableKeys(): boolean {
     return this.keys.some(k => !k.isRateLimited);
-  }
-
-  public resetRateLimits() {
-    this.keys.forEach(k => k.isRateLimited = false);
   }
 }
 
@@ -164,7 +152,8 @@ export const translateBatch = async (
   targetBatch: BatchRequest[],
   contextPre: BatchRequest[],
   contextPost: BatchRequest[],
-  settings: AppSettings
+  settings: AppSettings,
+  onKeyRateLimit?: (key: string) => void
 ): Promise<BatchResponse[]> => {
   let attempt = 0;
   const { maxRetries, baseDelay } = APP_CONFIG.retryConfig;
@@ -176,9 +165,15 @@ export const translateBatch = async (
   // Initialize Key Manager for this batch process session
   const keyManager = new APIKeyManager(settings.apiKeys);
 
-  while (attempt < maxRetries * 2) { // Allow more attempts because of key switching
+  // We loop more than maxRetries to allow for key switching
+  // Total attempts = standard retries + number of keys to try
+  const totalAllowedAttempts = maxRetries + settings.apiKeys.length;
+
+  while (attempt < totalAllowedAttempts) {
+    let currentApiKey = '';
+    
     try {
-      const currentApiKey = keyManager.getActiveKey();
+      currentApiKey = keyManager.getActiveKey();
       const ai = new GoogleGenAI({ apiKey: currentApiKey });
 
       // Construct User Prompt with JSON Data
@@ -240,31 +235,45 @@ export const translateBatch = async (
 
     } catch (error: any) {
       const errorMessage = error.message || error.toString();
+      
       const isRateLimit = errorMessage.includes("429") || 
                           errorMessage.includes("quota") || 
                           errorMessage.includes("Too Many Requests") ||
                           errorMessage.includes("RESOURCE_EXHAUSTED");
       
       if (isRateLimit) {
-        console.warn(`Rate Limit hit on attempt ${attempt + 1}. Switching keys...`);
+        console.warn(`Rate Limit hit for key ending ...${currentApiKey.slice(-4)}. Switching...`);
+        
+        // 1. Mark strictly in local manager
         keyManager.markCurrentAsRateLimited();
-        // Do NOT increment 'attempt' significantly if we just switched keys, 
-        // give the new key a fair chance.
+        
+        // 2. Notify the UI to update global state and show warning toast
+        if (onKeyRateLimit && currentApiKey) {
+            onKeyRateLimit(currentApiKey);
+        }
+
+        // Do NOT increment 'attempt' counter for key switches, 
+        // essentially resetting the retry count for the new key.
+        // However, we need to ensure we don't loop forever if all keys fail.
+        if (!keyManager.hasAvailableKeys()) {
+             // If we ran out of keys completely, throw the final error
+             throw new Error(getFriendlyErrorMessage(new Error("429 RESOURCE_EXHAUSTED"), modelName));
+        }
+        
+        // Short delay before switching to next key
+        await delay(500); 
+
       } else {
-        console.warn(`Translation Attempt ${attempt + 1} failed (Non-RateLimit):`, error);
+        // Non-RateLimit Error (Network, Server 500, Parse Error)
+        console.warn(`Translation Attempt ${attempt + 1} failed:`, error);
         attempt++;
+        
+        // Exponential Backoff
+        const waitTime = baseDelay * Math.pow(1.5, attempt);
+        await delay(waitTime);
       }
-
-      if (attempt >= maxRetries * 2) { // Hard stop
-        // Use the friendly error generator to throw a helpful message to the UI
-        throw new Error(getFriendlyErrorMessage(error, modelName));
-      }
-
-      // Exponential Backoff
-      const waitTime = baseDelay * Math.pow(1.5, attempt); // Slower backoff
-      await delay(waitTime);
     }
   }
 
-  throw new Error("Failed to process batch after retries and key rotation.");
+  throw new Error("Failed to process batch after multiple retries and key rotation.");
 };

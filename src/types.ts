@@ -57,6 +57,7 @@ export interface AppSettings {
   model: ModelType;
   customPrompt: string;
   apiKeys: UserAPIKey[];
+  enableTranslationMemory: boolean;
 }
 
 // --- NEW TYPES FOR TIMING & QC ---
