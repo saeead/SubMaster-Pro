@@ -1,4 +1,5 @@
 
+
 import React, { useRef, useState } from 'react';
 import { Upload, AlertCircle } from 'lucide-react';
 import { parseSRT, parseVTT, optimizeSubtitleBlocks } from '../services/subtitleUtils';
@@ -9,9 +10,10 @@ interface FileUploadProps {
   onLoad: (blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number) => void;
   status: AppStatus;
   onError: (msg: string) => void;
+  outputStandard: 'normal' | 'netflix';
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError, outputStandard }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -59,8 +61,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError 
       }
 
       // 3. Optimization (Merge short lines, fix timing)
-      // This is the critical step to ensure "Complete Sentences" for the AI
-      const optimizedBlocks = optimizeSubtitleBlocks(blocks);
+      // Pass the selected standard (Normal vs Netflix) to control merging behavior
+      const optimizedBlocks = optimizeSubtitleBlocks(blocks, outputStandard);
 
       onLoad(optimizedBlocks, file.name, type, file.size);
     } catch (err) {
@@ -133,7 +135,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError 
             <span>|</span>
             <span>Max 100MB</span>
             <span>|</span>
-            <span className="text-[#00f0ff]">Optimized</span>
+            <span className={`${outputStandard === 'netflix' ? 'text-[#E50914]' : 'text-[#00f0ff]'}`}>
+                {outputStandard === 'netflix' ? 'Netflix Optimized' : 'Standard Optimized'}
+            </span>
           </div>
         </div>
       </div>

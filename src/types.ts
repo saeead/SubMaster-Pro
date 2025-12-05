@@ -1,4 +1,5 @@
 
+
 export interface SubtitleBlock {
   id: number;
   startTime: string;
@@ -15,7 +16,8 @@ export enum AppStatus {
   TRANSLATING = 'TRANSLATING',
   PAUSED = 'PAUSED',
   COMPLETED = 'COMPLETED',
-  ERROR = 'ERROR'
+  ERROR = 'ERROR',
+  CANCELLED = 'CANCELLED'
 }
 
 export interface TranslationStats {
@@ -51,7 +53,35 @@ export interface AppSettings {
   tone: ToneType;
   topic: TopicType;
   outputFormat: 'srt' | 'vtt';
+  outputStandard: 'normal' | 'netflix';
   model: ModelType;
   customPrompt: string;
   apiKeys: UserAPIKey[];
+}
+
+// --- NEW TYPES FOR TIMING & QC ---
+
+export type AdjustmentMode = 'seconds' | 'percent' | 'recalculate' | 'fixed';
+
+export interface AdjustmentConfig {
+  mode: AdjustmentMode;
+  value: number; // Seconds (e.g. +/- 0.5), Percent (e.g. 110), or Fixed Seconds
+  target: 'start' | 'end' | 'both' | 'shift'; // Shift moves both, others resize
+}
+
+export interface NetflixError {
+  blockId: number;
+  types: ('cps' | 'min_duration' | 'max_duration' | 'max_lines' | 'max_chars' | 'gap')[];
+  message: string;
+}
+
+// --- NEW TYPES FOR VTT STYLING ---
+
+export interface VttStyleConfig {
+  useStyles: boolean;
+  fontFamily: string;
+  fontSize: string; // e.g., "100%", "1.2em"
+  color: string; // hex
+  backgroundColor: string; // hex or rgba
+  textShadow: string;
 }

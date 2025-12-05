@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -6,9 +7,11 @@ import { FileUpload } from './components/FileUpload';
 import { StatsCard } from './components/StatsCard';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { SettingsModal } from './components/SettingsModal';
+import { TimingModal } from './components/TimingModal';
+import { ExportModal } from './components/ExportModal'; // New Import
 import { Toast } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings } from './types';
-import { generateSubtitleFile, downloadFile, smartChunking } from './services/subtitleUtils';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig } from './types';
+import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, APP_CONFIG } from './constants';
 import { Loader2 } from 'lucide-react';
@@ -25,7 +28,12 @@ const App: React.FC = () => {
   const [processedCount, setProcessedCount] = useState<number>(0);
   const [progressMessage, setProgressMessage] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false); // New State
+  const [netflixErrors, setNetflixErrors] = useState<NetflixError[]>([]);
+  
   const [startTime, setStartTime] = useState<number | null>(null);
   const [processingDuration, setProcessingDuration] = useState<string | null>(null);
   const [completionToast, setCompletionToast] = useState<boolean>(false);
@@ -35,6 +43,7 @@ const App: React.FC = () => {
     tone: 'conversational',
     topic: 'educational',
     outputFormat: 'vtt', // Default output format set to VTT
+    outputStandard: 'normal',
     model: 'standard',
     customPrompt: '',
     apiKeys: [] // Initialize empty array for user keys
@@ -54,6 +63,8 @@ const App: React.FC = () => {
         const parsed = JSON.parse(savedSettings);
         // Ensure apiKeys exists in loaded settings (migration support)
         if (!parsed.apiKeys) parsed.apiKeys = [];
+        // Ensure outputStandard exists
+        if (!parsed.outputStandard) parsed.outputStandard = 'normal';
         setSettings(prev => ({ ...prev, ...parsed }));
       } catch (error) {
         console.error('Failed to load settings from local storage:', error);
@@ -118,6 +129,7 @@ const App: React.FC = () => {
     setErrorMsg(null);
     setProcessingDuration(null);
     setCompletionToast(false);
+    setNetflixErrors([]);
   };
 
   const handleFileError = (msg: string) => {
@@ -135,17 +147,57 @@ const App: React.FC = () => {
     setProcessingDuration(null);
     setStartTime(null);
     setCompletionToast(false);
+    setNetflixErrors([]);
   };
 
   const updateBlock = (id: number, text: string) => {
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, translatedText: text } : b));
   };
 
-  const handleDownload = () => {
-    const targetExt = settings.outputFormat;
-    const outputName = filename.replace(/\.(srt|vtt)$/i, `_fa.${targetExt}`);
-    const content = generateSubtitleFile(blocks, targetExt);
+  const handleTimingAdjustment = (config: AdjustmentConfig) => {
+    const updatedBlocks = adjustBlockTiming(blocks, config);
+    setBlocks(updatedBlocks);
+    // Clear netflix errors as they might be stale now
+    setNetflixErrors([]);
+  };
+
+  const handleNetflixCheck = () => {
+    const errors = validateNetflixStandards(blocks);
+    setNetflixErrors(errors);
+    if (errors.length === 0) {
+       setErrorMsg("هیچ خطایی مطابق استاندارد نتفلیکس یافت نشد (تبریک!).");
+       setTimeout(() => setErrorMsg(null), 3000); // Auto clear
+    }
+  };
+
+  const handleFixNetflixErrors = () => {
+    const fixedBlocks = fixNetflixStandards(blocks);
+    setBlocks(fixedBlocks);
+    
+    // Re-validate to check if anything remains
+    const errors = validateNetflixStandards(fixedBlocks);
+    setNetflixErrors(errors);
+    
+    if (errors.length === 0) {
+        setErrorMsg("تمامی خطاها با موفقیت برطرف شدند!");
+        setTimeout(() => setErrorMsg(null), 3000);
+    } else {
+        setErrorMsg(`اصلاح خودکار انجام شد. ${errors.length} مورد باقی مانده است که نیاز به بررسی دستی دارد.`);
+    }
+  };
+
+  // Triggered by StatsCard button
+  const handleOpenExportModal = () => {
+    setIsExportModalOpen(true);
+  };
+
+  // Triggered by ExportModal confirmation
+  const handleConfirmDownload = (format: 'srt' | 'vtt', styles?: VttStyleConfig) => {
+    const outputName = filename.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
+    // Generate file with optional styles
+    const content = generateSubtitleFile(blocks, format, styles);
     downloadFile(outputName, content);
+    setIsExportModalOpen(false);
   };
 
   const formatDuration = (ms: number): string => {
@@ -204,7 +256,8 @@ const App: React.FC = () => {
           results.forEach(res => {
             const idx = newBlocks.findIndex(b => b.id === res.id);
             if (idx !== -1) {
-              newBlocks[idx].translatedText = res.translatedText;
+              // Apply formatting Logic here
+              newBlocks[idx].translatedText = formatPersianSubtitle(res.translatedText);
             }
           });
           return newBlocks;
@@ -225,6 +278,22 @@ const App: React.FC = () => {
     }
 
     if (statusRef.current === AppStatus.TRANSLATING) {
+      
+      // NEW: Apply Netflix Standards if enabled
+      if (settings.outputStandard === 'netflix') {
+         setProgressMessage('بهینه‌سازی برای استاندارد Netflix...');
+         await new Promise(r => setTimeout(r, 800)); // Visual delay
+         
+         const currentBlocks = blocksRef.current; // Get latest state
+         const fixedBlocks = fixNetflixStandards(currentBlocks);
+         setBlocks(fixedBlocks);
+         blocksRef.current = fixedBlocks; 
+         
+         // Update error state to match new reality (should be clean)
+         const errors = validateNetflixStandards(fixedBlocks);
+         setNetflixErrors(errors);
+      }
+
       // Step 5: Final Validation
       setProgressMessage('اعتبارسنجی نهایی...');
       await new Promise(r => setTimeout(r, 500));
@@ -275,6 +344,12 @@ const App: React.FC = () => {
     setProgressMessage('متوقف شده');
   };
 
+  const cancelTranslation = () => {
+    setStatus(AppStatus.CANCELLED);
+    setProgressMessage('پروژه لغو شد');
+    setProcessingDuration(null);
+  };
+
   return (
     <div className="flex flex-col md:flex-row min-h-screen">
       
@@ -301,7 +376,13 @@ const App: React.FC = () => {
                              مترجم هوشمند با قابلیت تشخیص لحن و موضوع. فایل خود را آپلود کنید و از نتیجه حرفه‌ای لذت ببرید.
                         </p>
                     </div>
-                    <FileUpload onLoad={handleFileLoad} onError={handleFileError} status={status} />
+                    {/* Passed outputStandard to FileUpload to enable pre-translation optimization */}
+                    <FileUpload 
+                        onLoad={handleFileLoad} 
+                        onError={handleFileError} 
+                        status={status} 
+                        outputStandard={settings.outputStandard} 
+                    />
                 </div>
             )}
 
@@ -312,12 +393,16 @@ const App: React.FC = () => {
                         blocks={blocks}
                         onStart={startTranslation}
                         onPause={pauseTranslation}
-                        onDownload={handleDownload}
+                        onCancel={cancelTranslation}
+                        onDownload={handleOpenExportModal} // Changed from handleDownload to open modal
                         onNewProject={resetProject}
+                        onOpenTimingTools={() => setIsTimingModalOpen(true)}
                         currentFileName={filename}
                         fileSize={fileSize}
                         progressMessage={progressMessage}
                         processingDuration={processingDuration}
+                        validationErrors={netflixErrors}
+                        onFixErrors={handleFixNetflixErrors}
                     />
 
                     {/* Custom Prompt Area */}
@@ -330,7 +415,11 @@ const App: React.FC = () => {
                          />
                     </div>
                     
-                    <SubtitleEditor blocks={blocks} onUpdateBlock={updateBlock} />
+                    <SubtitleEditor 
+                        blocks={blocks} 
+                        onUpdateBlock={updateBlock} 
+                        validationErrors={netflixErrors}
+                    />
                 </>
             )}
         </main>
@@ -345,6 +434,21 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         updateSettings={updateSettings}
+      />
+
+      <TimingModal 
+        isOpen={isTimingModalOpen}
+        onClose={() => setIsTimingModalOpen(false)}
+        onApply={handleTimingAdjustment}
+        onNetflixCheck={handleNetflixCheck}
+      />
+
+      {/* New Export Modal */}
+      <ExportModal 
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onConfirm={handleConfirmDownload}
+        defaultFormat={settings.outputFormat}
       />
 
        {status === AppStatus.TRANSLATING && (

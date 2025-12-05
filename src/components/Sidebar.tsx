@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Settings, Check, FileText } from 'lucide-react';
 import { AppSettings, ToneType, TopicType } from '../types';
@@ -70,6 +71,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
             className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputFormat === 'srt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
           >
             SRT
+          </button>
+        </div>
+      </div>
+
+      {/* Output Standard */}
+      <div className="space-y-3">
+        <label className="text-sm text-white/70 font-semibold tracking-wide uppercase">استاندارد خروجی</label>
+        <div className="flex bg-[#0a0e27]/50 p-1 rounded-xl border border-white/10">
+          <button 
+            onClick={() => updateSettings({ outputStandard: 'normal' })}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputStandard === 'normal' ? 'bg-white/10 text-white shadow' : 'text-white/50 hover:text-white'}`}
+          >
+            Normal
+          </button>
+          <button 
+            onClick={() => updateSettings({ outputStandard: 'netflix' })}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914] text-white shadow-[0_0_10px_rgba(229,9,20,0.4)]' : 'text-white/50 hover:text-white'}`}
+          >
+            Netflix
           </button>
         </div>
       </div>

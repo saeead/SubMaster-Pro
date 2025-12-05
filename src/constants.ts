@@ -1,8 +1,9 @@
 
+
 import { ToneType, TopicType } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.05",
+  version: "1.07",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB
@@ -19,12 +20,24 @@ export const APP_CONFIG = {
 
 // Configuration for Smart Block Merging
 export const OPTIMIZATION_CONFIG = {
-  MAX_MERGE_CHARACTERS: 120, // Increased to accommodate word limits
-  MIN_WORDS_PER_BLOCK: 12,   // Target minimum words
-  MAX_WORDS_PER_BLOCK: 24,   // Absolute maximum words
-  MAX_MERGE_GAP_MS: 1200,    // Max gap allowed to merge (scene change detection)
-  STANDARD_GAP_MS: 50,       // Standard gap between blocks
-  MS_PER_WORD: 350,          // Target duration per word for readability
+  // Normal Mode Defaults
+  NORMAL: {
+    MAX_MERGE_CHARACTERS: 120, 
+    MIN_WORDS_PER_BLOCK: 12,   
+    MAX_WORDS_PER_BLOCK: 24,   
+    MAX_MERGE_GAP_MS: 1200,    
+    STANDARD_GAP_MS: 50,       
+    MS_PER_WORD: 350,          
+  },
+  // Netflix Strict Mode
+  NETFLIX: {
+    MAX_MERGE_CHARACTERS: 85,  // ~42 chars * 2 lines constraint
+    MIN_WORDS_PER_BLOCK: 5,    // Allow shorter blocks to maintain timing precision
+    MAX_WORDS_PER_BLOCK: 18,   // Restrict max words to prevent overflow
+    MAX_MERGE_GAP_MS: 1000,
+    STANDARD_GAP_MS: 84,       // Minimum 2 frames gap (approx 84ms)
+    MS_PER_WORD: 300,          // Faster reading assumption, but constrained by CPS
+  }
 };
 
 export const BATCH_SIZE = 50;
@@ -66,6 +79,16 @@ const SYSTEM_PROMPTS = {
 ]
 
 ⚠️ هشدار: فقط JSON برگردانید.`,
+
+  netflix: `
+--- استانداردهای سخت‌گیرانه NETFLIX (بسیار مهم) ---
+شما در حالت "Netflix Standard" هستید. خروجی باید دقیقاً با قوانین زیر مطابقت داشته باشد:
+1. **خلاصه‌نویسی هوشمند:** اگر ترجمه تحت‌اللفظی طولانی می‌شود، باید مفهوم را خلاصه کنید تا کوتاه‌تر شود.
+2. **محدودیت طول:** هر خط ترجمه باید نهایتاً 42 کاراکتر باشد.
+3. **محدودیت خطوط:** کل متن یک بلاک نباید از 2 خط تجاوز کند.
+4. **تراکم:** از واژگان کوتاه‌تر و ساختارهای فشرده‌تر استفاده کنید.
+5. **اولویت:** اولویت اول رعایت محدودیت طول و زمان است، سپس دقت ترجمه کلمه به کلمه.
+`,
 
   tones: {
     conversational: `لحن ترجمه: محاوره‌ای و دوستانه
@@ -126,16 +149,20 @@ const SYSTEM_PROMPTS = {
   }
 };
 
-export const getSystemInstruction = (tone: ToneType, topic: TopicType, customPrompt: string) => {
+export const getSystemInstruction = (tone: ToneType, topic: TopicType, customPrompt: string, outputStandard: 'normal' | 'netflix') => {
   let prompt = SYSTEM_PROMPTS.base + '\n\n';
   
+  // Inject Netflix instructions if enabled
+  if (outputStandard === 'netflix') {
+    prompt += SYSTEM_PROMPTS.netflix + '\n\n';
+  }
+
   // Add Tone specific prompt
   if (SYSTEM_PROMPTS.tones[tone]) {
     prompt += `--- ${SYSTEM_PROMPTS.tones[tone]} ---\n\n`;
   }
 
   // Add Topic specific prompt
-  // Handle 'podcast' key collision manually since it exists in both Tone and Topic options
   if (topic === 'podcast') {
      prompt += `--- ${SYSTEM_PROMPTS.topics.podcast} ---\n\n`;
   } else if (SYSTEM_PROMPTS.topics[topic]) {
