@@ -1,16 +1,17 @@
 
 import React, { useState } from 'react';
-import { X, Clock, Calculator, Percent, MoveRight, Sliders, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { X, Clock, Calculator, Percent, MoveRight, Sliders, CheckCircle2, ShieldAlert, Layers, FileText } from 'lucide-react';
 import { AdjustmentConfig, AdjustmentMode } from '../types';
 
 interface TimingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onApply: (config: AdjustmentConfig) => void;
+  onApply: (config: AdjustmentConfig, scope: 'current' | 'all') => void;
   onNetflixCheck: () => void;
+  hasMultipleFiles: boolean;
 }
 
-export const TimingModal: React.FC<TimingModalProps> = ({ isOpen, onClose, onApply, onNetflixCheck }) => {
+export const TimingModal: React.FC<TimingModalProps> = ({ isOpen, onClose, onApply, onNetflixCheck, hasMultipleFiles }) => {
   const [activeTab, setActiveTab] = useState<'adjust' | 'netflix'>('adjust');
   const [mode, setMode] = useState<AdjustmentMode>('seconds');
   
@@ -24,7 +25,7 @@ export const TimingModal: React.FC<TimingModalProps> = ({ isOpen, onClose, onApp
 
   if (!isOpen) return null;
 
-  const handleApply = () => {
+  const handleApply = (scope: 'current' | 'all') => {
     let val = 0;
     if (mode === 'seconds') val = secondsVal;
     else if (mode === 'percent') val = percentVal;
@@ -35,7 +36,7 @@ export const TimingModal: React.FC<TimingModalProps> = ({ isOpen, onClose, onApp
       mode,
       value: val,
       target: mode === 'seconds' ? targetSide : 'end' // Default others to extend end
-    });
+    }, scope);
     onClose();
   };
 
@@ -163,13 +164,26 @@ export const TimingModal: React.FC<TimingModalProps> = ({ isOpen, onClose, onApp
                   )}
                </div>
 
-               <button 
-                  onClick={handleApply}
-                  className="w-full py-3 bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
-               >
-                  <CheckCircle2 className="w-5 h-5" />
-                  اعمال تغییرات
-               </button>
+               {/* Action Buttons */}
+               <div className="flex flex-col gap-2">
+                   <button 
+                      onClick={() => handleApply('current')}
+                      className={`w-full py-3 bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2`}
+                   >
+                      {hasMultipleFiles ? <FileText className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                      {hasMultipleFiles ? 'اعمال به فایل جاری' : 'اعمال تغییرات'}
+                   </button>
+                   
+                   {hasMultipleFiles && (
+                       <button 
+                          onClick={() => handleApply('all')}
+                          className="w-full py-3 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-[#ff00ea] border border-[#ff00ea]/20 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                       >
+                          <Layers className="w-5 h-5" />
+                          اعمال به همه فایل‌ها
+                       </button>
+                   )}
+               </div>
             </div>
           )}
 

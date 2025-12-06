@@ -20,6 +20,22 @@ export enum AppStatus {
   CANCELLED = 'CANCELLED'
 }
 
+// New Interface for Multi-File Support
+export interface SubtitleFile {
+  id: string; // Unique UUID
+  name: string;
+  size: number;
+  type: 'SRT' | 'VTT';
+  originalType: 'SRT' | 'VTT';
+  blocks: SubtitleBlock[];
+  status: AppStatus;
+  progress: number;
+  progressMessage?: string;
+  processingDuration?: string | null;
+  netflixErrors?: NetflixError[];
+  processedCount: number;
+}
+
 export interface TranslationStats {
   totalBlocks: number;
   translatedBlocks: number;

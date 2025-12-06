@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SubMaster Pro | مترجم هوشمند زیرنویس</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/misc/Farsi-digits/font-face.css" rel="stylesheet" type="text/css" />
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
+    
     <style>
       :root {
         --glass-bg: rgba(255, 255, 255, 0.05);
@@ -30,6 +34,7 @@
         font-family: 'Montserrat', sans-serif;
       }
       
+      /* Glassmorphism Utilities */
       .glass {
         background: var(--glass-bg);
         backdrop-filter: blur(12px);
@@ -38,20 +43,35 @@
         box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
       }
       
-      ::-webkit-scrollbar { width: 8px; height: 8px; }
-      ::-webkit-scrollbar-track { background: rgba(10, 14, 39, 0.5); }
-      ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+      /* Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(10, 14, 39, 0.5);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
 
+      /* Animations */
       @keyframes pulse-neon {
         0%, 100% { box-shadow: 0 0 10px var(--neon-primary); }
         50% { box-shadow: 0 0 20px var(--neon-primary), 0 0 10px var(--neon-secondary); }
       }
-      .animate-pulse-neon { animation: pulse-neon 2s infinite; }
+      .animate-pulse-neon {
+        animation: pulse-neon 2s infinite;
+      }
     </style>
-  </head>
+<link rel="stylesheet" href="/index.css">
+</head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/index.tsx"></script>
-  </body>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>

@@ -1,13 +1,13 @@
 
 
 import React, { useRef, useState } from 'react';
-import { Upload, AlertCircle } from 'lucide-react';
+import { Upload, AlertCircle, Copy } from 'lucide-react';
 import { parseSRT, parseVTT, optimizeSubtitleBlocks } from '../services/subtitleUtils';
 import { SubtitleBlock, AppStatus } from '../types';
 import { APP_CONFIG } from '../constants';
 
 interface FileUploadProps {
-  onLoad: (blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number) => void;
+  onLoad: (files: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number }[]) => void;
   status: AppStatus;
   onError: (msg: string) => void;
   outputStandard: 'normal' | 'netflix';
@@ -17,56 +17,71 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const validateFile = (file: File): string[] => {
+  const validateFiles = (files: FileList): string[] => {
     const errors: string[] = [];
     
-    // Size Check
-    if (file.size > APP_CONFIG.maxFileSize) {
-      errors.push(`حجم فایل بیش از ${APP_CONFIG.maxFileSize / 1024 / 1024}MB است`);
+    if (files.length > APP_CONFIG.maxFilesPerUpload) {
+        errors.push(`حداکثر ${APP_CONFIG.maxFilesPerUpload} فایل به صورت همزمان قابل آپلود است.`);
+        return errors;
     }
-    
-    // Format Check
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!ext || !APP_CONFIG.supportedFormats.includes(ext)) {
-      errors.push(`فرمت ${ext || 'ناشناخته'} پشتیبانی نمی‌شود`);
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > APP_CONFIG.maxFileSize) {
+            errors.push(`فایل "${file.name}" بیش از حد مجاز است (Max 100MB)`);
+        }
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        if (!ext || !APP_CONFIG.supportedFormats.includes(ext)) {
+            errors.push(`فرمت فایل "${file.name}" پشتیبانی نمی‌شود`);
+        }
     }
     
     return errors;
   };
 
-  const processFile = async (file: File) => {
-    // 1. Validation
-    const validationErrors = validateFile(file);
+  const processFiles = async (files: FileList) => {
+    const validationErrors = validateFiles(files);
     if (validationErrors.length > 0) {
       onError(validationErrors.join(' | '));
       return;
     }
 
-    try {
-      const text = await file.text();
-      let blocks: SubtitleBlock[] = [];
-      const extension = file.name.split('.').pop()?.toLowerCase();
-      const type = extension === 'srt' ? 'SRT' : 'VTT';
+    const processedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number }[] = [];
 
-      // 2. Parsing
-      if (type === 'SRT') {
-        blocks = parseSRT(text);
-      } else {
-        blocks = parseVTT(text);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const text = await file.text();
+        let blocks: SubtitleBlock[] = [];
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        const type = extension === 'srt' ? 'SRT' : 'VTT';
+
+        if (type === 'SRT') {
+          blocks = parseSRT(text);
+        } else {
+          blocks = parseVTT(text);
+        }
+
+        if (blocks.length > 0) {
+            // Optimization (Merge short lines, fix timing)
+            const optimizedBlocks = optimizeSubtitleBlocks(blocks, outputStandard);
+            processedFiles.push({
+                blocks: optimizedBlocks,
+                filename: file.name,
+                type: type,
+                size: file.size
+            });
+        }
       }
 
-      if (blocks.length === 0) {
-        onError('فایل انتخاب شده خالی است یا ساختار معتبری ندارد.');
+      if (processedFiles.length === 0) {
+        onError('هیچ فایل معتبری یافت نشد.');
         return;
       }
 
-      // 3. Optimization (Merge short lines, fix timing)
-      // Pass the selected standard (Normal vs Netflix) to control merging behavior
-      const optimizedBlocks = optimizeSubtitleBlocks(blocks, outputStandard);
-
-      onLoad(optimizedBlocks, file.name, type, file.size);
+      onLoad(processedFiles);
     } catch (err) {
-      onError('خطا در خواندن و پردازش فایل.');
+      onError('خطا در پردازش فایل‌ها.');
       console.error(err);
     }
   };
@@ -84,13 +99,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+      processFiles(e.dataTransfer.files);
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      processFile(e.target.files[0]);
+      processFiles(e.target.files);
     }
   };
 
@@ -117,6 +132,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
           onChange={handleChange} 
           className="hidden" 
           accept=".srt,.vtt"
+          multiple
         />
         
         {/* Glow Effect */}
@@ -124,16 +140,19 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
 
         <div className="relative z-10 flex flex-col items-center justify-center space-y-6">
           <div className={`p-6 rounded-2xl transition-all duration-300 ${isDragging ? 'bg-[#00f0ff] shadow-[0_0_30px_rgba(0,240,255,0.4)]' : 'bg-[#0a0e27] border border-white/10 group-hover:border-[#00f0ff]/50 group-hover:shadow-[0_0_20px_rgba(0,240,255,0.2)]'}`}>
-            <Upload className={`w-10 h-10 ${isDragging ? 'text-[#0a0e27]' : 'text-[#00f0ff]'}`} />
+            <div className="relative">
+                 <Upload className={`w-10 h-10 ${isDragging ? 'text-[#0a0e27]' : 'text-[#00f0ff]'}`} />
+                 <Copy className={`absolute -right-2 -bottom-2 w-5 h-5 ${isDragging ? 'text-[#0a0e27]/70' : 'text-[#ff00ea]'}`} />
+            </div>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-white mb-2">فایل را بکشید و رها کنید</h3>
-            <p className="text-white/50">یا برای انتخاب فایل کلیک کنید</p>
+            <h3 className="text-2xl font-bold text-white mb-2">فایل‌ها را بکشید و رها کنید</h3>
+            <p className="text-white/50">پشتیبانی از آپلود همزمان تا {APP_CONFIG.maxFilesPerUpload} فایل</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-white/30 bg-white/5 px-3 py-1 rounded-full border border-white/5">
             <span className="uppercase">srt, vtt</span>
             <span>|</span>
-            <span>Max 100MB</span>
+            <span>Batch Supported</span>
             <span>|</span>
             <span className={`${outputStandard === 'netflix' ? 'text-[#E50914]' : 'text-[#00f0ff]'}`}>
                 {outputStandard === 'netflix' ? 'Netflix Optimized' : 'Standard Optimized'}

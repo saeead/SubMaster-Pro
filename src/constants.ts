@@ -3,10 +3,11 @@
 import { ToneType, TopicType, GlossaryItem } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.12",
+  version: "1.15",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB
+  maxFilesPerUpload: 10,
   supportedFormats: ['srt', 'vtt'],
   geminiModels: {
     standard: 'gemini-2.5-pro',
@@ -43,6 +44,7 @@ export const OPTIMIZATION_CONFIG = {
 export const BATCH_SIZE = 50;
 export const OVERLAP_SIZE = 2;
 export const DELAY_BETWEEN_BATCHES_MS = 1000;
+export const DELAY_BETWEEN_FILES_MS = 60000; // 1 Minute
 
 export const TONE_OPTIONS: Record<ToneType, string> = {
   conversational: 'محاوره‌ای (Casual)',

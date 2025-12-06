@@ -1,5 +1,8 @@
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { FileUpload } from './components/FileUpload';
@@ -10,36 +13,28 @@ import { TimingModal } from './components/TimingModal';
 import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig, GlossaryItem } from './types';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig, GlossaryItem, SubtitleFile } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
-import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, APP_CONFIG } from './constants';
-import { Loader2 } from 'lucide-react';
+import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG } from './constants';
+import { Loader2, File, Check, X as XIcon } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
 
 const App: React.FC = () => {
-  const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
-  const [blocks, setBlocks] = useState<SubtitleBlock[]>([]);
-  const [filename, setFilename] = useState<string>('');
-  const [fileSize, setFileSize] = useState<number>(0);
-  const [originalType, setOriginalType] = useState<'SRT' | 'VTT'>('SRT');
-  const [processedCount, setProcessedCount] = useState<number>(0);
-  const [progressMessage, setProgressMessage] = useState<string>('');
+  // --- STATE ---
+  const [files, setFiles] = useState<SubtitleFile[]>([]);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
   
-  // Toast States
   const [toast, setToast] = useState<{msg: string, type: ToastType} | null>(null);
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isGlossaryModalOpen, setIsGlossaryModalOpen] = useState(false);
-  const [netflixErrors, setNetflixErrors] = useState<NetflixError[]>([]);
   
-  const [startTime, setStartTime] = useState<number | null>(null);
-  const [processingDuration, setProcessingDuration] = useState<string | null>(null);
   const [completionToast, setCompletionToast] = useState<boolean>(false);
 
   // Settings State
@@ -55,11 +50,10 @@ const App: React.FC = () => {
     glossary: []
   });
 
-  const statusRef = useRef<AppStatus>(AppStatus.IDLE);
-  const blocksRef = useRef<SubtitleBlock[]>([]);
+  const filesRef = useRef<SubtitleFile[]>([]);
+  const isTranslatingRef = useRef<boolean>(false);
 
-  useEffect(() => { statusRef.current = status; }, [status]);
-  useEffect(() => { blocksRef.current = blocks; }, [blocks]);
+  useEffect(() => { filesRef.current = files; }, [files]);
 
   // Load settings and version from localStorage on mount
   useEffect(() => {
@@ -120,19 +114,27 @@ const App: React.FC = () => {
     setToast({ msg, type });
   };
 
-  const handleFileLoad = (loadedBlocks: SubtitleBlock[], name: string, type: 'SRT' | 'VTT', size: number) => {
-    setBlocks(loadedBlocks);
-    setFilename(name);
-    setFileSize(size);
-    setOriginalType(type);
-    
-    setStatus(AppStatus.READY);
-    setProcessedCount(0);
-    setProgressMessage('');
+  // --- FILE MANAGEMENT ---
+
+  const handleFilesLoaded = (loadedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number }[]) => {
+    const newFiles: SubtitleFile[] = loadedFiles.map(f => ({
+      id: crypto.randomUUID(),
+      name: f.filename,
+      size: f.size,
+      type: f.type,
+      originalType: f.type,
+      blocks: f.blocks,
+      status: AppStatus.READY,
+      progress: 0,
+      processedCount: 0,
+      netflixErrors: []
+    }));
+
+    setFiles(prev => [...prev, ...newFiles]);
+    if (activeFileId === null && newFiles.length > 0) {
+      setActiveFileId(newFiles[0].id);
+    }
     setToast(null);
-    setProcessingDuration(null);
-    setCompletionToast(false);
-    setNetflixErrors([]);
   };
 
   const handleFileError = (msg: string) => {
@@ -140,237 +142,297 @@ const App: React.FC = () => {
   };
 
   const resetProject = () => {
-    setStatus(AppStatus.IDLE);
-    setBlocks([]);
-    setFilename('');
-    setFileSize(0);
-    setProcessedCount(0);
+    // If multiple files, confirm before clearing? 
+    // For now, reset everything.
+    setFiles([]);
+    setActiveFileId(null);
     setToast(null);
-    setProgressMessage('');
-    setProcessingDuration(null);
-    setStartTime(null);
     setCompletionToast(false);
-    setNetflixErrors([]);
+    isTranslatingRef.current = false;
   };
 
-  const updateBlock = (id: number, text: string) => {
-    setBlocks(prev => prev.map(b => b.id === id ? { ...b, translatedText: text } : b));
+  const updateBlock = (fileId: string, blockId: number, text: string) => {
+    setFiles(prev => prev.map(f => {
+      if (f.id === fileId) {
+        return {
+          ...f,
+          blocks: f.blocks.map(b => b.id === blockId ? { ...b, translatedText: text } : b)
+        };
+      }
+      return f;
+    }));
   };
 
-  const handleFindReplace = (find: string, replace: string) => {
+  const getActiveFile = () => {
+    return files.find(f => f.id === activeFileId) || files[0];
+  };
+
+  const getActiveFileIndex = () => {
+    return files.findIndex(f => f.id === activeFileId);
+  }
+
+  // --- BATCH ACTION LOGIC ---
+
+  const handleFindReplace = (find: string, replace: string, scope: 'current' | 'all') => {
     if (!find) return;
     
-    let occurrences = 0;
-    const newBlocks = blocks.map(block => {
-      if (block.translatedText && block.translatedText.includes(find)) {
-        // Use global replacement
-        const newText = block.translatedText.replaceAll(find, replace);
-        
-        // Basic check to see if it actually changed to increment counter
-        if (newText !== block.translatedText) {
-          occurrences++;
-        }
-        return { ...block, translatedText: newText };
-      }
-      return block;
+    let totalOccurrences = 0;
+    
+    const targetFiles = scope === 'all' ? files : files.filter(f => f.id === activeFileId);
+
+    const updatedFiles = files.map(f => {
+       if (!targetFiles.find(tf => tf.id === f.id)) return f;
+
+       let fileOccurrences = 0;
+       const newBlocks = f.blocks.map(block => {
+         if (block.translatedText && block.translatedText.includes(find)) {
+            const newText = block.translatedText.replaceAll(find, replace);
+            if (newText !== block.translatedText) {
+                fileOccurrences++;
+            }
+            return { ...block, translatedText: newText };
+         }
+         return block;
+       });
+       totalOccurrences += fileOccurrences;
+       return { ...f, blocks: newBlocks };
     });
 
-    if (occurrences > 0) {
-      setBlocks(newBlocks);
-      showToast(`${occurrences} مورد با موفقیت جایگزین شد.`, 'success');
+    if (totalOccurrences > 0) {
+      setFiles(updatedFiles);
+      showToast(`${totalOccurrences} مورد در ${scope === 'all' ? 'همه فایل‌ها' : 'فایل جاری'} جایگزین شد.`, 'success');
     } else {
       showToast('موردی برای جایگزینی یافت نشد.', 'warning');
     }
   };
 
-  const handleTimingAdjustment = (config: AdjustmentConfig) => {
-    const updatedBlocks = adjustBlockTiming(blocks, config);
-    setBlocks(updatedBlocks);
-    setNetflixErrors([]);
+  const handleTimingAdjustment = (config: AdjustmentConfig, scope: 'current' | 'all') => {
+    if (!activeFileId && files.length === 0) return;
+
+    let updatedCount = 0;
+    
+    setFiles(prev => prev.map(f => {
+        const shouldUpdate = scope === 'all' || f.id === activeFileId;
+        
+        if (shouldUpdate) {
+            updatedCount++;
+            return {
+                ...f,
+                blocks: adjustBlockTiming(f.blocks, config),
+                netflixErrors: [] // Clear errors as timing changed
+            };
+        }
+        return f;
+    }));
+    
+    showToast(`تغییرات زمان‌بندی روی ${scope === 'all' ? 'همه فایل‌ها' : 'فایل جاری'} اعمال شد.`, 'success');
   };
 
   const handleNetflixCheck = () => {
-    const errors = validateNetflixStandards(blocks);
-    setNetflixErrors(errors);
+    if (!activeFileId) return;
+    const file = files.find(f => f.id === activeFileId);
+    if (!file) return;
+
+    const errors = validateNetflixStandards(file.blocks);
+    setFiles(prev => prev.map(f => f.id === file.id ? { ...f, netflixErrors: errors } : f));
+    
     if (errors.length === 0) {
        showToast("هیچ خطایی مطابق استاندارد نتفلیکس یافت نشد.", 'success');
     }
   };
 
   const handleFixNetflixErrors = () => {
-    const fixedBlocks = fixNetflixStandards(blocks);
-    setBlocks(fixedBlocks);
+    if (!activeFileId) return;
     
-    const errors = validateNetflixStandards(fixedBlocks);
-    setNetflixErrors(errors);
-    
-    if (errors.length === 0) {
+    // Fix active file logic
+    const file = files.find(f => f.id === activeFileId);
+    if (!file) return;
+
+    const fixedBlocks = fixNetflixStandards(file.blocks);
+    const remainingErrors = validateNetflixStandards(fixedBlocks);
+
+    setFiles(prev => prev.map(f => f.id === file.id ? { 
+        ...f, 
+        blocks: fixedBlocks, 
+        netflixErrors: remainingErrors 
+    } : f));
+
+    if (remainingErrors.length === 0) {
         showToast("تمامی خطاها با موفقیت برطرف شدند!", 'success');
     } else {
-        showToast(`اصلاح خودکار انجام شد. ${errors.length} مورد باقی مانده است.`, 'warning');
+        showToast(`اصلاح خودکار انجام شد. ${remainingErrors.length} مورد باقی مانده است.`, 'warning');
     }
   };
+
+  // --- EXPORT LOGIC ---
 
   const handleOpenExportModal = () => {
     setIsExportModalOpen(true);
   };
 
   const handleConfirmDownload = (format: 'srt' | 'vtt', styles?: VttStyleConfig) => {
-    const outputName = filename.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
-    const content = generateSubtitleFile(blocks, format, styles);
+    const file = getActiveFile();
+    if (!file) return;
+
+    const outputName = file.name.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
+    const content = generateSubtitleFile(file.blocks, format, styles);
     downloadFile(outputName, content);
     setIsExportModalOpen(false);
   };
 
-  const formatDuration = (ms: number): string => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    if (minutes > 0) {
-      return `${minutes} دقیقه و ${remainingSeconds} ثانیه`;
-    }
-    return `${seconds} ثانیه`;
+  const handleDownloadZip = async () => {
+      const zip = new JSZip();
+      
+      files.forEach(f => {
+         const format = settings.outputFormat;
+         const outputName = f.name.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
+         const content = generateSubtitleFile(f.blocks, format); // Default styles for bulk
+         zip.file(outputName, content);
+      });
+
+      const blob = await zip.generateAsync({type: "blob"});
+      const element = document.createElement('a');
+      element.href = URL.createObjectURL(blob);
+      element.download = "subtitles_batch.zip";
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
   };
 
-  const processChunks = async () => {
-    const allBlocks = blocksRef.current;
-    
-    setProgressMessage('در حال تقسیم‌بندی فایل...');
-    await new Promise(r => setTimeout(r, 100)); 
-    const chunks = smartChunking(allBlocks, BATCH_SIZE);
-    
-    let completed = 0;
-    const totalChunks = chunks.length;
+  // --- TRANSLATION LOGIC ---
 
-    // Callback to handle API Key Rotation Updates
-    const onKeyRateLimit = (failedKey: string) => {
+  const updateFileStatus = (id: string, updates: Partial<SubtitleFile>) => {
+      setFiles(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
+  };
+
+  const processFile = async (fileId: string) => {
+     const file = filesRef.current.find(f => f.id === fileId);
+     if (!file) return;
+
+     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progress: 0, progressMessage: 'در حال تقسیم‌بندی...' });
+     const startTime = Date.now();
+
+     const chunks = smartChunking(file.blocks, BATCH_SIZE);
+     let completed = 0;
+     const totalChunks = chunks.length;
+
+     // Callback to handle API Key Rotation Updates
+     const onKeyRateLimit = (failedKey: string) => {
         showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
         setSettings(prev => ({
             ...prev,
             apiKeys: prev.apiKeys.map(k => k.key === failedKey ? { ...k, isRateLimited: true } : k)
         }));
-    };
+     };
 
-    for (let i = 0; i < totalChunks; i++) {
-      if (statusRef.current !== AppStatus.TRANSLATING) break;
-      const chunk = chunks[i];
-
-      setProgressMessage(`پردازش بخش ${i + 1} از ${totalChunks}...`);
-
-      const preContextBlocks = chunk.blocks.slice(0, chunk.targetStartIndex);
-      const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
-      const postContextBlocks = chunk.blocks.slice(chunk.targetEndIndex);
-
-      // --- TRANSLATION MEMORY LOGIC ---
-      let cachedCount = 0;
-      if (settings.enableTranslationMemory) {
-        targetBlocks.forEach(block => {
-          if (!block.translatedText) {
-            const cached = getFromMemory(block.originalText);
-            if (cached) {
-              block.translatedText = cached;
-              cachedCount++;
-            }
-          }
-        });
-
-        // Update UI immediately if we found cached items
-        if (cachedCount > 0) {
-          setBlocks(prev => [...prev]); // Trigger re-render with updated block references
+     for (let i = 0; i < totalChunks; i++) {
+        // Check cancellation
+        if (!isTranslatingRef.current) {
+            updateFileStatus(fileId, { status: AppStatus.CANCELLED, progressMessage: 'لغو شده' });
+            return;
         }
-      }
 
-      // Filter out blocks that already have a translation (either from Memory or manual)
-      const effectiveTarget = targetBlocks.filter(b => !b.translatedText);
-      
-      if (effectiveTarget.length === 0) {
-        completed += targetBlocks.length;
-        setProcessedCount(completed);
-        continue;
-      }
+        const chunk = chunks[i];
+        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks}...` });
 
-      const targetRequest: BatchRequest[] = effectiveTarget.map(b => ({ id: b.id, text: b.originalText }));
-      
-      const preContextReq: BatchRequest[] = preContextBlocks.map(b => ({ id: b.id, text: `${b.originalText} (Persian: ${b.translatedText || 'N/A'})` }));
-      const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
+        const preContextBlocks = chunk.blocks.slice(0, chunk.targetStartIndex);
+        const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
+        const postContextBlocks = chunk.blocks.slice(chunk.targetEndIndex);
 
-      try {
-        const results = await translateBatch(targetRequest, preContextReq, postContextReq, settings, onKeyRateLimit);
-
-        setBlocks(prev => {
-          const newBlocks = [...prev];
-          results.forEach(res => {
-            const formattedText = formatPersianSubtitle(res.translatedText);
-            const idx = newBlocks.findIndex(b => b.id === res.id);
-            if (idx !== -1) {
-              const block = newBlocks[idx];
-              block.translatedText = formattedText;
-              
-              // Save to Translation Memory
-              if (settings.enableTranslationMemory) {
-                 addToMemory(block.originalText, formattedText);
-              }
+        // TM Logic
+        let cachedCount = 0;
+        if (settings.enableTranslationMemory) {
+            targetBlocks.forEach(block => {
+                if (!block.translatedText) {
+                    const cached = getFromMemory(block.originalText);
+                    if (cached) {
+                        block.translatedText = cached;
+                        cachedCount++;
+                    }
+                }
+            });
+            // Update UI
+            if (cachedCount > 0) {
+                setFiles(prev => prev.map(f => f.id === fileId ? { ...f } : f));
             }
-          });
-          return newBlocks;
-        });
+        }
+
+        const effectiveTarget = targetBlocks.filter(b => !b.translatedText);
+        
+        if (effectiveTarget.length > 0) {
+            const targetRequest: BatchRequest[] = effectiveTarget.map(b => ({ id: b.id, text: b.originalText }));
+            const preContextReq: BatchRequest[] = preContextBlocks.map(b => ({ id: b.id, text: `${b.originalText} (Persian: ${b.translatedText || 'N/A'})` }));
+            const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
+
+            try {
+                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settings, onKeyRateLimit);
+
+                // Update blocks in state
+                setFiles(prev => prev.map(f => {
+                    if (f.id === fileId) {
+                        const newBlocks = [...f.blocks];
+                        results.forEach(res => {
+                            const formattedText = formatPersianSubtitle(res.translatedText);
+                            const idx = newBlocks.findIndex(b => b.id === res.id);
+                            if (idx !== -1) {
+                                newBlocks[idx].translatedText = formattedText;
+                                if (settings.enableTranslationMemory) {
+                                    addToMemory(newBlocks[idx].originalText, formattedText);
+                                }
+                            }
+                        });
+                        return { ...f, blocks: newBlocks };
+                    }
+                    return f;
+                }));
+
+                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+
+            } catch (err: any) {
+                console.error("Batch processing error:", err);
+                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه' });
+                throw err;
+            }
+        }
 
         completed += targetBlocks.length;
-        setProcessedCount(completed);
+        const progress = (completed / file.blocks.length) * 100;
+        updateFileStatus(fileId, { progress, processedCount: completed });
+     }
 
-        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+     // Post-processing
+     let finalBlocks = filesRef.current.find(f => f.id === fileId)?.blocks || [];
+     
+     if (settings.outputStandard === 'netflix') {
+         updateFileStatus(fileId, { progressMessage: 'بهینه‌سازی Netflix...' });
+         await new Promise(r => setTimeout(r, 800));
+         finalBlocks = fixNetflixStandards(finalBlocks);
+         const errors = validateNetflixStandards(finalBlocks);
+         updateFileStatus(fileId, { blocks: finalBlocks, netflixErrors: errors });
+     } else {
+         // Even for normal mode, lets run validation just to show status
+         const errors = validateNetflixStandards(finalBlocks);
+         updateFileStatus(fileId, { netflixErrors: errors });
+     }
 
-      } catch (err: any) {
-        console.error("Batch processing error:", err);
-        const msg = err.message || `خطا در پردازش بخش ${chunk.id + 1}.`;
-        showToast(msg, 'error');
-        setStatus(AppStatus.ERROR);
-        return;
-      }
-    }
+     const duration = Date.now() - startTime;
+     const seconds = Math.floor(duration / 1000);
+     const minutes = Math.floor(seconds / 60);
+     const durationStr = minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 
-    if (statusRef.current === AppStatus.TRANSLATING) {
-      
-      if (settings.outputStandard === 'netflix') {
-         setProgressMessage('بهینه‌سازی برای استاندارد Netflix...');
-         await new Promise(r => setTimeout(r, 800)); 
-         
-         const currentBlocks = blocksRef.current; 
-         const fixedBlocks = fixNetflixStandards(currentBlocks);
-         setBlocks(fixedBlocks);
-         blocksRef.current = fixedBlocks; 
-         
-         const errors = validateNetflixStandards(fixedBlocks);
-         setNetflixErrors(errors);
-      }
-
-      setProgressMessage('اعتبارسنجی نهایی...');
-      await new Promise(r => setTimeout(r, 500));
-
-      const finalBlocks = blocksRef.current;
-      const missingCount = finalBlocks.filter(b => !b.translatedText).length;
-
-      if (missingCount > 0) {
-        showToast(`توجه: ${missingCount} خط ترجمه نشده باقی ماند.`, 'warning');
-      } else {
-         setProgressMessage('تکمیل شد!');
-         setCompletionToast(true);
-      }
-      
-      if (startTime) {
-        const duration = Date.now() - startTime;
-        setProcessingDuration(formatDuration(duration));
-      }
-
-      setStatus(AppStatus.COMPLETED);
-    }
+     updateFileStatus(fileId, { 
+         status: AppStatus.COMPLETED, 
+         progress: 100, 
+         progressMessage: 'تکمیل شد',
+         processingDuration: durationStr
+     });
   };
 
-  const startTranslation = () => {
+  const startBatchTranslation = async () => {
     const hasAvailableKeys = settings.apiKeys.some(k => k.isValid && !k.isRateLimited);
     
     if (settings.apiKeys.length === 0) {
-      showToast("هیچ کلید API تعریف نشده است. لطفاً در تنظیمات کلید شخصی اضافه کنید.", 'error');
+      showToast("هیچ کلید API تعریف نشده است.", 'error');
       setIsSettingsOpen(true);
       return;
     }
@@ -382,26 +444,65 @@ const App: React.FC = () => {
         }));
     }
 
-    setStartTime(Date.now());
-    setStatus(AppStatus.TRANSLATING);
-    setToast(null);
-    setProcessingDuration(null);
+    isTranslatingRef.current = true;
     setCompletionToast(false);
+
+    // Filter pending files
+    const pendingFiles = files.filter(f => f.status === AppStatus.READY || f.status === AppStatus.ERROR);
     
-    setTimeout(() => {
-        processChunks();
-    }, 100);
+    if (pendingFiles.length === 0) {
+        showToast('همه فایل‌ها قبلاً ترجمه شده‌اند.', 'warning');
+        return;
+    }
+
+    try {
+        for (let i = 0; i < pendingFiles.length; i++) {
+            if (!isTranslatingRef.current) break;
+            
+            const file = pendingFiles[i];
+            
+            // Switch tab to current file
+            setActiveFileId(file.id);
+
+            try {
+                await processFile(file.id);
+            } catch (e) {
+                console.error(`Failed to process file ${file.name}`, e);
+                // Continue to next file? Or stop? 
+                // Let's continue but maybe delay more
+            }
+
+            // Cooldown between files if there are more remaining
+            if (i < pendingFiles.length - 1 && isTranslatingRef.current) {
+                const waitTime = DELAY_BETWEEN_FILES_MS;
+                // Update next file status to waiting
+                const nextFileId = pendingFiles[i+1].id;
+                updateFileStatus(nextFileId, { progressMessage: `در انتظار نوبت (${Math.round(waitTime/1000)} ثانیه)...` });
+                
+                // Countdown visualization could be here, but simple delay for now
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+        }
+    } catch (e) {
+        console.error("Batch Loop Error", e);
+    } finally {
+        isTranslatingRef.current = false;
+        setCompletionToast(true);
+    }
   };
 
   const pauseTranslation = () => {
-    setStatus(AppStatus.PAUSED);
-    setProgressMessage('متوقف شده');
+    isTranslatingRef.current = false;
+    setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت' } : f));
   };
 
   const cancelTranslation = () => {
-    setStatus(AppStatus.CANCELLED);
-    setProgressMessage('پروژه لغو شد');
-    setProcessingDuration(null);
+    isTranslatingRef.current = false;
+    setFiles(prev => prev.map(f => 
+        (f.status === AppStatus.TRANSLATING || f.status === AppStatus.PAUSED) 
+        ? { ...f, status: AppStatus.CANCELLED, progressMessage: 'لغو شد' } 
+        : f
+    ));
   };
 
   return (
@@ -420,7 +521,7 @@ const App: React.FC = () => {
 
         <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-5xl mx-auto pb-24">
             
-            {status === AppStatus.IDLE && (
+            {files.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[60vh]">
                      <div className="text-center mb-10 space-y-4">
                         <h2 className="text-4xl md:text-5xl font-montserrat font-bold text-white leading-tight">
@@ -432,30 +533,51 @@ const App: React.FC = () => {
                         </p>
                     </div>
                     <FileUpload 
-                        onLoad={handleFileLoad} 
+                        onLoad={handleFilesLoaded} 
                         onError={handleFileError} 
-                        status={status} 
+                        status={AppStatus.IDLE} 
                         outputStandard={settings.outputStandard} 
                     />
                 </div>
-            )}
-
-            {status !== AppStatus.IDLE && (
+            ) : (
                 <>
+                    {/* File Tabs */}
+                    <div className="flex overflow-x-auto gap-2 mb-6 pb-2 custom-scrollbar">
+                        {files.map(file => (
+                            <button
+                                key={file.id}
+                                onClick={() => setActiveFileId(file.id)}
+                                className={`
+                                    flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px]
+                                    ${activeFileId === file.id 
+                                        ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white shadow-[0_0_15px_rgba(0,240,255,0.1)]' 
+                                        : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                    }
+                                `}
+                            >
+                                <div className={`w-2 h-2 rounded-full ${
+                                    file.status === AppStatus.COMPLETED ? 'bg-green-500' :
+                                    file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' :
+                                    file.status === AppStatus.ERROR ? 'bg-red-500' :
+                                    'bg-white/20'
+                                }`}></div>
+                                <span className="truncate text-sm font-medium direction-ltr">{file.name}</span>
+                                {file.status === AppStatus.COMPLETED && <Check className="w-3 h-3 text-green-500 ml-auto" />}
+                            </button>
+                        ))}
+                    </div>
+
                     <StatsCard 
-                        status={status}
-                        blocks={blocks}
-                        onStart={startTranslation}
+                        activeFile={getActiveFile()}
+                        activeFileIndex={getActiveFileIndex()}
+                        totalFiles={files.length}
+                        onStart={startBatchTranslation}
                         onPause={pauseTranslation}
                         onCancel={cancelTranslation}
                         onDownload={handleOpenExportModal} 
+                        onDownloadZip={handleDownloadZip}
                         onNewProject={resetProject}
                         onOpenTimingTools={() => setIsTimingModalOpen(true)}
-                        currentFileName={filename}
-                        fileSize={fileSize}
-                        progressMessage={progressMessage}
-                        processingDuration={processingDuration}
-                        validationErrors={netflixErrors}
                         onFixErrors={handleFixNetflixErrors}
                     />
 
@@ -469,10 +591,11 @@ const App: React.FC = () => {
                     </div>
                     
                     <SubtitleEditor 
-                        blocks={blocks} 
-                        onUpdateBlock={updateBlock} 
-                        validationErrors={netflixErrors}
+                        blocks={getActiveFile().blocks} 
+                        onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} 
+                        validationErrors={getActiveFile().netflixErrors}
                         onFindReplace={handleFindReplace}
+                        hasMultipleFiles={files.length > 1}
                     />
                 </>
             )}
@@ -495,6 +618,7 @@ const App: React.FC = () => {
         onClose={() => setIsTimingModalOpen(false)}
         onApply={handleTimingAdjustment}
         onNetflixCheck={handleNetflixCheck}
+        hasMultipleFiles={files.length > 1}
       />
 
       <ExportModal 
@@ -511,15 +635,19 @@ const App: React.FC = () => {
         onUpdate={handleUpdateGlossary}
       />
 
-       {status === AppStatus.TRANSLATING && (
+       {files.some(f => f.status === AppStatus.TRANSLATING) && (
             <div className="fixed bottom-8 right-8 glass border border-[#00f0ff]/50 text-white px-6 py-4 rounded-2xl shadow-[0_0_30px_rgba(0,0,0,0.5)] flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
                 <div className="relative">
                      <div className="absolute inset-0 bg-[#00f0ff] blur opacity-50 animate-pulse"></div>
                      <Loader2 className="w-6 h-6 animate-spin text-[#00f0ff] relative z-10" />
                 </div>
                 <div className="flex flex-col">
-                    <span className="text-sm font-bold">{progressMessage || 'در حال پردازش...'}</span>
-                    <span className="text-xs text-white/50">پیشرفت: {Math.round((processedCount / (blocks.length || 1)) * 100)}%</span>
+                    <span className="text-sm font-bold">
+                        {getActiveFile().progressMessage || 'در حال پردازش...'}
+                    </span>
+                    <span className="text-xs text-white/50">
+                        {activeFileId && getActiveFile()?.name}
+                    </span>
                 </div>
             </div>
         )}
@@ -541,8 +669,8 @@ const App: React.FC = () => {
                     <Loader2 className="w-5 h-5 text-green-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <strong className="block text-sm font-bold text-green-200 mb-1">تکمیل شد</strong>
-                        <p className="text-sm text-white/80 leading-relaxed">ترجمه با موفقیت به پایان رسید.</p>
+                        <strong className="block text-sm font-bold text-green-200 mb-1">عملیات تکمیل شد</strong>
+                        <p className="text-sm text-white/80 leading-relaxed">پردازش فایل‌ها با موفقیت به پایان رسید.</p>
                     </div>
                     <button 
                         onClick={() => setCompletionToast(false)} 

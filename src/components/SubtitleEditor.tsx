@@ -1,23 +1,27 @@
 
+
 import React, { useState } from 'react';
 import { SubtitleBlock, NetflixError } from '../types';
-import { Clock, AlertTriangle, Search, Replace, ArrowLeft } from 'lucide-react';
+import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers } from 'lucide-react';
 
 interface SubtitleEditorProps {
   blocks: SubtitleBlock[];
   onUpdateBlock: (id: number, text: string) => void;
   validationErrors?: NetflixError[];
-  onFindReplace: (find: string, replace: string) => void;
+  onFindReplace: (find: string, replace: string, scope: 'current' | 'all') => void;
+  hasMultipleFiles: boolean;
 }
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ 
   blocks, 
   onUpdateBlock, 
   validationErrors = [],
-  onFindReplace
+  onFindReplace,
+  hasMultipleFiles
 }) => {
   const [findTerm, setFindTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
+  const [scope, setScope] = useState<'current' | 'all'>('current');
   
   const getErrorForBlock = (id: number) => {
     return validationErrors.find(e => e.blockId === id);
@@ -25,7 +29,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
   const handleReplaceClick = () => {
     if (findTerm.trim()) {
-      onFindReplace(findTerm, replaceTerm);
+      onFindReplace(findTerm, replaceTerm, scope);
     }
   };
 
@@ -34,9 +38,29 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       
       {/* Find & Replace Tool Bar */}
       <div className="glass rounded-2xl p-6 border border-[#00f0ff]/20 animate-in fade-in slide-in-from-top-4">
-        <div className="flex items-center gap-2 mb-4 text-[#00f0ff]">
-           <Replace className="w-5 h-5" />
-           <h3 className="font-bold text-sm">تصحیح گروهی کلمات (Find & Replace)</h3>
+        <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2 text-[#00f0ff]">
+                <Replace className="w-5 h-5" />
+                <h3 className="font-bold text-sm">تصحیح گروهی کلمات (Find & Replace)</h3>
+            </div>
+            
+            {hasMultipleFiles && (
+                <div className="flex bg-[#0a0e27] rounded-lg p-1 border border-white/10">
+                    <button 
+                        onClick={() => setScope('current')}
+                        className={`px-3 py-1 text-xs rounded transition-colors ${scope === 'current' ? 'bg-white/10 text-white' : 'text-white/50'}`}
+                    >
+                        فایل جاری
+                    </button>
+                    <button 
+                        onClick={() => setScope('all')}
+                        className={`px-3 py-1 text-xs rounded transition-colors flex items-center gap-1 ${scope === 'all' ? 'bg-[#ff00ea]/20 text-[#ff00ea]' : 'text-white/50'}`}
+                    >
+                        <Layers className="w-3 h-3" />
+                        همه فایل‌ها
+                    </button>
+                </div>
+            )}
         </div>
         
         <div className="flex flex-col md:flex-row gap-4 items-end">
@@ -73,7 +97,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             className="w-full md:w-auto bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-2"
           >
              <Replace className="w-4 h-4" />
-             جایگزینی در کل فایل
+             {scope === 'all' ? 'جایگزینی در تمام فایل‌ها' : 'جایگزینی در فایل جاری'}
           </button>
         </div>
       </div>

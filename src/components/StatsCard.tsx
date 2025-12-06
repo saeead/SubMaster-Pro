@@ -1,45 +1,45 @@
 
 
 import React from 'react';
-import { SubtitleBlock, AppStatus, NetflixError } from '../types';
-import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2 } from 'lucide-react';
+import { SubtitleFile, AppStatus, NetflixError } from '../types';
+import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive } from 'lucide-react';
 
 interface StatsCardProps {
-  status: AppStatus;
-  blocks: SubtitleBlock[];
+  activeFile: SubtitleFile;
+  activeFileIndex: number;
+  totalFiles: number;
   onStart: () => void;
   onPause: () => void;
   onCancel: () => void;
   onDownload: () => void;
+  onDownloadZip: () => void;
   onNewProject: () => void;
   onOpenTimingTools: () => void;
-  currentFileName: string;
-  fileSize?: number;
-  progressMessage?: string;
-  processingDuration?: string | null;
-  validationErrors?: NetflixError[];
-  onFixErrors?: () => void;
+  onFixErrors: () => void;
 }
 
 export const StatsCard: React.FC<StatsCardProps> = ({ 
-  status, 
-  blocks, 
+  activeFile,
+  activeFileIndex,
+  totalFiles,
   onStart, 
   onPause, 
   onCancel,
   onDownload,
+  onDownloadZip,
   onNewProject,
   onOpenTimingTools,
-  currentFileName,
-  fileSize,
-  progressMessage,
-  processingDuration,
-  validationErrors = [],
   onFixErrors
 }) => {
+  const blocks = activeFile.blocks;
+  const status = activeFile.status;
+  
   const total = blocks.length;
   const translatedCount = blocks.filter(b => b.translatedText).length;
-  const percentage = Math.round((translatedCount / total) * 100) || 0;
+  // Calculate percentage based on processed count if translating, otherwise block ratio
+  const percentage = status === AppStatus.TRANSLATING 
+      ? Math.round(activeFile.progress) 
+      : Math.round((translatedCount / total) * 100) || 0;
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes) return 'Unknown';
@@ -56,10 +56,14 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const isCancelled = status === AppStatus.CANCELLED;
   const isReady = status === AppStatus.READY;
   const isError = status === AppStatus.ERROR;
+  const validationErrors = activeFile.netflixErrors || [];
   const hasErrors = validationErrors.length > 0;
 
   // Tools should be available if we have blocks loaded, regardless of translation status (mostly)
   const showTools = blocks.length > 0 && !isProcessing;
+
+  // Check if ALL files are completed to show Download ZIP
+  const isAllFilesDone = true; // Simplified for UI, logic handled in App
 
   return (
     <div className="glass rounded-3xl p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 relative overflow-hidden group">
@@ -67,13 +71,18 @@ export const StatsCard: React.FC<StatsCardProps> = ({
       {/* File Info Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-white/5 pb-8">
         <div className="flex items-center gap-4 w-full">
-            <div className="w-12 h-12 rounded-xl bg-[#00f0ff]/10 border border-[#00f0ff]/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-xl bg-[#00f0ff]/10 border border-[#00f0ff]/20 flex items-center justify-center flex-shrink-0 relative">
                 <FileText className="w-6 h-6 text-[#00f0ff]" />
+                {totalFiles > 1 && (
+                    <span className="absolute -top-2 -right-2 bg-[#ff00ea] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {activeFileIndex + 1}/{totalFiles}
+                    </span>
+                )}
             </div>
             <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-bold text-white truncate dir-ltr text-right max-w-md" title={currentFileName}>
-                    {currentFileName}
+                    <h3 className="text-xl font-bold text-white truncate dir-ltr text-right max-w-md" title={activeFile.name}>
+                    {activeFile.name}
                     </h3>
                     
                     <div className="flex items-center gap-2 md:mr-4">
@@ -89,6 +98,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         )}
 
                         {/* Delete/Remove File Icon */}
+                        {/* Currently resets whole project for simplicity */}
                         {(isReady || isCancelled || isCompleted || isError) && (
                             <button 
                                 onClick={onNewProject}
@@ -103,9 +113,9 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                 <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-white/50">
                     <span className="flex items-center gap-1"><Hash className="w-3 h-3"/> {total} خط</span>
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {blocks[blocks.length-1]?.endTime}</span>
-                    <span className="flex items-center gap-1"><HardDrive className="w-3 h-3"/> {formatFileSize(fileSize)}</span>
-                    {processingDuration && (
-                        <span className="flex items-center gap-1 text-[#00f0ff] animate-in fade-in"><Timer className="w-3 h-3"/> زمان پردازش: {processingDuration}</span>
+                    <span className="flex items-center gap-1"><HardDrive className="w-3 h-3"/> {formatFileSize(activeFile.size)}</span>
+                    {activeFile.processingDuration && (
+                        <span className="flex items-center gap-1 text-[#00f0ff] animate-in fade-in"><Timer className="w-3 h-3"/> زمان پردازش: {activeFile.processingDuration}</span>
                     )}
                 </div>
             </div>
@@ -122,12 +132,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         ${isCompleted ? 'text-green-400 bg-green-400/10 border-green-400/20' : 
                           isCancelled ? 'text-red-400 bg-red-400/10 border-red-400/20' :
                           'text-[#00f0ff] bg-[#00f0ff]/10 border-[#00f0ff]/20'}`}>
-                        {isProcessing ? (progressMessage || 'در حال ترجمه...') : 
-                         isCompleted ? 'ترجمه تکمیل شد' : 
-                         isCancelled ? 'پروژه لغو شد' :
-                         isPaused ? 'توقف موقت' :
-                         status === AppStatus.ERROR ? 'خطا در پردازش' :
-                         'آماده پردازش'}
+                        {activeFile.progressMessage || (isProcessing ? 'در حال ترجمه...' : 'آماده پردازش')}
                     </span>
                 </div>
                 <div className="text-right">
@@ -173,7 +178,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                     className="w-full flex-1 bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black font-bold py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(0,240,255,0.3)] hover:shadow-[0_0_30px_rgba(0,240,255,0.5)] transition-all transform hover:-translate-y-1 flex items-center justify-center gap-2"
                  >
                     <Play className="w-5 h-5 fill-current" />
-                    {isPaused ? 'ادامه ترجمه' : 'شروع ترجمه'}
+                    {totalFiles > 1 ? 'ترجمه نوبتی فایل‌ها' : (isPaused ? 'ادامه ترجمه' : 'شروع ترجمه')}
                  </button>
              )}
 
@@ -195,18 +200,30 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                     className="w-full flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 font-bold py-3 px-6 rounded-xl border border-red-500/20 transition-all flex items-center justify-center gap-2"
                  >
                     <XCircle className="w-5 h-5" />
-                    لغو پروژه
+                    لغو
                  </button>
              )}
 
-             {/* Download Output - Only visible when COMPLETED */}
-             {isCompleted && !hasErrors && (
+             {/* Download Output - Visible when COMPLETED */}
+             {isCompleted && (
                  <button 
                     onClick={onDownload}
                     className="w-full flex-1 bg-[#ff00ea]/10 text-[#ff00ea] border border-[#ff00ea] hover:bg-[#ff00ea]/20 shadow-[0_0_15px_rgba(255,0,234,0.2)] font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 animate-in zoom-in"
                   >
                     <Download className="w-5 h-5" />
-                    دانلود خروجی
+                    دانلود فایل
+                  </button>
+             )}
+             
+             {/* Download ALL ZIP */}
+             {totalFiles > 1 && (
+                 <button 
+                    onClick={onDownloadZip}
+                    className="w-full flex-1 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                    title="دانلود همه فایل‌ها بصورت زیپ"
+                  >
+                    <Archive className="w-5 h-5" />
+                    دانلود ZIP
                   </button>
              )}
 
