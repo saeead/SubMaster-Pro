@@ -1,6 +1,11 @@
 
 
 
+
+
+
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Header } from './components/Header';
@@ -17,7 +22,7 @@ import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, 
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
-import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG } from './constants';
+import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
 import { Loader2, File, Check, X as XIcon } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
@@ -41,6 +46,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     tone: 'conversational',
     topic: 'educational',
+    temperature: 0.3, // Default for educational
     outputFormat: 'vtt', 
     outputStandard: 'normal',
     model: 'standard',
@@ -65,6 +71,7 @@ const App: React.FC = () => {
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         if (!parsed.glossary) parsed.glossary = [];
+        if (parsed.temperature === undefined) parsed.temperature = 0.7; // Fallback
         setSettings(prev => ({ ...prev, ...parsed }));
       } catch (error) {
         console.error('Failed to load settings from local storage:', error);
@@ -76,6 +83,23 @@ const App: React.FC = () => {
         APP_CONFIG.version = savedVersion;
     }
   }, []);
+
+  // Auto-adjust temperature when topic changes
+  useEffect(() => {
+    const preset = TOPIC_TEMPERATURE_DEFAULTS[settings.topic];
+    if (preset) {
+      // Check if the current temperature is wildly different or just update it?
+      // For better UX, if user changes topic, we assume they want the optimal settings for that topic.
+      // However, we avoid infinite loop or overriding manual adjustment if topic hasn't changed.
+      // Since this effect runs on settings.topic change, it's safe.
+      setSettings(prev => {
+        // Prevent update loop if already set (though useEffect dependency array handles this mostly)
+        if (prev.temperature === preset.value) return prev;
+        return { ...prev, temperature: preset.value };
+      });
+    }
+  }, [settings.topic]);
+
 
   const checkForUpgrade = (input: string) => {
     if (input.toLowerCase().includes('upgrade version')) {
@@ -309,12 +333,39 @@ const App: React.FC = () => {
      const file = filesRef.current.find(f => f.id === fileId);
      if (!file) return;
 
-     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progress: 0, progressMessage: 'در حال تقسیم‌بندی...' });
+     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progressMessage: 'در حال تقسیم‌بندی...' });
      const startTime = Date.now();
 
      const chunks = smartChunking(file.blocks, BATCH_SIZE);
-     let completed = 0;
      const totalChunks = chunks.length;
+
+     // SMART RESUME: Calculate where to start to avoid re-processing or state flooding
+     let startChunkIndex = 0;
+     let completed = 0;
+
+     // Scan for the first incomplete chunk
+     for (let i = 0; i < totalChunks; i++) {
+        const chunk = chunks[i];
+        // Identify the "real" blocks belonging to this chunk
+        const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
+        
+        // Check if all blocks in this chunk are already translated
+        const isChunkComplete = targetBlocks.every(b => !!b.translatedText && b.translatedText.trim() !== '');
+        
+        if (isChunkComplete) {
+            completed += targetBlocks.length;
+            startChunkIndex = i + 1;
+        } else {
+            // Found the first chunk that needs work, stop skipping
+            break;
+        }
+     }
+     
+     // If resuming, update progress immediately to reflect current state without flooding
+     if (startChunkIndex > 0) {
+        const initialProgress = (completed / file.blocks.length) * 100;
+        updateFileStatus(fileId, { progress: initialProgress, processedCount: completed });
+     }
 
      // Callback to handle API Key Rotation Updates
      const onKeyRateLimit = (failedKey: string) => {
@@ -325,7 +376,7 @@ const App: React.FC = () => {
         }));
      };
 
-     for (let i = 0; i < totalChunks; i++) {
+     for (let i = startChunkIndex; i < totalChunks; i++) {
         // Check cancellation
         if (!isTranslatingRef.current) {
             updateFileStatus(fileId, { status: AppStatus.CANCELLED, progressMessage: 'لغو شده' });
@@ -351,7 +402,7 @@ const App: React.FC = () => {
                     }
                 }
             });
-            // Update UI
+            // Update UI if we found matches in this chunk
             if (cachedCount > 0) {
                 setFiles(prev => prev.map(f => f.id === fileId ? { ...f } : f));
             }
@@ -447,8 +498,12 @@ const App: React.FC = () => {
     isTranslatingRef.current = true;
     setCompletionToast(false);
 
-    // Filter pending files
-    const pendingFiles = files.filter(f => f.status === AppStatus.READY || f.status === AppStatus.ERROR);
+    // Filter pending files (Including PAUSED now to allow resuming)
+    const pendingFiles = files.filter(f => 
+        f.status === AppStatus.READY || 
+        f.status === AppStatus.ERROR || 
+        f.status === AppStatus.PAUSED
+    );
     
     if (pendingFiles.length === 0) {
         showToast('همه فایل‌ها قبلاً ترجمه شده‌اند.', 'warning');

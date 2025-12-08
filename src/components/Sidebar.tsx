@@ -4,6 +4,7 @@ import React from 'react';
 import { Settings, Check, FileText, BookOpen } from 'lucide-react';
 import { AppSettings, ToneType, TopicType } from '../types';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
+import { TemperatureControl } from './TemperatureControl';
 
 interface SidebarProps {
   settings: AppSettings;
@@ -14,11 +15,11 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOpenSettings, onOpenGlossary }) => {
   return (
-    <aside className="w-full md:w-72 glass flex flex-col h-auto md:h-screen md:sticky md:top-0 p-6 gap-8 border-l border-white/10 z-20">
+    <aside className="w-full md:w-72 glass flex flex-col h-auto md:h-screen md:sticky md:top-0 p-6 gap-6 border-l border-white/10 z-20 overflow-y-auto custom-scrollbar">
       
       {/* Tone Selection */}
-      <div className="space-y-3">
-        <label className="text-sm text-[#00f0ff] font-semibold tracking-wide uppercase">لحن ترجمه</label>
+      <div className="space-y-2">
+        <label className="text-xs text-[#00f0ff] font-bold tracking-wide uppercase">لحن ترجمه</label>
         <div className="relative">
           <select 
             value={settings.tone}
@@ -38,8 +39,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
       </div>
 
       {/* Topic Selection */}
-      <div className="space-y-3">
-        <label className="text-sm text-[#ff00ea] font-semibold tracking-wide uppercase">موضوع محتوا</label>
+      <div className="space-y-2">
+        <label className="text-xs text-[#ff00ea] font-bold tracking-wide uppercase">موضوع محتوا</label>
         <div className="relative">
           <select 
             value={settings.topic}
@@ -63,11 +64,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
          <div className="animate-in fade-in slide-in-from-right-4">
              <button 
                 onClick={onOpenGlossary}
-                className="w-full py-3 px-4 rounded-xl border border-[#ff00ea]/30 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-white font-medium flex items-center justify-between group transition-all"
+                className="w-full py-2.5 px-4 rounded-xl border border-[#ff00ea]/30 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-white font-medium flex items-center justify-between group transition-all"
              >
                 <div className="flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-[#ff00ea]" />
-                    <span className="text-sm">واژه‌نامه اختصاصی</span>
+                    <span className="text-xs">واژه‌نامه اختصاصی</span>
                 </div>
                 {settings.glossary && settings.glossary.length > 0 && (
                     <span className="bg-[#ff00ea] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
@@ -75,25 +76,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
                     </span>
                 )}
              </button>
-             <p className="text-[10px] text-white/40 mt-2 px-1">
-                تعریف معادل‌های ثابت برای کلمات تخصصی
-             </p>
          </div>
       )}
 
       {/* Output Format */}
-      <div className="space-y-3">
-        <label className="text-sm text-white/70 font-semibold tracking-wide uppercase">فرمت خروجی</label>
+      <div className="space-y-2">
+        <label className="text-xs text-white/50 font-bold tracking-wide uppercase">فرمت خروجی</label>
         <div className="flex bg-[#0a0e27]/50 p-1 rounded-xl border border-white/10">
           <button 
             onClick={() => updateSettings({ outputFormat: 'vtt' })}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputFormat === 'vtt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
+            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputFormat === 'vtt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
           >
             VTT
           </button>
           <button 
             onClick={() => updateSettings({ outputFormat: 'srt' })}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputFormat === 'srt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
+            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputFormat === 'srt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
           >
             SRT
           </button>
@@ -101,22 +99,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
       </div>
 
       {/* Output Standard */}
-      <div className="space-y-3">
-        <label className="text-sm text-white/70 font-semibold tracking-wide uppercase">استاندارد خروجی</label>
+      <div className="space-y-2">
+        <label className="text-xs text-white/50 font-bold tracking-wide uppercase">استاندارد خروجی</label>
         <div className="flex bg-[#0a0e27]/50 p-1 rounded-xl border border-white/10">
           <button 
             onClick={() => updateSettings({ outputStandard: 'normal' })}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputStandard === 'normal' ? 'bg-white/10 text-white shadow' : 'text-white/50 hover:text-white'}`}
+            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputStandard === 'normal' ? 'bg-white/10 text-white shadow' : 'text-white/50 hover:text-white'}`}
           >
             Normal
           </button>
           <button 
             onClick={() => updateSettings({ outputStandard: 'netflix' })}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914] text-white shadow-[0_0_10px_rgba(229,9,20,0.4)]' : 'text-white/50 hover:text-white'}`}
+            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914] text-white shadow-[0_0_10px_rgba(229,9,20,0.4)]' : 'text-white/50 hover:text-white'}`}
           >
             Netflix
           </button>
         </div>
+      </div>
+
+      {/* Temperature Control */}
+      <div className="space-y-2">
+         <TemperatureControl 
+            temperature={settings.temperature} 
+            topic={settings.topic} 
+            onChange={(val) => updateSettings({ temperature: val })} 
+         />
       </div>
 
       <div className="flex-1"></div>
@@ -124,10 +131,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
       {/* Settings Button */}
       <button 
         onClick={onOpenSettings}
-        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-white/80 hover:text-white hover:border-[#ff00ea]/50 group"
+        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-white/80 hover:text-white hover:border-[#ff00ea]/50 group mt-4"
       >
         <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-500" />
-        <span>تنظیمات پیشرفته</span>
+        <span className="text-sm">تنظیمات پیشرفته</span>
       </button>
 
     </aside>

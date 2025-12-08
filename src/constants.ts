@@ -3,7 +3,7 @@
 import { ToneType, TopicType, GlossaryItem } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.15",
+  version: "1.18",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB
@@ -60,6 +60,14 @@ export const TOPIC_OPTIONS: Record<TopicType, string> = {
   podcast: 'پادکست',
   news: 'اخبار و سیاسی',
   sports: 'ورزشی',
+};
+
+export const TOPIC_TEMPERATURE_DEFAULTS: Record<TopicType, { value: number; description: string }> = {
+  educational: { value: 0.3, description: "دقت بالا، ترجمه لفظی و دقیق اصطلاحات" },
+  entertainment: { value: 0.7, description: "خلاقیت متوسط، ترجمه روان دیالوگ‌ها" },
+  podcast: { value: 0.6, description: "متعادل، حفظ لحن گفتگومحور" },
+  news: { value: 0.2, description: "دقت بسیار بالا، رسمی و بی‌طرفانه" },
+  sports: { value: 0.5, description: "متعادل، حفظ هیجان و اصطلاحات" }
 };
 
 const SYSTEM_PROMPTS = {

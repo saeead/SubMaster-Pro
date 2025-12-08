@@ -1,6 +1,8 @@
 
 
 
+
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey } from "../types";
 import { APP_CONFIG, getSystemInstruction } from "../constants";
@@ -204,6 +206,9 @@ export const translateBatch = async (
         settings.glossary // Pass the glossary here
       );
 
+      // Use user-defined temperature or fallback to default based on tone (deprecated fallback logic, now handled by UI)
+      const temperature = settings.temperature !== undefined ? settings.temperature : 0.7;
+
       const response = await ai.models.generateContent({
         model: modelName,
         contents: userPrompt,
@@ -211,7 +216,7 @@ export const translateBatch = async (
           systemInstruction: systemInstruction,
           responseMimeType: "application/json",
           responseSchema: responseSchema,
-          temperature: (settings.tone === 'formal' || settings.tone === 'news') ? 0.3 : 0.7,
+          temperature: temperature,
         },
       });
 
@@ -245,7 +250,7 @@ export const translateBatch = async (
       
       const isRateLimit = errorMessage.includes("429") || 
                           errorMessage.includes("quota") || 
-                          errorMessage.includes("Too Many Requests") ||
+                          errorMessage.includes("Too Many Requests") || 
                           errorMessage.includes("RESOURCE_EXHAUSTED");
       
       if (isRateLimit) {

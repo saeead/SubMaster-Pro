@@ -73,6 +73,7 @@ export type ModelType = 'standard' | 'professional';
 export interface AppSettings {
   tone: ToneType;
   topic: TopicType;
+  temperature: number; // New field for Translation Quality
   outputFormat: 'srt' | 'vtt';
   outputStandard: 'normal' | 'netflix';
   model: ModelType;
