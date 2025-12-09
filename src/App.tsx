@@ -2,10 +2,6 @@
 
 
 
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Header } from './components/Header';
@@ -49,17 +45,20 @@ const App: React.FC = () => {
     temperature: 0.3, // Default for educational
     outputFormat: 'vtt', 
     outputStandard: 'normal',
-    model: 'standard',
+    model: 'flash',
     customPrompt: '',
     apiKeys: [],
     enableTranslationMemory: true,
     glossary: []
   });
 
+  // Refs for processing
   const filesRef = useRef<SubtitleFile[]>([]);
   const isTranslatingRef = useRef<boolean>(false);
+  const settingsRef = useRef<AppSettings>(settings);
 
   useEffect(() => { filesRef.current = files; }, [files]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   // Load settings and version from localStorage on mount
   useEffect(() => {
@@ -392,7 +391,7 @@ const App: React.FC = () => {
 
         // TM Logic
         let cachedCount = 0;
-        if (settings.enableTranslationMemory) {
+        if (settingsRef.current.enableTranslationMemory) {
             targetBlocks.forEach(block => {
                 if (!block.translatedText) {
                     const cached = getFromMemory(block.originalText);
@@ -416,7 +415,8 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settings, onKeyRateLimit);
+                // IMPORTANT: Use settingsRef.current to access the LATEST key states/settings during long loops
+                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit);
 
                 // Update blocks in state
                 setFiles(prev => prev.map(f => {
@@ -427,7 +427,7 @@ const App: React.FC = () => {
                             const idx = newBlocks.findIndex(b => b.id === res.id);
                             if (idx !== -1) {
                                 newBlocks[idx].translatedText = formattedText;
-                                if (settings.enableTranslationMemory) {
+                                if (settingsRef.current.enableTranslationMemory) {
                                     addToMemory(newBlocks[idx].originalText, formattedText);
                                 }
                             }
@@ -441,6 +441,25 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
+
+                // Handle Rate Limits / Quota Exhaustion Gracefully
+                const errorMessage = (err.message || err.toString() || "").toLowerCase();
+                const isQuotaError = errorMessage.includes("429") || 
+                                     errorMessage.includes("quota") || 
+                                     errorMessage.includes("پایان اعتبار") || // Keep original case for Persian just in case
+                                     errorMessage.includes("resource_exhausted") ||
+                                     errorMessage.includes("too many requests");
+
+                if (isQuotaError) {
+                     updateFileStatus(fileId, { 
+                         status: AppStatus.PAUSED, 
+                         progressMessage: 'توقف: پایان اعتبار کلیدها' 
+                     });
+                     showToast('اعتبار تمام کلیدها به پایان رسید. لطفاً کلید جدید اضافه کنید و دکمه "ادامه ترجمه" را بزنید.', 'error');
+                     isTranslatingRef.current = false; // Stop the global loop
+                     return; // Graceful exit, allows resuming later
+                }
+
                 updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه' });
                 throw err;
             }
@@ -454,7 +473,7 @@ const App: React.FC = () => {
      // Post-processing
      let finalBlocks = filesRef.current.find(f => f.id === fileId)?.blocks || [];
      
-     if (settings.outputStandard === 'netflix') {
+     if (settingsRef.current.outputStandard === 'netflix') {
          updateFileStatus(fileId, { progressMessage: 'بهینه‌سازی Netflix...' });
          await new Promise(r => setTimeout(r, 800));
          finalBlocks = fixNetflixStandards(finalBlocks);
@@ -489,6 +508,7 @@ const App: React.FC = () => {
     }
     
     if (!hasAvailableKeys) {
+        // Optimistically reset rate limits if all are limited, assuming user might have waited or wants to retry
         setSettings(prev => ({
             ...prev,
             apiKeys: prev.apiKeys.map(k => ({...k, isRateLimited: false}))
@@ -510,9 +530,14 @@ const App: React.FC = () => {
         return;
     }
 
+    let stoppedEarly = false;
+
     try {
         for (let i = 0; i < pendingFiles.length; i++) {
-            if (!isTranslatingRef.current) break;
+            if (!isTranslatingRef.current) {
+                stoppedEarly = true;
+                break;
+            }
             
             const file = pendingFiles[i];
             
@@ -521,10 +546,13 @@ const App: React.FC = () => {
 
             try {
                 await processFile(file.id);
-            } catch (e) {
+            } catch (e: any) {
                 console.error(`Failed to process file ${file.name}`, e);
-                // Continue to next file? Or stop? 
-                // Let's continue but maybe delay more
+                // If it was a fatal error that stopped the ref (like quota), we break
+                if (!isTranslatingRef.current) {
+                    stoppedEarly = true;
+                    break;
+                }
             }
 
             // Cooldown between files if there are more remaining
@@ -534,7 +562,6 @@ const App: React.FC = () => {
                 const nextFileId = pendingFiles[i+1].id;
                 updateFileStatus(nextFileId, { progressMessage: `در انتظار نوبت (${Math.round(waitTime/1000)} ثانیه)...` });
                 
-                // Countdown visualization could be here, but simple delay for now
                 await new Promise(resolve => setTimeout(resolve, waitTime));
             }
         }
@@ -542,7 +569,11 @@ const App: React.FC = () => {
         console.error("Batch Loop Error", e);
     } finally {
         isTranslatingRef.current = false;
-        setCompletionToast(true);
+        
+        // Only show completed toast if we didn't pause/stop manually
+        if (!stoppedEarly) {
+            setCompletionToast(true); 
+        }
     }
   };
 
@@ -614,6 +645,7 @@ const App: React.FC = () => {
                                     file.status === AppStatus.COMPLETED ? 'bg-green-500' :
                                     file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' :
                                     file.status === AppStatus.ERROR ? 'bg-red-500' :
+                                    file.status === AppStatus.PAUSED ? 'bg-orange-400' :
                                     'bg-white/20'
                                 }`}></div>
                                 <span className="truncate text-sm font-medium direction-ltr">{file.name}</span>
@@ -717,7 +749,7 @@ const App: React.FC = () => {
         )}
         
         {/* Completion Toast */}
-        {completionToast && (
+        {completionToast && !files.some(f => f.status === AppStatus.PAUSED || f.status === AppStatus.ERROR) && (
              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-5 fade-in duration-300 w-full max-w-md px-4">
                 <div className="glass bg-[#0a0e27]/95 border border-green-500/50 text-white p-4 rounded-2xl shadow-[0_0_30px_rgba(34,197,94,0.2)] flex items-start gap-4 backdrop-blur-xl">
                     <div className="p-2 bg-green-500/20 rounded-full flex-shrink-0 mt-0.5">

@@ -3,6 +3,11 @@
 
 
 
+
+
+
+
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey } from "../types";
 import { APP_CONFIG, getSystemInstruction } from "../constants";
@@ -45,7 +50,7 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
 
   // 404 Not Found (Model Name Error)
   if (msg.includes('404') || msg.includes('not found') || msg.includes('NOT_FOUND')) {
-    return `خطای مدل (404): مدل انتخاب شده "${modelName}" یافت نشد. این مدل ممکن است منقضی شده باشد یا برای کلید شما فعال نباشد. لطفاً در تنظیمات، مدل را تغییر دهید (مثلاً از Professional به Standard یا برعکس).`;
+    return `خطای مدل (404): مدل انتخاب شده "${modelName}" یافت نشد. این مدل ممکن است منقضی شده باشد یا برای کلید شما فعال نباشد. لطفاً در تنظیمات، مدل را تغییر دهید.`;
   }
 
   // 429 Rate Limit
@@ -73,9 +78,11 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
 };
 
 /**
- * Validates a specific API Key by making a lightweight call
+ * Validates a specific API Key by making a lightweight call.
+ * @param apiKey The key to test
+ * @param strictMode If true, returns FALSE for Rate Limit errors (used during rotation). If false, allows Rate Limit (used during setup).
  */
-export const validateAPIConnection = async (apiKey: string): Promise<boolean> => {
+export const validateAPIConnection = async (apiKey: string, strictMode: boolean = false): Promise<boolean> => {
   if (!apiKey) return false;
 
   try {
@@ -83,20 +90,26 @@ export const validateAPIConnection = async (apiKey: string): Promise<boolean> =>
      // Lightweight check to verify API key validity
      await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: 'test',
+        contents: 'Hi', // Very short prompt
      });
      return true;
   } catch (e: any) {
      const errorMessage = e.message || JSON.stringify(e);
      
-     // 429 / Resource Exhausted means the key IS valid (auth succeeded), just out of quota.
-     // We should allow adding it so the rotation manager can use it later.
-     if (
-         errorMessage.includes("429") || 
-         errorMessage.includes("quota") || 
-         errorMessage.includes("RESOURCE_EXHAUSTED") ||
-         errorMessage.includes("Too Many Requests")
-     ) {
+     const isRateLimit = errorMessage.includes("429") || 
+                         errorMessage.includes("quota") || 
+                         errorMessage.includes("RESOURCE_EXHAUSTED") ||
+                         errorMessage.includes("Too Many Requests");
+
+     // In Strict Mode (Runtime Rotation), a Rate Limited key is considered "Invalid" for immediate use.
+     if (strictMode && isRateLimit) {
+         console.warn(`Strict Validation: Key ...${apiKey.slice(-4)} is Rate Limited.`);
+         return false;
+     }
+
+     // In Setup Mode (Settings), we allow adding a key even if it's currently 429, 
+     // assuming it will recover later.
+     if (!strictMode && isRateLimit) {
          console.warn(`API Key validation (..${apiKey.slice(-4)}): Key is valid but currently Rate Limited.`);
          return true;
      }
@@ -116,10 +129,26 @@ class APIKeyManager {
   constructor(userKeys: UserAPIKey[]) {
     // 1. Add Valid User Keys
     userKeys.forEach(k => {
+      // Trust the input 'isValid' but strictly respect 'isRateLimited' state
       if (k.isValid) {
         this.keys.push({ key: k.key, isRateLimited: k.isRateLimited, source: 'USER' });
       }
     });
+  }
+
+  /**
+   * Returns the next available key without advancing the index automatically.
+   */
+  public getNextAvailableKey(): string | null {
+      // Start searching from current index
+      for (let i = 0; i < this.keys.length; i++) {
+          // Wrap around logic if needed, but for simplicity let's just find *any* non-limited key
+          // We prioritize maintaining order.
+          if (!this.keys[i].isRateLimited) {
+              return this.keys[i].key;
+          }
+      }
+      return null;
   }
 
   public getActiveKey(): string {
@@ -138,9 +167,16 @@ class APIKeyManager {
   }
 
   public markCurrentAsRateLimited() {
-    if (this.keys.length > 0) {
+    if (this.keys.length > 0 && this.keys[this.currentIndex]) {
       this.keys[this.currentIndex].isRateLimited = true;
     }
+  }
+
+  public markKeyAsRateLimited(keyStr: string) {
+      const target = this.keys.find(k => k.key === keyStr);
+      if (target) {
+          target.isRateLimited = true;
+      }
   }
 
   public hasAvailableKeys(): boolean {
@@ -161,16 +197,17 @@ export const translateBatch = async (
   let attempt = 0;
   const { maxRetries, baseDelay } = APP_CONFIG.retryConfig;
   
-  const modelName = settings.model === 'professional' 
-    ? APP_CONFIG.geminiModels.professional 
-    : APP_CONFIG.geminiModels.standard;
+  let modelName = APP_CONFIG.geminiModels.standard;
+  if (settings.model === 'professional') modelName = APP_CONFIG.geminiModels.professional;
+  else if (settings.model === 'flash') modelName = APP_CONFIG.geminiModels.flash;
+  else if (settings.model === 'flash_lite') modelName = APP_CONFIG.geminiModels.flash_lite;
 
   // Initialize Key Manager for this batch process session
   const keyManager = new APIKeyManager(settings.apiKeys);
 
   // We loop more than maxRetries to allow for key switching
   // Total attempts = standard retries + number of keys to try
-  const totalAllowedAttempts = maxRetries + settings.apiKeys.length;
+  const totalAllowedAttempts = maxRetries + settings.apiKeys.length * 2; // Increased multiplier for safety
 
   while (attempt < totalAllowedAttempts) {
     let currentApiKey = '';
@@ -197,16 +234,14 @@ export const translateBatch = async (
       
       userPrompt += "\n\nTask: Translate the TARGET BLOCKS to Persian following the system instructions. Return ONLY the JSON array.";
 
-      // Include outputStandard and glossary in system instruction generation
       const systemInstruction = getSystemInstruction(
         settings.tone, 
         settings.topic, 
         settings.customPrompt, 
         settings.outputStandard,
-        settings.glossary // Pass the glossary here
+        settings.glossary
       );
 
-      // Use user-defined temperature or fallback to default based on tone (deprecated fallback logic, now handled by UI)
       const temperature = settings.temperature !== undefined ? settings.temperature : 0.7;
 
       const response = await ai.models.generateContent({
@@ -232,15 +267,8 @@ export const translateBatch = async (
         throw new Error("Failed to parse Gemini JSON response");
       }
 
-      // --- ANTI-LAZY ALGORITHM VALIDATION ---
       if (parsedData.length !== targetBatch.length) {
         throw new Error(`Anti-Lazy Count mismatch: ${parsedData.length}/${targetBatch.length}`);
-      }
-
-      const inputIds = new Set(targetBatch.map(b => b.id));
-      const allIdsValid = parsedData.every(b => inputIds.has(b.id));
-      if (!allIdsValid) {
-         throw new Error("Anti-Lazy: ID mismatch detected.");
       }
 
       return parsedData;
@@ -254,33 +282,52 @@ export const translateBatch = async (
                           errorMessage.includes("RESOURCE_EXHAUSTED");
       
       if (isRateLimit) {
-        console.warn(`Rate Limit hit for key ending ...${currentApiKey.slice(-4)}. Switching...`);
+        console.warn(`Rate Limit hit for key ending ...${currentApiKey.slice(-4)}.`);
         
-        // 1. Mark strictly in local manager
+        // 1. Mark the CURRENT failed key as limited immediately
         keyManager.markCurrentAsRateLimited();
+        if (onKeyRateLimit && currentApiKey) onKeyRateLimit(currentApiKey);
+
+        // 2. INDEPENDENT VALIDATION LOGIC
+        // We must check if the NEXT available key is actually alive.
+        // Google often limits projects, so if keys share a project, the next one is likely dead too.
+        // We iterate until we find a TRULY alive key or run out.
         
-        // 2. Notify the UI to update global state and show warning toast
-        if (onKeyRateLimit && currentApiKey) {
-            onKeyRateLimit(currentApiKey);
+        let foundWorkingKey = false;
+        
+        while (keyManager.hasAvailableKeys() && !foundWorkingKey) {
+            const nextCandidate = keyManager.getNextAvailableKey();
+            if (!nextCandidate) break; // Should be covered by hasAvailableKeys but safe check
+
+            console.log(`Checking next candidate key ending ...${nextCandidate.slice(-4)} independently...`);
+            
+            // "Pre-flight" check using Strict Mode
+            const isAlive = await validateAPIConnection(nextCandidate, true);
+            
+            if (isAlive) {
+                console.log(`Key ...${nextCandidate.slice(-4)} is ALIVE. Proceeding.`);
+                foundWorkingKey = true;
+                // The main loop will pick this key up via keyManager.getActiveKey() in next iteration
+            } else {
+                console.warn(`Key ...${nextCandidate.slice(-4)} failed independent check (Quota Shared?). Marking as limited.`);
+                keyManager.markKeyAsRateLimited(nextCandidate);
+                if (onKeyRateLimit) onKeyRateLimit(nextCandidate);
+                // Loop continues to check the next one...
+            }
         }
 
-        // Do NOT increment 'attempt' counter for key switches, 
-        // essentially resetting the retry count for the new key.
-        // However, we need to ensure we don't loop forever if all keys fail.
         if (!keyManager.hasAvailableKeys()) {
-             // If we ran out of keys completely, throw the final error
+             // If we ran out of keys completely after checking them all independently
              throw new Error(getFriendlyErrorMessage(new Error("429 RESOURCE_EXHAUSTED"), modelName));
         }
         
-        // Short delay before switching to next key
-        await delay(500); 
+        // Short delay before retrying with the found working key
+        await delay(1000); 
 
       } else {
-        // Non-RateLimit Error (Network, Server 500, Parse Error)
+        // Non-RateLimit Error
         console.warn(`Translation Attempt ${attempt + 1} failed:`, error);
         attempt++;
-        
-        // Exponential Backoff
         const waitTime = baseDelay * Math.pow(1.5, attempt);
         await delay(waitTime);
       }

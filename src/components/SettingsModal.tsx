@@ -1,4 +1,8 @@
 
+
+
+
+
 import React, { useState, useEffect } from 'react';
 import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft } from 'lucide-react';
 import { AppSettings, UserAPIKey } from '../types';
@@ -232,6 +236,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                <label className="text-sm text-white/70 block font-bold">انتخاب مدل پردازشی</label>
                
                <div className="grid grid-cols-1 gap-3">
+                  
+                  {/* Standard */}
                   <div 
                     onClick={() => updateSettings({ model: 'standard' })}
                     className={`
@@ -251,6 +257,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       </div>
                   </div>
 
+                  {/* Professional */}
                   <div 
                     onClick={() => updateSettings({ model: 'professional' })}
                     className={`
@@ -265,10 +272,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                           {settings.model === 'professional' && <div className="w-2 h-2 rounded-full bg-[#ff00ea]" />}
                       </div>
                       <div>
-                        <h3 className="text-white font-medium text-sm">پردازش حرفه‌ای (Gemini 3 Pro Preview)</h3>
-                        <p className="text-xs text-white/50 mt-1">دقت بالاتر برای متون تخصصی. (ممکن است کندتر باشد)</p>
+                        <h3 className="text-white font-medium text-sm">پردازش حرفه‌ای (Gemini 3 Pro)</h3>
+                        <p className="text-xs text-white/50 mt-1">دقت بالاتر برای متون تخصصی.</p>
                       </div>
                   </div>
+
+                   {/* Flash */}
+                   <div 
+                    onClick={() => updateSettings({ model: 'flash' })}
+                    className={`
+                        cursor-pointer p-4 rounded-xl border transition-all flex items-start gap-3
+                        ${settings.model === 'flash' 
+                            ? 'bg-yellow-400/10 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.15)]' 
+                            : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        }
+                    `}
+                  >
+                      <div className={`mt-1 w-4 h-4 rounded-full border flex items-center justify-center ${settings.model === 'flash' ? 'border-yellow-400' : 'border-white/30'}`}>
+                          {settings.model === 'flash' && <div className="w-2 h-2 rounded-full bg-yellow-400" />}
+                      </div>
+                      <div>
+                        <h3 className="text-white font-medium text-sm">سریع (Gemini 2.5 Flash)</h3>
+                        <p className="text-xs text-white/50 mt-1">سرعت بالا و هزینه کمتر. مناسب برای متون طولانی.</p>
+                      </div>
+                  </div>
+
+                   {/* Flash Lite */}
+                   <div 
+                    onClick={() => updateSettings({ model: 'flash_lite' })}
+                    className={`
+                        cursor-pointer p-4 rounded-xl border transition-all flex items-start gap-3
+                        ${settings.model === 'flash_lite' 
+                            ? 'bg-green-400/10 border-green-400 shadow-[0_0_15px_rgba(74,222,128,0.15)]' 
+                            : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        }
+                    `}
+                  >
+                      <div className={`mt-1 w-4 h-4 rounded-full border flex items-center justify-center ${settings.model === 'flash_lite' ? 'border-green-400' : 'border-white/30'}`}>
+                          {settings.model === 'flash_lite' && <div className="w-2 h-2 rounded-full bg-green-400" />}
+                      </div>
+                      <div>
+                        <h3 className="text-white font-medium text-sm">سبک و سریع (Gemini 2.5 Flash-Lite)</h3>
+                        <p className="text-xs text-white/50 mt-1">بهترین گزینه برای سرعت. دقت کمتر نسبت به مدل‌های Pro.</p>
+                      </div>
+                  </div>
+
                </div>
             </div>
 

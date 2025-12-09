@@ -3,7 +3,7 @@
 import { ToneType, TopicType, GlossaryItem } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.18",
+  version: "1.20",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB
@@ -11,7 +11,9 @@ export const APP_CONFIG = {
   supportedFormats: ['srt', 'vtt'],
   geminiModels: {
     standard: 'gemini-2.5-pro',
-    professional: 'gemini-3-pro-preview'
+    professional: 'gemini-3-pro-preview',
+    flash: 'gemini-2.5-flash',
+    flash_lite: 'gemini-flash-lite-latest'
   },
   retryConfig: {
     maxRetries: 3,
