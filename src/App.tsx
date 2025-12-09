@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Header } from './components/Header';
@@ -13,6 +9,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { TimingModal } from './components/TimingModal';
 import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
+import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig, GlossaryItem, SubtitleFile } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
@@ -35,6 +32,7 @@ const App: React.FC = () => {
   const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isGlossaryModalOpen, setIsGlossaryModalOpen] = useState(false);
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   
   const [completionToast, setCompletionToast] = useState<boolean>(false);
 
@@ -599,6 +597,7 @@ const App: React.FC = () => {
         updateSettings={updateSettings} 
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenGlossary={() => setIsGlossaryModalOpen(true)}
+        onOpenTextTranslator={() => setIsTranslatorOpen(true)}
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden">
@@ -720,6 +719,12 @@ const App: React.FC = () => {
         onClose={() => setIsGlossaryModalOpen(false)}
         glossary={settings.glossary}
         onUpdate={handleUpdateGlossary}
+      />
+      
+      <TextTranslatorModal 
+         isOpen={isTranslatorOpen}
+         onClose={() => setIsTranslatorOpen(false)}
+         settings={settings}
       />
 
        {files.some(f => f.status === AppStatus.TRANSLATING) && (

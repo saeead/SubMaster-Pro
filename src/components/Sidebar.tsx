@@ -1,7 +1,5 @@
-
-
 import React from 'react';
-import { Settings, Check, FileText, BookOpen } from 'lucide-react';
+import { Settings, Check, FileText, BookOpen, MessageSquareText } from 'lucide-react';
 import { AppSettings, ToneType, TopicType } from '../types';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 import { TemperatureControl } from './TemperatureControl';
@@ -11,9 +9,10 @@ interface SidebarProps {
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   onOpenSettings: () => void;
   onOpenGlossary: () => void;
+  onOpenTextTranslator: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOpenSettings, onOpenGlossary }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOpenSettings, onOpenGlossary, onOpenTextTranslator }) => {
   return (
     <aside className="w-full md:w-72 glass flex flex-col h-auto md:h-screen md:sticky md:top-0 p-6 gap-6 border-l border-white/10 z-20 overflow-y-auto custom-scrollbar">
       
@@ -128,10 +127,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
 
       <div className="flex-1"></div>
 
+      {/* Text Translator Button */}
+      <button 
+        onClick={onOpenTextTranslator}
+        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-gradient-to-r from-[#00f0ff]/10 to-[#00f0ff]/5 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/20 transition-all group shadow-[0_0_10px_rgba(0,240,255,0.1)] mt-4"
+      >
+        <MessageSquareText className="w-5 h-5" />
+        <span className="text-sm font-bold">ترجمه متن</span>
+      </button>
+
       {/* Settings Button */}
       <button 
         onClick={onOpenSettings}
-        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-white/80 hover:text-white hover:border-[#ff00ea]/50 group mt-4"
+        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-white/80 hover:text-white hover:border-[#ff00ea]/50 group mt-3"
       >
         <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-500" />
         <span className="text-sm">تنظیمات پیشرفته</span>

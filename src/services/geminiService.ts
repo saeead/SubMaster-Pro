@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey } from "../types";
 import { APP_CONFIG, getSystemInstruction } from "../constants";
@@ -335,4 +325,80 @@ export const translateBatch = async (
   }
 
   throw new Error("Failed to process batch after multiple retries and key rotation.");
+};
+
+/**
+ * Translates a single block of free text preserving formatting
+ */
+export const translateFreeText = async (
+    text: string, 
+    settings: AppSettings
+): Promise<string> => {
+    if (!text || !text.trim()) return '';
+
+    let modelName = APP_CONFIG.geminiModels.standard;
+    // For free text, we can respect the model choice, but Flash is usually sufficient and faster for large text.
+    if (settings.model === 'professional') modelName = APP_CONFIG.geminiModels.professional;
+    else if (settings.model === 'flash') modelName = APP_CONFIG.geminiModels.flash;
+    else if (settings.model === 'flash_lite') modelName = APP_CONFIG.geminiModels.flash_lite;
+
+    const keyManager = new APIKeyManager(settings.apiKeys);
+    let attempt = 0;
+    const maxRetries = 2 + settings.apiKeys.length;
+
+    while (attempt < maxRetries) {
+        let currentApiKey = '';
+        try {
+            currentApiKey = keyManager.getActiveKey();
+            const ai = new GoogleGenAI({ apiKey: currentApiKey });
+
+            const systemInstruction = `You are a professional Persian translator. 
+            Your task is to translate the input text into Persian (Farsi).
+            
+            CRITICAL RULES:
+            1. Preserve ALL formatting exactly (paragraphs, line breaks, bullet points, headers).
+            2. Do not output JSON. Output raw text.
+            3. Inherit the following style guide:
+               - Tone: ${settings.tone}
+               - Topic: ${settings.topic}
+               - Use proper Persian punctuation.
+            
+            Detect the input language automatically. If it's already Persian, improve the style/grammar based on the settings.`;
+
+            const response = await ai.models.generateContent({
+                model: modelName,
+                contents: text,
+                config: {
+                    systemInstruction: systemInstruction,
+                    temperature: settings.temperature || 0.7,
+                },
+            });
+
+            if (!response.text) {
+                throw new Error("Empty response from Gemini");
+            }
+
+            return response.text;
+
+        } catch (error: any) {
+            const errorMessage = error.message || error.toString();
+            const isRateLimit = errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED");
+
+            if (isRateLimit) {
+                console.warn("Rate limit hit in Free Text translation. Rotating key...");
+                keyManager.markCurrentAsRateLimited();
+                
+                if (!keyManager.hasAvailableKeys()) {
+                     throw new Error("All API keys are exhausted.");
+                }
+                await delay(500);
+            } else {
+                attempt++;
+                if (attempt >= maxRetries) throw error;
+                await delay(1000 * attempt);
+            }
+        }
+    }
+
+    throw new Error("Failed to translate text.");
 };
