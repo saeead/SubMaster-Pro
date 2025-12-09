@@ -1,48 +1,68 @@
 
 import React, { useState, useEffect } from 'react';
-import { Download, X, Palette, Type, LayoutTemplate } from 'lucide-react';
-import { VttStyleConfig } from '../types';
+import { Download, X, Palette, Type, LayoutTemplate, Layout, CheckCircle } from 'lucide-react';
+import { StyleConfig, StyleTemplate } from '../types';
+import { STYLE_TEMPLATES } from '../constants';
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (format: 'srt' | 'vtt', styles?: VttStyleConfig) => void;
-  defaultFormat: 'srt' | 'vtt';
+  onConfirm: (format: 'srt' | 'vtt' | 'ass', styles?: StyleConfig) => void;
+  defaultFormat: 'srt' | 'vtt' | 'ass';
 }
 
 const FONT_OPTIONS = [
   { label: 'Default (Sans-Serif)', value: 'sans-serif' },
-  { label: 'Vazirmatn (فارسی)', value: 'Vazirmatn, sans-serif' },
-  { label: 'Arial', value: 'Arial, sans-serif' },
-  { label: 'Tahoma', value: 'Tahoma, sans-serif' },
-  { label: 'Courier New (Monospace)', value: '"Courier New", monospace' },
-  { label: 'Times New Roman (Serif)', value: '"Times New Roman", serif' },
-];
-
-const SIZE_OPTIONS = [
-  { label: 'Small', value: '80%' },
-  { label: 'Normal', value: '100%' },
-  { label: 'Large', value: '125%' },
-  { label: 'Extra Large', value: '150%' },
-  { label: 'Huge', value: '200%' },
+  { label: 'Vazirmatn (فارسی)', value: 'Vazirmatn' },
+  { label: 'Arial', value: 'Arial' },
+  { label: 'Tahoma', value: 'Tahoma' },
+  { label: 'Roboto', value: 'Roboto' },
+  { label: 'Courier New', value: 'Courier New' },
 ];
 
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onConfirm, defaultFormat }) => {
-  const [format, setFormat] = useState<'srt' | 'vtt'>(defaultFormat);
+  const [format, setFormat] = useState<'srt' | 'vtt' | 'ass'>(defaultFormat);
   const [useStyles, setUseStyles] = useState(false);
+  const [activeTemplate, setActiveTemplate] = useState<string>('custom');
   
-  const [styles, setStyles] = useState<VttStyleConfig>({
+  const [styles, setStyles] = useState<StyleConfig>({
     useStyles: false,
-    fontFamily: 'Vazirmatn, sans-serif',
-    fontSize: '100%',
-    color: '#ffffff',
-    backgroundColor: '#00000080', // Semi-transparent black
-    textShadow: 'none'
+    fontFamily: 'Vazirmatn',
+    fontSize: 20,
+    primaryColor: '#ffffff',
+    secondaryColor: '#000000',
+    backgroundColor: '#000000', 
+    isBold: false,
+    borderStyle: 'outline',
+    outlineWidth: 2,
+    shadowDepth: 0,
+    alignment: 2
   });
 
   useEffect(() => {
     setFormat(defaultFormat);
   }, [defaultFormat, isOpen]);
+
+  // When format changes to SRT, disable styles. When others, allow.
+  useEffect(() => {
+    if (format === 'srt') {
+        setUseStyles(false);
+    } else {
+        // Auto-enable for ASS usually
+        if (format === 'ass') setUseStyles(true);
+    }
+  }, [format]);
+
+  const applyTemplate = (templateKey: string) => {
+      setActiveTemplate(templateKey);
+      if (templateKey === 'custom') return;
+
+      const tmpl = STYLE_TEMPLATES[templateKey];
+      if (tmpl) {
+          setStyles({ ...tmpl.config, useStyles: true });
+          setUseStyles(true);
+      }
+  };
 
   if (!isOpen) return null;
 
@@ -54,179 +74,238 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onClose}></div>
       
-      <div className="relative w-full max-w-2xl glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-4xl glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className="p-6 border-b border-white/10 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Download className="w-6 h-6 text-[#ff00ea]" />
-            تنظیمات خروجی
+        <div className="p-6 border-b border-border flex justify-between items-center bg-background/90">
+          <h2 className="text-xl font-bold text-text flex items-center gap-2">
+            <Download className="w-6 h-6 text-secondary" />
+            تنظیمات خروجی و استایل
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-            <X className="w-5 h-5 text-white/60" />
+          <button onClick={onClose} className="p-2 hover:bg-surface rounded-full transition-colors">
+            <X className="w-5 h-5 text-text-muted" />
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
-          
-          {/* Format Selection */}
-          <div className="space-y-3">
-             <label className="text-sm text-white/70 font-bold block">فرمت فایل</label>
-             <div className="flex bg-[#0a0e27]/50 p-1.5 rounded-xl border border-white/10">
-                <button 
-                  onClick={() => setFormat('srt')}
-                  className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${format === 'srt' ? 'bg-[#00f0ff] text-[#0a0e27] shadow-[0_0_15px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
-                >
-                  SRT (Standard)
-                </button>
-                <button 
-                  onClick={() => setFormat('vtt')}
-                  className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${format === 'vtt' ? 'bg-[#ff00ea] text-white shadow-[0_0_15px_rgba(255,0,234,0.4)]' : 'text-white/50 hover:text-white'}`}
-                >
-                  WebVTT (Styled)
-                </button>
-             </div>
-             <p className="text-xs text-white/40 px-1">
-               {format === 'srt' 
-                  ? 'فرمت استاندارد و ساده بدون قابلیت تغییر رنگ و فونت. مناسب برای اکثر پلیرها.' 
-                  : 'فرمت پیشرفته وب با قابلیت شخصی‌سازی ظاهر زیرنویس.'}
-             </p>
-          </div>
-
-          {/* VTT Styling Options */}
-          {format === 'vtt' && (
-            <div className="space-y-6 animate-in slide-in-from-top-2">
-               
-               {/* Improved Toggle Switch UI */}
-               <div 
-                    onClick={() => setUseStyles(!useStyles)}
-                    className={`
-                        flex items-center justify-between p-4 rounded-xl border transition-all cursor-pointer select-none group
-                        ${useStyles 
-                            ? 'bg-[#ff00ea]/10 border-[#ff00ea]/50 shadow-[0_0_15px_rgba(255,0,234,0.1)]' 
-                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/30'
-                        }
-                    `}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg transition-colors ${useStyles ? 'bg-[#ff00ea] text-white' : 'bg-white/10 text-white/50'}`}>
-                            <Palette className="w-5 h-5" />
-                        </div>
-                        <div className="flex flex-col">
-                            <span className={`text-sm font-bold transition-colors ${useStyles ? 'text-white' : 'text-white/70'}`}>
-                                تنظیمات ظاهری (Styles)
-                            </span>
-                            <span className="text-xs text-white/40">
-                                تغییر رنگ، فونت و سایز زیرنویس
-                            </span>
-                        </div>
-                    </div>
-
-                    <div className={`relative w-12 h-7 rounded-full transition-colors duration-300 ${useStyles ? 'bg-[#ff00ea]' : 'bg-[#0a0e27] border border-white/20'}`}>
-                        <div className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-lg transform transition-transform duration-300 ${useStyles ? 'translate-x-5' : 'translate-x-0'}`} />
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+            
+            {/* Sidebar Controls */}
+            <div className="w-full md:w-1/3 border-l border-border bg-surface/30 p-4 overflow-y-auto custom-scrollbar">
+                
+                {/* Format Selection */}
+                <div className="mb-6 space-y-3">
+                    <label className="text-xs text-text-muted font-bold block uppercase">فرمت فایل</label>
+                    <div className="grid grid-cols-1 gap-2">
+                        <button 
+                            onClick={() => setFormat('srt')}
+                            className={`px-3 py-2 text-sm font-bold rounded-lg transition-all text-right border ${format === 'srt' ? 'bg-primary/20 border-primary text-primary' : 'border-border text-text-muted hover:text-text'}`}
+                        >
+                            SRT (استاندارد)
+                        </button>
+                        <button 
+                            onClick={() => setFormat('vtt')}
+                            className={`px-3 py-2 text-sm font-bold rounded-lg transition-all text-right border ${format === 'vtt' ? 'bg-primary/20 border-primary text-primary' : 'border-border text-text-muted hover:text-text'}`}
+                        >
+                            VTT (وب)
+                        </button>
+                        <button 
+                            onClick={() => setFormat('ass')}
+                            className={`px-3 py-2 text-sm font-bold rounded-lg transition-all text-right border ${format === 'ass' ? 'bg-secondary/20 border-secondary text-secondary' : 'border-border text-text-muted hover:text-text'}`}
+                        >
+                            SSA/ASS (پیشرفته)
+                        </button>
                     </div>
                 </div>
 
-               {useStyles && (
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-4">
-                    {/* Controls */}
-                    <div className="space-y-5">
-                       
-                       <div className="space-y-2">
-                          <label className="text-xs text-[#00f0ff] font-bold flex items-center gap-1">
-                             <Type className="w-3 h-3" /> نوع فونت
-                          </label>
-                          <select 
-                            value={styles.fontFamily}
-                            onChange={(e) => setStyles({...styles, fontFamily: e.target.value})}
-                            className="w-full bg-[#0a0e27] border border-white/10 rounded-lg p-2 text-white text-sm focus:border-[#ff00ea] outline-none"
-                          >
-                             {FONT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                          </select>
-                       </div>
-
-                       <div className="space-y-2">
-                          <label className="text-xs text-[#00f0ff] font-bold flex items-center gap-1">
-                             <LayoutTemplate className="w-3 h-3" /> سایز نوشته
-                          </label>
-                          <select 
-                            value={styles.fontSize}
-                            onChange={(e) => setStyles({...styles, fontSize: e.target.value})}
-                            className="w-full bg-[#0a0e27] border border-white/10 rounded-lg p-2 text-white text-sm focus:border-[#ff00ea] outline-none"
-                          >
-                             {SIZE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                          </select>
-                       </div>
-
-                       <div className="grid grid-cols-2 gap-4">
-                           <div className="space-y-2">
-                              <label className="text-xs text-[#00f0ff] font-bold flex items-center gap-1">
-                                 <Palette className="w-3 h-3" /> رنگ متن
-                              </label>
-                              <div className="flex items-center gap-2 bg-[#0a0e27] p-2 rounded-lg border border-white/10">
-                                 <input 
-                                   type="color" 
-                                   value={styles.color}
-                                   onChange={(e) => setStyles({...styles, color: e.target.value})}
-                                   className="w-8 h-8 rounded cursor-pointer bg-transparent border-none"
-                                 />
-                                 <span className="text-xs text-white/60 font-mono">{styles.color}</span>
-                              </div>
-                           </div>
-
-                           <div className="space-y-2">
-                              <label className="text-xs text-[#00f0ff] font-bold flex items-center gap-1">
-                                 <Palette className="w-3 h-3" /> پس‌زمینه
-                              </label>
-                               <div className="flex items-center gap-2 bg-[#0a0e27] p-2 rounded-lg border border-white/10">
-                                 <input 
-                                   type="color" // HTML color input doesn't support alpha well visually, but standard VTT accepts hex/rgba
-                                   value={styles.backgroundColor.slice(0, 7)} // Basic hex for picker
-                                   onChange={(e) => setStyles({...styles, backgroundColor: e.target.value})}
-                                   className="w-8 h-8 rounded cursor-pointer bg-transparent border-none"
-                                 />
-                                 <span className="text-xs text-white/60 font-mono">Solid</span>
-                              </div>
-                           </div>
-                       </div>
+                {/* Templates (Only for VTT/ASS) */}
+                {format !== 'srt' && (
+                    <div className="mb-6 space-y-3">
+                         <label className="text-xs text-text-muted font-bold block uppercase">قالب‌های آماده</label>
+                         <div className="grid grid-cols-2 gap-2">
+                             {Object.entries(STYLE_TEMPLATES).map(([key, tmpl]) => (
+                                 <button
+                                    key={key}
+                                    onClick={() => applyTemplate(key)}
+                                    className={`px-2 py-2 text-xs font-medium rounded-lg transition-all border ${activeTemplate === key ? 'bg-white/10 border-white text-white' : 'border-border text-text-muted hover:text-text'}`}
+                                 >
+                                     {tmpl.name}
+                                 </button>
+                             ))}
+                             <button
+                                onClick={() => setActiveTemplate('custom')}
+                                className={`px-2 py-2 text-xs font-medium rounded-lg transition-all border ${activeTemplate === 'custom' ? 'bg-white/10 border-white text-white' : 'border-border text-text-muted hover:text-text'}`}
+                             >
+                                 شخصی‌سازی
+                             </button>
+                         </div>
                     </div>
+                )}
+            </div>
 
-                    {/* Preview */}
-                    <div className="bg-gray-800 rounded-xl overflow-hidden border border-white/20 relative min-h-[200px] flex items-end justify-center pb-8 bg-[url('https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center">
-                        <div className="absolute inset-0 bg-black/20"></div>
-                        <div className="relative z-10 max-w-[90%] text-center">
-                            <span 
-                                style={{
-                                    fontFamily: styles.fontFamily.split(',')[0].replace(/"/g, ''),
-                                    fontSize: styles.fontSize === '100%' ? '16px' : styles.fontSize === '80%' ? '13px' : styles.fontSize === '125%' ? '20px' : styles.fontSize === '150%' ? '24px' : '32px',
-                                    color: styles.color,
-                                    backgroundColor: styles.backgroundColor,
-                                    padding: '4px 8px',
-                                    borderRadius: '4px',
-                                    lineHeight: '1.5',
-                                    display: 'inline-block'
-                                }}
+            {/* Main Content Area */}
+            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-background">
+                
+                {format === 'srt' ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center text-text-muted space-y-4">
+                        <div className="p-4 rounded-full bg-surface border border-border">
+                             <FileText className="w-8 h-8 opacity-50" />
+                        </div>
+                        <p className="max-w-xs">فرمت SRT ساده‌ترین فرمت زیرنویس است و از تنظیمات رنگ و فونت پشتیبانی نمی‌کند.</p>
+                        <button onClick={() => setFormat('ass')} className="text-primary text-sm hover:underline">
+                            تغییر به فرمت حرفه‌ای (ASS)
+                        </button>
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        
+                        {/* Improved Toggle Switch Row */}
+                        <div className="flex items-center justify-between bg-surface/50 p-4 rounded-xl border border-border">
+                            <div className="flex flex-col gap-1">
+                                <h3 className="text-base font-bold text-text">تنظیمات ظاهری</h3>
+                                <span className="text-xs text-text-muted">شخصی‌سازی رنگ و فونت زیرنویس</span>
+                            </div>
+                            
+                            {/* Toggle Button with enforced LTR for predictable mechanics */}
+                            <button 
+                                onClick={() => setUseStyles(!useStyles)}
+                                dir="ltr" 
+                                className={`relative w-14 h-8 rounded-full transition-colors duration-300 ease-in-out focus:outline-none flex items-center p-1 ${useStyles ? 'bg-secondary' : 'bg-gray-700'}`}
                             >
-                                این یک متن نمونه زیرنویس است
-                                <br />
-                                Sample Subtitle Text
-                            </span>
+                                <span 
+                                    className={`block w-6 h-6 bg-white rounded-full shadow-md transform transition-transform duration-300 ease-in-out ${useStyles ? 'translate-x-6' : 'translate-x-0'}`} 
+                                />
+                            </button>
+                        </div>
+
+                        {useStyles && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-2">
+                                {/* Font & Size */}
+                                <div className="space-y-4">
+                                     <div className="space-y-2">
+                                        <label className="text-xs text-primary font-bold">فونت</label>
+                                        <select 
+                                            value={styles.fontFamily}
+                                            onChange={(e) => { setStyles({...styles, fontFamily: e.target.value}); setActiveTemplate('custom'); }}
+                                            className="w-full bg-[#0a0e27] border border-border rounded-lg p-2 text-white text-sm focus:border-secondary outline-none appearance-none"
+                                        >
+                                            {FONT_OPTIONS.map(opt => (
+                                                <option key={opt.value} value={opt.value} className="bg-[#0a0e27] text-white py-2">
+                                                    {opt.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                     </div>
+                                     <div className="space-y-2">
+                                        <label className="text-xs text-primary font-bold">سایز (Pt)</label>
+                                        <input 
+                                            type="number" 
+                                            value={styles.fontSize}
+                                            onChange={(e) => { setStyles({...styles, fontSize: parseInt(e.target.value)}); setActiveTemplate('custom'); }}
+                                            className="w-full bg-surface border border-border rounded-lg p-2 text-text text-sm focus:border-secondary outline-none"
+                                        />
+                                     </div>
+                                     <div className="flex items-center gap-4 pt-2">
+                                         <label className="flex items-center gap-2 cursor-pointer">
+                                             <input 
+                                                type="checkbox" 
+                                                checked={styles.isBold}
+                                                onChange={(e) => { setStyles({...styles, isBold: e.target.checked}); setActiveTemplate('custom'); }}
+                                                className="accent-secondary"
+                                             />
+                                             <span className="text-sm text-text">Bold</span>
+                                         </label>
+                                     </div>
+                                </div>
+
+                                {/* Colors */}
+                                <div className="space-y-4">
+                                     <div className="flex items-center justify-between">
+                                        <label className="text-xs text-primary font-bold">رنگ اصلی</label>
+                                        <input 
+                                            type="color" 
+                                            value={styles.primaryColor}
+                                            onChange={(e) => { setStyles({...styles, primaryColor: e.target.value}); setActiveTemplate('custom'); }}
+                                            className="w-8 h-8 rounded bg-transparent cursor-pointer"
+                                        />
+                                     </div>
+                                     <div className="flex items-center justify-between">
+                                        <label className="text-xs text-primary font-bold">رنگ حاشیه/سایه</label>
+                                        <input 
+                                            type="color" 
+                                            value={styles.secondaryColor}
+                                            onChange={(e) => { setStyles({...styles, secondaryColor: e.target.value}); setActiveTemplate('custom'); }}
+                                            className="w-8 h-8 rounded bg-transparent cursor-pointer"
+                                        />
+                                     </div>
+                                     <div className="flex items-center justify-between">
+                                        <label className="text-xs text-primary font-bold">رنگ پس‌زمینه (Box)</label>
+                                        <input 
+                                            type="color" 
+                                            value={styles.backgroundColor}
+                                            onChange={(e) => { setStyles({...styles, backgroundColor: e.target.value}); setActiveTemplate('custom'); }}
+                                            className="w-8 h-8 rounded bg-transparent cursor-pointer"
+                                        />
+                                     </div>
+                                </div>
+
+                                {/* Border & Style */}
+                                <div className="space-y-4 md:col-span-2">
+                                     <div className="space-y-2">
+                                        <label className="text-xs text-primary font-bold">استایل حاشیه</label>
+                                        <div className="flex bg-surface p-1 rounded-lg border border-border">
+                                            <button onClick={() => { setStyles({...styles, borderStyle: 'outline'}); setActiveTemplate('custom'); }} className={`flex-1 py-1 text-xs rounded ${styles.borderStyle === 'outline' ? 'bg-primary text-background font-bold' : 'text-text-muted'}`}>Outline</button>
+                                            <button onClick={() => { setStyles({...styles, borderStyle: 'box'}); setActiveTemplate('custom'); }} className={`flex-1 py-1 text-xs rounded ${styles.borderStyle === 'box' ? 'bg-primary text-background font-bold' : 'text-text-muted'}`}>Box</button>
+                                            <button onClick={() => { setStyles({...styles, borderStyle: 'none'}); setActiveTemplate('custom'); }} className={`flex-1 py-1 text-xs rounded ${styles.borderStyle === 'none' ? 'bg-primary text-background font-bold' : 'text-text-muted'}`}>None</button>
+                                        </div>
+                                     </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Preview Box */}
+                        <div className="mt-4 bg-gray-800 rounded-xl overflow-hidden border border-border relative h-40 flex items-end justify-center pb-6 bg-[url('https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center">
+                            <div className="absolute inset-0 bg-black/10"></div>
+                            {useStyles ? (
+                                <div 
+                                    style={{
+                                        fontFamily: styles.fontFamily.split(',')[0],
+                                        fontSize: `${Math.max(14, styles.fontSize)}px`, // Min size for preview readability
+                                        color: styles.primaryColor,
+                                        fontWeight: styles.isBold ? 'bold' : 'normal',
+                                        textShadow: styles.borderStyle === 'outline' ? 
+                                            `-1px -1px 0 ${styles.secondaryColor}, 1px -1px 0 ${styles.secondaryColor}, -1px 1px 0 ${styles.secondaryColor}, 1px 1px 0 ${styles.secondaryColor}` : 'none',
+                                        backgroundColor: styles.borderStyle === 'box' ? styles.backgroundColor : 'transparent',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        textAlign: 'center'
+                                    }}
+                                    className="relative z-10"
+                                >
+                                    پیش‌نمایش زیرنویس
+                                    <br />
+                                    Subtitle Preview
+                                </div>
+                            ) : (
+                                <div className="text-white text-lg drop-shadow-md relative z-10">
+                                    پیش‌نمایش زیرنویس (Default)
+                                </div>
+                            )}
                         </div>
                     </div>
-                 </div>
-               )}
+                )}
             </div>
-          )}
-
         </div>
 
-        <div className="p-6 border-t border-white/10 flex justify-end">
+        <div className="p-4 border-t border-border bg-background flex justify-between items-center">
+           <span className="text-xs text-text-muted">
+               {format === 'ass' ? 'پیشنهاد: بهترین کیفیت با ASS' : format === 'vtt' ? 'مناسب برای وب' : 'ساده و استاندارد'}
+           </span>
            <button 
               onClick={handleConfirm}
-              className="bg-gradient-to-r from-[#00f0ff] to-[#ff00ea] text-white font-bold py-3 px-8 rounded-xl shadow-[0_0_20px_rgba(0,240,255,0.3)] hover:shadow-[0_0_30px_rgba(0,240,255,0.5)] transition-all flex items-center gap-2"
+              className="bg-gradient-to-r from-primary to-secondary text-white font-bold py-2.5 px-8 rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2"
            >
               <Download className="w-5 h-5" />
-              دانلود فایل نهایی
+              دانلود
            </button>
         </div>
 
@@ -234,3 +313,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
     </div>
   );
 };
+
+// Helper for icon needed above but not imported (FileText was imported though)
+function FileText({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" x2="8" y1="13" y2="13"/>
+            <line x1="16" x2="8" y1="17" y2="17"/>
+            <line x1="10" x2="8" y1="9" y2="9"/>
+        </svg>
+    );
+}

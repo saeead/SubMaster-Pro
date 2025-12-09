@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, Check, FileText, BookOpen, MessageSquareText } from 'lucide-react';
+import { Settings, BookOpen, MessageSquareText, ShieldCheck } from 'lucide-react';
 import { AppSettings, ToneType, TopicType } from '../types';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 import { TemperatureControl } from './TemperatureControl';
@@ -63,11 +63,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
          <div className="animate-in fade-in slide-in-from-right-4">
              <button 
                 onClick={onOpenGlossary}
-                className="w-full py-2.5 px-4 rounded-xl border border-[#ff00ea]/30 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-white font-medium flex items-center justify-between group transition-all"
+                className="w-full py-3 px-4 rounded-xl border border-[#ff00ea]/30 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-white font-medium flex items-center justify-between group transition-all"
              >
                 <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-[#ff00ea]" />
-                    <span className="text-xs">واژه‌نامه اختصاصی</span>
+                    <BookOpen className="w-5 h-5 text-[#ff00ea]" />
+                    <span className="text-sm">واژه‌نامه اختصاصی</span>
                 </div>
                 {settings.glossary && settings.glossary.length > 0 && (
                     <span className="bg-[#ff00ea] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
@@ -78,42 +78,63 @@ export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, onOp
          </div>
       )}
 
-      {/* Output Format */}
-      <div className="space-y-2">
-        <label className="text-xs text-white/50 font-bold tracking-wide uppercase">فرمت خروجی</label>
-        <div className="flex bg-[#0a0e27]/50 p-1 rounded-xl border border-white/10">
-          <button 
-            onClick={() => updateSettings({ outputFormat: 'vtt' })}
-            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputFormat === 'vtt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
-          >
-            VTT
-          </button>
-          <button 
-            onClick={() => updateSettings({ outputFormat: 'srt' })}
-            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputFormat === 'srt' ? 'bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'text-white/50 hover:text-white'}`}
-          >
-            SRT
-          </button>
-        </div>
-      </div>
-
       {/* Output Standard */}
-      <div className="space-y-2">
-        <label className="text-xs text-white/50 font-bold tracking-wide uppercase">استاندارد خروجی</label>
-        <div className="flex bg-[#0a0e27]/50 p-1 rounded-xl border border-white/10">
-          <button 
-            onClick={() => updateSettings({ outputStandard: 'normal' })}
-            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputStandard === 'normal' ? 'bg-white/10 text-white shadow' : 'text-white/50 hover:text-white'}`}
-          >
-            Normal
-          </button>
-          <button 
-            onClick={() => updateSettings({ outputStandard: 'netflix' })}
-            className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914] text-white shadow-[0_0_10px_rgba(229,9,20,0.4)]' : 'text-white/50 hover:text-white'}`}
-          >
-            Netflix
-          </button>
+      <div className="space-y-3 bg-[#0a0e27]/40 p-3 rounded-xl border border-white/5">
+        <div className="flex items-center gap-2 mb-1">
+            <ShieldCheck className="w-4 h-4 text-white/70" />
+            <label className="text-xs text-white/70 font-bold uppercase">استاندارد خروجی</label>
         </div>
+        
+        <div className="grid grid-cols-2 gap-2">
+            <button 
+                onClick={() => updateSettings({ outputStandard: 'normal' })}
+                className={`
+                    relative overflow-hidden p-3 rounded-lg border transition-all text-right group
+                    ${settings.outputStandard === 'normal' 
+                        ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white shadow-[0_0_15px_rgba(0,240,255,0.1)]' 
+                        : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10 hover:border-white/10'
+                    }
+                `}
+            >
+                <div className="text-xs font-bold mb-1">Normal</div>
+                <div className="text-[9px] opacity-70 leading-tight">تنظیمات پیش‌فرض</div>
+                {settings.outputStandard === 'normal' && <div className="absolute top-0 right-0 w-2 h-2 bg-[#00f0ff] rounded-bl-lg shadow-[0_0_5px_#00f0ff]"></div>}
+            </button>
+
+            <button 
+                onClick={() => updateSettings({ outputStandard: 'netflix' })}
+                className={`
+                    relative overflow-hidden p-3 rounded-lg border transition-all text-right group
+                    ${settings.outputStandard === 'netflix' 
+                        ? 'bg-[#E50914]/10 border-[#E50914] text-white shadow-[0_0_15px_rgba(229,9,20,0.1)]' 
+                        : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10 hover:border-white/10'
+                    }
+                `}
+            >
+                 <div className="text-xs font-bold mb-1 text-[#E50914] group-hover:text-[#ff4f58] transition-colors">Netflix</div>
+                 <div className="text-[9px] opacity-70 leading-tight">استاندارد سخت‌گیرانه</div>
+                 {settings.outputStandard === 'netflix' && <div className="absolute top-0 right-0 w-2 h-2 bg-[#E50914] rounded-bl-lg shadow-[0_0_5px_#E50914]"></div>}
+            </button>
+        </div>
+
+        {settings.outputStandard === 'netflix' && (
+            <div className="text-[9px] text-white/40 px-2 py-1 bg-white/5 rounded border border-white/5 animate-in fade-in slide-in-from-top-1">
+                <ul className="space-y-1">
+                    <li className="flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-[#E50914]"></span>
+                        حداکثر ۴۲ کاراکتر در خط
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-[#E50914]"></span>
+                        محدودیت ۲ خط در زیرنویس
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-[#E50914]"></span>
+                        کنترل سرعت خواندن (CPS)
+                    </li>
+                </ul>
+            </div>
+        )}
       </div>
 
       {/* Temperature Control */}

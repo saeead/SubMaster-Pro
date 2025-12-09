@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SubMaster Pro | مترجم هوشمند زیرنویس</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              background: 'var(--bg-main)',
+              surface: 'var(--bg-surface)',
+              surfaceHighlight: 'var(--bg-surface-highlight)',
+              border: 'var(--border-color)',
+              text: {
+                DEFAULT: 'var(--text-main)',
+                muted: 'var(--text-muted)'
+              },
+              primary: 'var(--neon-primary)',
+              secondary: 'var(--neon-secondary)'
+            }
+          }
+        }
+      }
+    </script>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,23 +34,61 @@
     
     <style>
       :root {
+        /* Dark Mode (Default) */
+        --bg-main: #0a0e27;
+        --bg-surface: rgba(255, 255, 255, 0.05);
+        --bg-surface-highlight: rgba(255, 255, 255, 0.1);
+        --border-color: rgba(255, 255, 255, 0.1);
+        --text-main: #ffffff;
+        --text-muted: #a0aec0;
+        
         --glass-bg: rgba(255, 255, 255, 0.05);
         --glass-border: rgba(255, 255, 255, 0.1);
+        
         --neon-primary: #00f0ff;
         --neon-secondary: #ff00ea;
-        --bg-dark: #0a0e27;
-        --text-primary: #ffffff;
-        --text-secondary: #a0aec0;
       }
+
+      :root[data-theme="light"] {
+        /* Light Mode */
+        --bg-main: #f0f4f8;
+        --bg-surface: #ffffff;
+        --bg-surface-highlight: #e2e8f0;
+        --border-color: #cbd5e0;
+        --text-main: #1a202c;
+        --text-muted: #718096;
+        
+        --glass-bg: rgba(255, 255, 255, 0.8);
+        --glass-border: rgba(203, 213, 224, 0.5);
+        
+        --neon-primary: #007780;
+        --neon-secondary: #aa0099;
+      }
+
       body {
         font-family: 'Vazirmatn', sans-serif;
-        background-color: var(--bg-dark);
-        color: var(--text-primary);
-        background-image: 
-          radial-gradient(circle at 10% 20%, rgba(0, 240, 255, 0.1) 0%, transparent 20%),
-          radial-gradient(circle at 90% 80%, rgba(255, 0, 234, 0.1) 0%, transparent 20%);
+        background-color: var(--bg-main);
+        color: var(--text-main);
+        transition: background-color 0.3s ease, color 0.3s ease;
         min-height: 100vh;
       }
+
+      /* Dynamic Background Gradient */
+      body::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+        background-image: 
+          radial-gradient(circle at 10% 20%, var(--neon-primary) 0%, transparent 20%),
+          radial-gradient(circle at 90% 80%, var(--neon-secondary) 0%, transparent 20%);
+        opacity: 0.1;
+        pointer-events: none;
+      }
+
       .font-montserrat {
         font-family: 'Montserrat', sans-serif;
       }
@@ -39,8 +98,8 @@
         background: var(--glass-bg);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--border-color);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
       }
       
       /* Scrollbar */
@@ -49,14 +108,14 @@
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: rgba(10, 14, 39, 0.5);
+        background: var(--bg-surface);
       }
       ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--border-color);
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.2);
+        background: var(--text-muted);
       }
 
       /* Animations */
@@ -68,7 +127,6 @@
         animation: pulse-neon 2s infinite;
       }
     </style>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>

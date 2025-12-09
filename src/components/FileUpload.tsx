@@ -2,12 +2,12 @@
 
 import React, { useRef, useState } from 'react';
 import { Upload, AlertCircle, Copy } from 'lucide-react';
-import { parseSRT, parseVTT, optimizeSubtitleBlocks } from '../services/subtitleUtils';
+import { parseSRT, parseVTT, parseASS, optimizeSubtitleBlocks } from '../services/subtitleUtils';
 import { SubtitleBlock, AppStatus } from '../types';
 import { APP_CONFIG } from '../constants';
 
 interface FileUploadProps {
-  onLoad: (files: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number }[]) => void;
+  onLoad: (files: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[]) => void;
   status: AppStatus;
   onError: (msg: string) => void;
   outputStandard: 'normal' | 'netflix';
@@ -46,7 +46,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
       return;
     }
 
-    const processedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number }[] = [];
+    const processedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[] = [];
 
     try {
       for (let i = 0; i < files.length; i++) {
@@ -54,12 +54,16 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
         const text = await file.text();
         let blocks: SubtitleBlock[] = [];
         const extension = file.name.split('.').pop()?.toLowerCase();
-        const type = extension === 'srt' ? 'SRT' : 'VTT';
+        let type: 'SRT' | 'VTT' | 'ASS' = 'SRT';
 
-        if (type === 'SRT') {
-          blocks = parseSRT(text);
-        } else {
+        if (extension === 'vtt') {
+          type = 'VTT';
           blocks = parseVTT(text);
+        } else if (extension === 'ass' || extension === 'ssa') {
+          type = 'ASS';
+          blocks = parseASS(text);
+        } else {
+          blocks = parseSRT(text);
         }
 
         if (blocks.length > 0) {
@@ -121,8 +125,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
         className={`
           glass relative overflow-hidden rounded-3xl p-12 text-center cursor-pointer transition-all duration-300 group
           ${isDragging 
-            ? 'border-[#00f0ff] bg-[#00f0ff]/5' 
-            : 'border-white/10 hover:border-[#00f0ff]/50 hover:bg-white/5'
+            ? 'border-primary bg-primary/5' 
+            : 'border-border hover:border-primary/50 hover:bg-surface'
           }
         `}
       >
@@ -131,30 +135,30 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
           ref={inputRef} 
           onChange={handleChange} 
           className="hidden" 
-          accept=".srt,.vtt"
+          accept=".srt,.vtt,.ass,.ssa"
           multiple
         />
         
         {/* Glow Effect */}
-        <div className={`absolute inset-0 bg-gradient-to-r from-[#00f0ff]/0 via-[#00f0ff]/5 to-[#00f0ff]/0 transition-transform duration-1000 ${isDragging ? 'translate-x-0' : '-translate-x-full'}`}></div>
+        <div className={`absolute inset-0 bg-gradient-to-r from-primary/0 via-primary/5 to-primary/0 transition-transform duration-1000 ${isDragging ? 'translate-x-0' : '-translate-x-full'}`}></div>
 
         <div className="relative z-10 flex flex-col items-center justify-center space-y-6">
-          <div className={`p-6 rounded-2xl transition-all duration-300 ${isDragging ? 'bg-[#00f0ff] shadow-[0_0_30px_rgba(0,240,255,0.4)]' : 'bg-[#0a0e27] border border-white/10 group-hover:border-[#00f0ff]/50 group-hover:shadow-[0_0_20px_rgba(0,240,255,0.2)]'}`}>
+          <div className={`p-6 rounded-2xl transition-all duration-300 ${isDragging ? 'bg-primary shadow-[0_0_30px_rgba(0,240,255,0.4)]' : 'bg-background border border-border group-hover:border-primary/50 group-hover:shadow-[0_0_20px_rgba(0,240,255,0.2)]'}`}>
             <div className="relative">
-                 <Upload className={`w-10 h-10 ${isDragging ? 'text-[#0a0e27]' : 'text-[#00f0ff]'}`} />
-                 <Copy className={`absolute -right-2 -bottom-2 w-5 h-5 ${isDragging ? 'text-[#0a0e27]/70' : 'text-[#ff00ea]'}`} />
+                 <Upload className={`w-10 h-10 ${isDragging ? 'text-background' : 'text-primary'}`} />
+                 <Copy className={`absolute -right-2 -bottom-2 w-5 h-5 ${isDragging ? 'text-background/70' : 'text-secondary'}`} />
             </div>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-white mb-2">فایل‌ها را بکشید و رها کنید</h3>
-            <p className="text-white/50">پشتیبانی از آپلود همزمان تا {APP_CONFIG.maxFilesPerUpload} فایل</p>
+            <h3 className="text-2xl font-bold text-text mb-2">فایل‌ها را بکشید و رها کنید</h3>
+            <p className="text-text-muted">پشتیبانی از آپلود همزمان تا {APP_CONFIG.maxFilesPerUpload} فایل</p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-white/30 bg-white/5 px-3 py-1 rounded-full border border-white/5">
-            <span className="uppercase">srt, vtt</span>
+          <div className="flex items-center gap-2 text-xs text-text-muted bg-surface px-3 py-1 rounded-full border border-border">
+            <span className="uppercase">srt, vtt, ass</span>
             <span>|</span>
             <span>Batch Supported</span>
             <span>|</span>
-            <span className={`${outputStandard === 'netflix' ? 'text-[#E50914]' : 'text-[#00f0ff]'}`}>
+            <span className={`${outputStandard === 'netflix' ? 'text-[#E50914]' : 'text-primary'}`}>
                 {outputStandard === 'netflix' ? 'Netflix Optimized' : 'Standard Optimized'}
             </span>
           </div>

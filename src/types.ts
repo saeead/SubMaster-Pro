@@ -25,8 +25,8 @@ export interface SubtitleFile {
   id: string; // Unique UUID
   name: string;
   size: number;
-  type: 'SRT' | 'VTT';
-  originalType: 'SRT' | 'VTT';
+  type: 'SRT' | 'VTT' | 'ASS';
+  originalType: 'SRT' | 'VTT' | 'ASS';
   blocks: SubtitleBlock[];
   status: AppStatus;
   progress: number;
@@ -74,13 +74,14 @@ export interface AppSettings {
   tone: ToneType;
   topic: TopicType;
   temperature: number; // New field for Translation Quality
-  outputFormat: 'srt' | 'vtt';
+  outputFormat: 'srt' | 'vtt' | 'ass';
   outputStandard: 'normal' | 'netflix';
   model: ModelType;
   customPrompt: string;
   apiKeys: UserAPIKey[];
   enableTranslationMemory: boolean;
   glossary: GlossaryItem[];
+  theme: 'dark' | 'light';
 }
 
 // --- NEW TYPES FOR TIMING & QC ---
@@ -99,13 +100,35 @@ export interface NetflixError {
   message: string;
 }
 
-// --- NEW TYPES FOR VTT STYLING ---
+// --- NEW TYPES FOR STYLING & ASS ---
 
+export interface StyleConfig {
+  useStyles: boolean;
+  templateId?: string;
+  fontFamily: string;
+  fontSize: number; // For ASS (e.g. 20)
+  primaryColor: string; // Hex
+  secondaryColor?: string; // Hex (Outline/Shadow)
+  backgroundColor: string; // Hex (Box)
+  isBold: boolean;
+  borderStyle: 'outline' | 'box' | 'none'; 
+  outlineWidth: number;
+  shadowDepth: number;
+  alignment: number; // ASS alignment (2 = Bottom Center)
+}
+
+// VTT specific subset for compatibility
 export interface VttStyleConfig {
   useStyles: boolean;
   fontFamily: string;
-  fontSize: string; // e.g., "100%", "1.2em"
-  color: string; // hex
-  backgroundColor: string; // hex or rgba
+  fontSize: string; 
+  color: string; 
+  backgroundColor: string; 
   textShadow: string;
+}
+
+export interface StyleTemplate {
+  id: string;
+  name: string;
+  config: StyleConfig;
 }

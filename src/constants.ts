@@ -1,14 +1,14 @@
 
 
-import { ToneType, TopicType, GlossaryItem } from "./types";
+import { ToneType, TopicType, GlossaryItem, StyleTemplate } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.20",
+  version: "1.30",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB
   maxFilesPerUpload: 10,
-  supportedFormats: ['srt', 'vtt'],
+  supportedFormats: ['srt', 'vtt', 'ass'],
   geminiModels: {
     standard: 'gemini-2.5-pro',
     professional: 'gemini-3-pro-preview',
@@ -70,6 +70,77 @@ export const TOPIC_TEMPERATURE_DEFAULTS: Record<TopicType, { value: number; desc
   podcast: { value: 0.6, description: "متعادل، حفظ لحن گفتگومحور" },
   news: { value: 0.2, description: "دقت بسیار بالا، رسمی و بی‌طرفانه" },
   sports: { value: 0.5, description: "متعادل، حفظ هیجان و اصطلاحات" }
+};
+
+export const STYLE_TEMPLATES: Record<string, StyleTemplate> = {
+  netflix: {
+    id: 'netflix',
+    name: 'Netflix Style',
+    config: {
+      useStyles: true,
+      fontFamily: 'Arial',
+      fontSize: 22,
+      primaryColor: '#FFFFE0', // Light Yellow
+      secondaryColor: '#000000',
+      backgroundColor: '#000000',
+      isBold: true,
+      borderStyle: 'outline',
+      outlineWidth: 2,
+      shadowDepth: 2,
+      alignment: 2
+    }
+  },
+  youtube: {
+    id: 'youtube',
+    name: 'YouTube Style',
+    config: {
+      useStyles: true,
+      fontFamily: 'Roboto',
+      fontSize: 20,
+      primaryColor: '#FFFFFF',
+      secondaryColor: '#000000',
+      backgroundColor: '#000000', // Opaque Box
+      isBold: false,
+      borderStyle: 'box',
+      outlineWidth: 0,
+      shadowDepth: 0,
+      alignment: 2
+    }
+  },
+  professional: {
+    id: 'professional',
+    name: 'حرفه‌ای (Hard Sub)',
+    config: {
+      useStyles: true,
+      fontFamily: 'Vazirmatn',
+      fontSize: 24,
+      primaryColor: '#FFFFFF',
+      secondaryColor: '#000000',
+      backgroundColor: '#000000',
+      isBold: true,
+      borderStyle: 'outline',
+      outlineWidth: 2.5,
+      shadowDepth: 1,
+      alignment: 2
+    }
+  },
+  minimal: {
+    id: 'minimal',
+    name: 'ساده و مینیمال',
+    config: {
+      useStyles: true,
+      fontFamily: 'Tahoma',
+      fontSize: 18,
+      primaryColor: '#E0E0E0',
+      secondaryColor: '#000000',
+      backgroundColor: '#000000',
+      isBold: false,
+      borderStyle: 'outline',
+      outlineWidth: 1,
+      shadowDepth: 0,
+      alignment: 2
+    }
+  }
 };
 
 const SYSTEM_PROMPTS = {
@@ -207,5 +278,6 @@ ${glossary.map(item => `- ${item.term} -> ${item.translation}`).join('\n')}
 
 export const FILE_EXTENSIONS = {
   SRT: '.srt',
-  VTT: '.vtt'
+  VTT: '.vtt',
+  ASS: '.ass'
 };

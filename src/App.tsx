@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Header } from './components/Header';
@@ -11,12 +12,12 @@ import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, VttStyleConfig, GlossaryItem, SubtitleFile } from './types';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, StyleConfig, GlossaryItem, SubtitleFile } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, File, Check, X as XIcon } from 'lucide-react';
+import { Loader2, File, Check, X as XIcon, Wand2 } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -40,14 +41,15 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     tone: 'conversational',
     topic: 'educational',
-    temperature: 0.3, // Default for educational
+    temperature: 0.3, 
     outputFormat: 'vtt', 
     outputStandard: 'normal',
     model: 'flash',
     customPrompt: '',
     apiKeys: [],
     enableTranslationMemory: true,
-    glossary: []
+    glossary: [],
+    theme: 'dark'
   });
 
   // Refs for processing
@@ -57,6 +59,18 @@ const App: React.FC = () => {
 
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  // Apply Theme
+  useEffect(() => {
+     const root = document.documentElement;
+     if (settings.theme === 'light') {
+         root.setAttribute('data-theme', 'light');
+         root.classList.remove('dark');
+     } else {
+         root.removeAttribute('data-theme');
+         root.classList.add('dark');
+     }
+  }, [settings.theme]);
 
   // Load settings and version from localStorage on mount
   useEffect(() => {
@@ -68,7 +82,8 @@ const App: React.FC = () => {
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         if (!parsed.glossary) parsed.glossary = [];
-        if (parsed.temperature === undefined) parsed.temperature = 0.7; // Fallback
+        if (parsed.temperature === undefined) parsed.temperature = 0.7; 
+        if (!parsed.theme) parsed.theme = 'dark';
         setSettings(prev => ({ ...prev, ...parsed }));
       } catch (error) {
         console.error('Failed to load settings from local storage:', error);
@@ -85,41 +100,14 @@ const App: React.FC = () => {
   useEffect(() => {
     const preset = TOPIC_TEMPERATURE_DEFAULTS[settings.topic];
     if (preset) {
-      // Check if the current temperature is wildly different or just update it?
-      // For better UX, if user changes topic, we assume they want the optimal settings for that topic.
-      // However, we avoid infinite loop or overriding manual adjustment if topic hasn't changed.
-      // Since this effect runs on settings.topic change, it's safe.
       setSettings(prev => {
-        // Prevent update loop if already set (though useEffect dependency array handles this mostly)
         if (prev.temperature === preset.value) return prev;
         return { ...prev, temperature: preset.value };
       });
     }
   }, [settings.topic]);
 
-
-  const checkForUpgrade = (input: string) => {
-    if (input.toLowerCase().includes('upgrade version')) {
-       let currentVersion = APP_CONFIG.version;
-       const parts = currentVersion.split('.');
-       if (parts.length >= 2) {
-         const lastIndex = parts.length - 1;
-         const lastPart = parseInt(parts[lastIndex]);
-         if (!isNaN(lastPart)) {
-             parts[lastIndex] = (lastPart + 1).toString().padStart(parts[lastIndex].length, '0');
-             const newVersion = parts.join('.');
-             APP_CONFIG.version = newVersion;
-             localStorage.setItem(VERSION_STORAGE_KEY, newVersion);
-             alert(`System upgraded to v${newVersion} [Simulated]`);
-         }
-       }
-    }
-  };
-
   const updateSettings = (newSettings: Partial<AppSettings>) => {
-    if (newSettings.customPrompt) {
-        checkForUpgrade(newSettings.customPrompt);
-    }
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
@@ -137,7 +125,7 @@ const App: React.FC = () => {
 
   // --- FILE MANAGEMENT ---
 
-  const handleFilesLoaded = (loadedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT', size: number }[]) => {
+  const handleFilesLoaded = (loadedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[]) => {
     const newFiles: SubtitleFile[] = loadedFiles.map(f => ({
       id: crypto.randomUUID(),
       name: f.filename,
@@ -163,8 +151,6 @@ const App: React.FC = () => {
   };
 
   const resetProject = () => {
-    // If multiple files, confirm before clearing? 
-    // For now, reset everything.
     setFiles([]);
     setActiveFileId(null);
     setToast(null);
@@ -196,9 +182,7 @@ const App: React.FC = () => {
 
   const handleFindReplace = (find: string, replace: string, scope: 'current' | 'all') => {
     if (!find) return;
-    
     let totalOccurrences = 0;
-    
     const targetFiles = scope === 'all' ? files : files.filter(f => f.id === activeFileId);
 
     const updatedFiles = files.map(f => {
@@ -231,21 +215,18 @@ const App: React.FC = () => {
     if (!activeFileId && files.length === 0) return;
 
     let updatedCount = 0;
-    
     setFiles(prev => prev.map(f => {
         const shouldUpdate = scope === 'all' || f.id === activeFileId;
-        
         if (shouldUpdate) {
             updatedCount++;
             return {
                 ...f,
                 blocks: adjustBlockTiming(f.blocks, config),
-                netflixErrors: [] // Clear errors as timing changed
+                netflixErrors: [] 
             };
         }
         return f;
     }));
-    
     showToast(`تغییرات زمان‌بندی روی ${scope === 'all' ? 'همه فایل‌ها' : 'فایل جاری'} اعمال شد.`, 'success');
   };
 
@@ -264,8 +245,6 @@ const App: React.FC = () => {
 
   const handleFixNetflixErrors = () => {
     if (!activeFileId) return;
-    
-    // Fix active file logic
     const file = files.find(f => f.id === activeFileId);
     if (!file) return;
 
@@ -291,11 +270,11 @@ const App: React.FC = () => {
     setIsExportModalOpen(true);
   };
 
-  const handleConfirmDownload = (format: 'srt' | 'vtt', styles?: VttStyleConfig) => {
+  const handleConfirmDownload = (format: 'srt' | 'vtt' | 'ass', styles?: StyleConfig) => {
     const file = getActiveFile();
     if (!file) return;
 
-    const outputName = file.name.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
+    const outputName = file.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_fa.${format}`);
     const content = generateSubtitleFile(file.blocks, format, styles);
     downloadFile(outputName, content);
     setIsExportModalOpen(false);
@@ -306,8 +285,11 @@ const App: React.FC = () => {
       
       files.forEach(f => {
          const format = settings.outputFormat;
-         const outputName = f.name.replace(/\.(srt|vtt)$/i, `_fa.${format}`);
-         const content = generateSubtitleFile(f.blocks, format); // Default styles for bulk
+         const outputName = f.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_fa.${format}`);
+         // We generate with default style config if ASS/VTT is chosen for batch, 
+         // or we could prompt for style, but for ZIP "One Click" we rely on defaults or saved settings.
+         // Assuming basic generation here.
+         const content = generateSubtitleFile(f.blocks, format); 
          zip.file(outputName, content);
       });
 
@@ -336,35 +318,26 @@ const App: React.FC = () => {
      const chunks = smartChunking(file.blocks, BATCH_SIZE);
      const totalChunks = chunks.length;
 
-     // SMART RESUME: Calculate where to start to avoid re-processing or state flooding
      let startChunkIndex = 0;
      let completed = 0;
 
-     // Scan for the first incomplete chunk
      for (let i = 0; i < totalChunks; i++) {
         const chunk = chunks[i];
-        // Identify the "real" blocks belonging to this chunk
         const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
-        
-        // Check if all blocks in this chunk are already translated
         const isChunkComplete = targetBlocks.every(b => !!b.translatedText && b.translatedText.trim() !== '');
-        
         if (isChunkComplete) {
             completed += targetBlocks.length;
             startChunkIndex = i + 1;
         } else {
-            // Found the first chunk that needs work, stop skipping
             break;
         }
      }
      
-     // If resuming, update progress immediately to reflect current state without flooding
      if (startChunkIndex > 0) {
         const initialProgress = (completed / file.blocks.length) * 100;
         updateFileStatus(fileId, { progress: initialProgress, processedCount: completed });
      }
 
-     // Callback to handle API Key Rotation Updates
      const onKeyRateLimit = (failedKey: string) => {
         showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
         setSettings(prev => ({
@@ -374,7 +347,6 @@ const App: React.FC = () => {
      };
 
      for (let i = startChunkIndex; i < totalChunks; i++) {
-        // Check cancellation
         if (!isTranslatingRef.current) {
             updateFileStatus(fileId, { status: AppStatus.CANCELLED, progressMessage: 'لغو شده' });
             return;
@@ -387,7 +359,6 @@ const App: React.FC = () => {
         const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
         const postContextBlocks = chunk.blocks.slice(chunk.targetEndIndex);
 
-        // TM Logic
         let cachedCount = 0;
         if (settingsRef.current.enableTranslationMemory) {
             targetBlocks.forEach(block => {
@@ -399,7 +370,6 @@ const App: React.FC = () => {
                     }
                 }
             });
-            // Update UI if we found matches in this chunk
             if (cachedCount > 0) {
                 setFiles(prev => prev.map(f => f.id === fileId ? { ...f } : f));
             }
@@ -413,10 +383,8 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                // IMPORTANT: Use settingsRef.current to access the LATEST key states/settings during long loops
                 const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit);
 
-                // Update blocks in state
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
                         const newBlocks = [...f.blocks];
@@ -439,12 +407,10 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
-
-                // Handle Rate Limits / Quota Exhaustion Gracefully
                 const errorMessage = (err.message || err.toString() || "").toLowerCase();
                 const isQuotaError = errorMessage.includes("429") || 
                                      errorMessage.includes("quota") || 
-                                     errorMessage.includes("پایان اعتبار") || // Keep original case for Persian just in case
+                                     errorMessage.includes("پایان اعتبار") || 
                                      errorMessage.includes("resource_exhausted") ||
                                      errorMessage.includes("too many requests");
 
@@ -454,8 +420,8 @@ const App: React.FC = () => {
                          progressMessage: 'توقف: پایان اعتبار کلیدها' 
                      });
                      showToast('اعتبار تمام کلیدها به پایان رسید. لطفاً کلید جدید اضافه کنید و دکمه "ادامه ترجمه" را بزنید.', 'error');
-                     isTranslatingRef.current = false; // Stop the global loop
-                     return; // Graceful exit, allows resuming later
+                     isTranslatingRef.current = false; 
+                     return; 
                 }
 
                 updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه' });
@@ -468,7 +434,6 @@ const App: React.FC = () => {
         updateFileStatus(fileId, { progress, processedCount: completed });
      }
 
-     // Post-processing
      let finalBlocks = filesRef.current.find(f => f.id === fileId)?.blocks || [];
      
      if (settingsRef.current.outputStandard === 'netflix') {
@@ -478,7 +443,6 @@ const App: React.FC = () => {
          const errors = validateNetflixStandards(finalBlocks);
          updateFileStatus(fileId, { blocks: finalBlocks, netflixErrors: errors });
      } else {
-         // Even for normal mode, lets run validation just to show status
          const errors = validateNetflixStandards(finalBlocks);
          updateFileStatus(fileId, { netflixErrors: errors });
      }
@@ -506,7 +470,6 @@ const App: React.FC = () => {
     }
     
     if (!hasAvailableKeys) {
-        // Optimistically reset rate limits if all are limited, assuming user might have waited or wants to retry
         setSettings(prev => ({
             ...prev,
             apiKeys: prev.apiKeys.map(k => ({...k, isRateLimited: false}))
@@ -516,7 +479,6 @@ const App: React.FC = () => {
     isTranslatingRef.current = true;
     setCompletionToast(false);
 
-    // Filter pending files (Including PAUSED now to allow resuming)
     const pendingFiles = files.filter(f => 
         f.status === AppStatus.READY || 
         f.status === AppStatus.ERROR || 
@@ -536,30 +498,23 @@ const App: React.FC = () => {
                 stoppedEarly = true;
                 break;
             }
-            
             const file = pendingFiles[i];
-            
-            // Switch tab to current file
             setActiveFileId(file.id);
 
             try {
                 await processFile(file.id);
             } catch (e: any) {
                 console.error(`Failed to process file ${file.name}`, e);
-                // If it was a fatal error that stopped the ref (like quota), we break
                 if (!isTranslatingRef.current) {
                     stoppedEarly = true;
                     break;
                 }
             }
 
-            // Cooldown between files if there are more remaining
             if (i < pendingFiles.length - 1 && isTranslatingRef.current) {
                 const waitTime = DELAY_BETWEEN_FILES_MS;
-                // Update next file status to waiting
                 const nextFileId = pendingFiles[i+1].id;
                 updateFileStatus(nextFileId, { progressMessage: `در انتظار نوبت (${Math.round(waitTime/1000)} ثانیه)...` });
-                
                 await new Promise(resolve => setTimeout(resolve, waitTime));
             }
         }
@@ -567,8 +522,6 @@ const App: React.FC = () => {
         console.error("Batch Loop Error", e);
     } finally {
         isTranslatingRef.current = false;
-        
-        // Only show completed toast if we didn't pause/stop manually
         if (!stoppedEarly) {
             setCompletionToast(true); 
         }
@@ -590,7 +543,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen">
+    <div className="flex flex-col md:flex-row min-h-screen bg-background text-text transition-colors duration-300">
       
       <Sidebar 
         settings={settings} 
@@ -602,18 +555,18 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex flex-col relative overflow-hidden">
         
-        <Header />
+        <Header theme={settings.theme} />
 
         <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-5xl mx-auto pb-24">
             
             {files.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[60vh]">
                      <div className="text-center mb-10 space-y-4">
-                        <h2 className="text-4xl md:text-5xl font-montserrat font-bold text-white leading-tight">
+                        <h2 className="text-4xl md:text-5xl font-montserrat font-bold text-text leading-tight">
                             Translation <br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00f0ff] to-[#ff00ea]">Reimagined</span>
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">Reimagined</span>
                         </h2>
-                        <p className="text-white/60 text-lg max-w-xl mx-auto">
+                        <p className="text-text-muted text-lg max-w-xl mx-auto">
                              مترجم هوشمند با قابلیت تشخیص لحن و موضوع. فایل خود را آپلود کنید و از نتیجه حرفه‌ای لذت ببرید.
                         </p>
                     </div>
@@ -635,8 +588,8 @@ const App: React.FC = () => {
                                 className={`
                                     flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px]
                                     ${activeFileId === file.id 
-                                        ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white shadow-[0_0_15px_rgba(0,240,255,0.1)]' 
-                                        : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' 
+                                        : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'
                                     }
                                 `}
                             >
@@ -645,7 +598,7 @@ const App: React.FC = () => {
                                     file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' :
                                     file.status === AppStatus.ERROR ? 'bg-red-500' :
                                     file.status === AppStatus.PAUSED ? 'bg-orange-400' :
-                                    'bg-white/20'
+                                    'bg-text/20'
                                 }`}></div>
                                 <span className="truncate text-sm font-medium direction-ltr">{file.name}</span>
                                 {file.status === AppStatus.COMPLETED && <Check className="w-3 h-3 text-green-500 ml-auto" />}
@@ -667,12 +620,16 @@ const App: React.FC = () => {
                         onFixErrors={handleFixNetflixErrors}
                     />
 
-                    <div className="mb-6 glass p-4 rounded-xl border border-white/10">
+                    <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
+                         <label className="text-sm font-bold text-white/70 flex items-center gap-2">
+                             <Wand2 className="w-4 h-4 text-[#ff00ea]" />
+                             پرامپت اختصاصی (Custom Prompt)
+                         </label>
                          <textarea 
                             value={settings.customPrompt}
                             onChange={(e) => updateSettings({ customPrompt: e.target.value })}
                             placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید... (مثلاً: همیشه واژه 'Galaxy' را به 'کهکشان' ترجمه کن)"
-                            className="w-full bg-transparent text-sm text-white placeholder-white/30 focus:outline-none resize-none h-12"
+                            className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all"
                          />
                     </div>
                     
@@ -687,7 +644,7 @@ const App: React.FC = () => {
             )}
         </main>
         
-        <footer className="w-full py-6 text-center text-white/20 text-xs border-t border-white/5 mt-auto">
+        <footer className="w-full py-6 text-center text-text-muted text-xs border-t border-border mt-auto">
             <p className="font-montserrat">Designed and developed with ❤️ by Saeid Bagherian</p>
         </footer>
       </div>
@@ -728,16 +685,16 @@ const App: React.FC = () => {
       />
 
        {files.some(f => f.status === AppStatus.TRANSLATING) && (
-            <div className="fixed bottom-8 right-8 glass border border-[#00f0ff]/50 text-white px-6 py-4 rounded-2xl shadow-[0_0_30px_rgba(0,0,0,0.5)] flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
+            <div className="fixed bottom-8 right-8 glass border border-primary/50 text-text px-6 py-4 rounded-2xl shadow-[0_0_30px_rgba(0,0,0,0.5)] flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
                 <div className="relative">
-                     <div className="absolute inset-0 bg-[#00f0ff] blur opacity-50 animate-pulse"></div>
-                     <Loader2 className="w-6 h-6 animate-spin text-[#00f0ff] relative z-10" />
+                     <div className="absolute inset-0 bg-primary blur opacity-50 animate-pulse"></div>
+                     <Loader2 className="w-6 h-6 animate-spin text-primary relative z-10" />
                 </div>
                 <div className="flex flex-col">
                     <span className="text-sm font-bold">
                         {getActiveFile().progressMessage || 'در حال پردازش...'}
                     </span>
-                    <span className="text-xs text-white/50">
+                    <span className="text-xs text-text-muted">
                         {activeFileId && getActiveFile()?.name}
                     </span>
                 </div>
@@ -756,17 +713,17 @@ const App: React.FC = () => {
         {/* Completion Toast */}
         {completionToast && !files.some(f => f.status === AppStatus.PAUSED || f.status === AppStatus.ERROR) && (
              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-5 fade-in duration-300 w-full max-w-md px-4">
-                <div className="glass bg-[#0a0e27]/95 border border-green-500/50 text-white p-4 rounded-2xl shadow-[0_0_30px_rgba(34,197,94,0.2)] flex items-start gap-4 backdrop-blur-xl">
+                <div className="glass bg-background/95 border border-green-500/50 text-text p-4 rounded-2xl shadow-[0_0_30px_rgba(34,197,94,0.2)] flex items-start gap-4 backdrop-blur-xl">
                     <div className="p-2 bg-green-500/20 rounded-full flex-shrink-0 mt-0.5">
                     <Loader2 className="w-5 h-5 text-green-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <strong className="block text-sm font-bold text-green-200 mb-1">عملیات تکمیل شد</strong>
-                        <p className="text-sm text-white/80 leading-relaxed">پردازش فایل‌ها با موفقیت به پایان رسید.</p>
+                        <strong className="block text-sm font-bold text-green-500 mb-1">عملیات تکمیل شد</strong>
+                        <p className="text-sm text-text-muted leading-relaxed">پردازش فایل‌ها با موفقیت به پایان رسید.</p>
                     </div>
                     <button 
                         onClick={() => setCompletionToast(false)} 
-                        className="p-1 hover:bg-white/10 rounded-full transition-colors -mr-1 text-white/50 hover:text-white"
+                        className="p-1 hover:bg-surface rounded-full transition-colors -mr-1 text-text-muted hover:text-text"
                     >
                         <Loader2 className="w-4 h-4 rotate-45" />
                     </button>

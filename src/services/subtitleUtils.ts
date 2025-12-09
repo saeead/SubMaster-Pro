@@ -1,38 +1,62 @@
 
 
-import { SubtitleBlock, AdjustmentConfig, NetflixError, VttStyleConfig } from '../types';
+import { SubtitleBlock, AdjustmentConfig, NetflixError, VttStyleConfig, StyleConfig } from '../types';
 import { BATCH_SIZE, OVERLAP_SIZE, OPTIMIZATION_CONFIG } from '../constants';
 
 // Helper to convert timestamp string to milliseconds
 export const timeToMs = (timeString: string): number => {
   if (!timeString) return 0;
-  // Supports "00:00:00,000" (SRT) and "00:00:00.000" (VTT)
+  // Supports "0:00:00.00" (ASS), "00:00:00,000" (SRT), "00:00:00.000" (VTT)
   const cleanTime = timeString.replace(',', '.').trim();
   const parts = cleanTime.split(':');
   
-  // Handle minimal timestamps if necessary, though standard is HH:MM:SS.mmm
-  if (parts.length < 3) return 0;
+  if (parts.length < 2) return 0;
 
-  const [h, m, s] = parts;
-  const [sec, ms] = s.split('.');
+  const h = parts.length === 3 ? parseInt(parts[0]) : 0;
+  const m = parseInt(parts[parts.length === 3 ? 1 : 0]);
+  const sParts = parts[parts.length === 3 ? 2 : 1].split('.');
+  const sec = parseInt(sParts[0]);
+  let ms = 0;
+  if (sParts[1]) {
+      // Handle ASS 2-digit centiseconds vs SRT/VTT 3-digit milliseconds
+      ms = sParts[1].length === 2 ? parseInt(sParts[1]) * 10 : parseInt(sParts[1].padEnd(3, '0').substring(0,3));
+  }
   
-  return (
-    parseInt(h) * 3600000 +
-    parseInt(m) * 60000 +
-    parseInt(sec) * 1000 +
-    parseInt(ms || '0')
-  );
+  return (h * 3600000 + m * 60000 + sec * 1000 + ms);
 };
 
 // Helper to convert milliseconds to SRT timestamp format
 export const msToTime = (ms: number): string => {
-  const safeMs = Math.max(0, ms); // Prevent negative time
+  const safeMs = Math.max(0, ms); 
   const date = new Date(safeMs);
   const h = Math.floor(safeMs / 3600000).toString().padStart(2, '0');
   const m = Math.floor((safeMs % 3600000) / 60000).toString().padStart(2, '0');
   const s = Math.floor((safeMs % 60000) / 1000).toString().padStart(2, '0');
   const milli = (safeMs % 1000).toString().padStart(3, '0');
   return `${h}:${m}:${s},${milli}`;
+};
+
+// Convert ms to ASS timestamp (H:MM:SS.cc)
+export const msToAssTime = (ms: number): string => {
+  const safeMs = Math.max(0, ms);
+  const h = Math.floor(safeMs / 3600000).toString(); // Single digit hour allowed
+  const m = Math.floor((safeMs % 3600000) / 60000).toString().padStart(2, '0');
+  const s = Math.floor((safeMs % 60000) / 1000).toString().padStart(2, '0');
+  const cs = Math.floor((safeMs % 1000) / 10).toString().padStart(2, '0'); // Centiseconds
+  return `${h}:${m}:${s}.${cs}`;
+};
+
+// Hex #RRGGBB to ASS &HBBGGRR
+export const hexToAssColor = (hex: string): string => {
+    if (!hex) return '&H00FFFFFF';
+    const clean = hex.replace('#', '');
+    if (clean.length === 6) {
+        const r = clean.substring(0, 2);
+        const g = clean.substring(2, 4);
+        const b = clean.substring(4, 6);
+        return `&H00${b}${g}${r}`; // &H00BBGGRR (Alpha 00 = Opaque)
+    }
+    return '&H00FFFFFF';
 };
 
 /**
@@ -90,8 +114,55 @@ export const parseVTT = (content: string): SubtitleBlock[] => {
 };
 
 /**
- * Counts words in a string accurately
+ * Parses SSA/ASS file content
  */
+export const parseASS = (content: string): SubtitleBlock[] => {
+  const normalizeLineEndings = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const blocks: SubtitleBlock[] = [];
+  
+  // Regex to find "Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+  // Note: ASS format can vary slightly in header definition, but Format: usually defines order.
+  // We assume standard "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+  
+  const lines = normalizeLineEndings.split('\n');
+  let indexCounter = 1;
+  let inEvents = false;
+  
+  for (const line of lines) {
+      if (line.trim() === '[Events]') {
+          inEvents = true;
+          continue;
+      }
+      if (!inEvents) continue;
+      
+      if (line.startsWith('Dialogue:')) {
+          const parts = line.split(',');
+          if (parts.length >= 10) {
+              const start = parts[1].trim();
+              const end = parts[2].trim();
+              // Text is everything after the 9th comma (index 9)
+              const text = parts.slice(9).join(',').replace(/\\N/g, '\n').replace(/{.*?}/g, '').trim(); // Clean tags
+              
+              // Convert ASS time (0:00:00.00) to SRT time (00:00:00,000) for internal use
+              const startMs = timeToMs(start);
+              const endMs = timeToMs(end);
+              
+              blocks.push({
+                  id: indexCounter,
+                  index: indexCounter,
+                  startTime: msToTime(startMs),
+                  endTime: msToTime(endMs),
+                  originalText: text,
+                  translatedText: ''
+              });
+              indexCounter++;
+          }
+      }
+  }
+
+  return blocks;
+};
+
 const countWords = (text: string): number => {
   return text.trim().split(/\s+/).length;
 };
@@ -100,16 +171,10 @@ const countChars = (text: string): number => {
   return text.replace(/[\r\n]+/g, '').length;
 };
 
-/**
- * Checks if text ends with sentence-ending punctuation
- */
 const isSentenceComplete = (text: string): boolean => {
   return /[.?!؟]$/.test(text.trim());
 };
 
-/**
- * Formats Persian Subtitle text based on specific length rules.
- */
 export const formatPersianSubtitle = (text: string): string => {
   if (!text) return '';
   const clean = text.replace(/[\r\n]+/g, ' ').trim();
@@ -154,10 +219,6 @@ export const formatPersianSubtitle = (text: string): string => {
   return `${line1}\n${line2}`;
 };
 
-/**
- * OPTIMIZES subtitle blocks by merging them to fit word count constraints.
- * Supports Normal and Netflix standards.
- */
 export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'normal' | 'netflix' = 'normal'): SubtitleBlock[] => {
   if (blocks.length === 0) return [];
 
@@ -174,10 +235,8 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
     const nextWordCount = countWords(next.originalText);
     const totalWords = currentWordCount + nextWordCount;
     
-    // Check char count too for stricter Netflix compliance
     const currentChars = countChars(current.originalText);
     const nextChars = countChars(next.originalText);
-    const totalChars = currentChars + nextChars;
     
     const currentStartMs = timeToMs(current.startTime);
     const currentEndTimeMs = timeToMs(current.endTime);
@@ -188,40 +247,29 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
     const combinedDuration = nextEndTimeMs - currentStartMs;
 
     const isGapAcceptable = gap <= config.MAX_MERGE_GAP_MS;
-    const isUnderMaxLimit = totalWords <= config.MAX_WORDS_PER_BLOCK && totalChars <= config.MAX_MERGE_CHARACTERS;
+    const isUnderMaxLimit = totalWords <= config.MAX_WORDS_PER_BLOCK && (currentChars + nextChars) <= config.MAX_MERGE_CHARACTERS;
     const isDurationAcceptable = combinedDuration <= MAX_DURATION_MS;
     
     const needsMoreWords = currentWordCount < config.MIN_WORDS_PER_BLOCK;
     const sentenceIncomplete = !isSentenceComplete(current.originalText);
-
-    // Check for distinct dialogue speakers to prevent bad merges
-    // Example: "- Hi" and "- Hello" should likely remain separate unless very short.
     const isDialogueMismatch = current.originalText.trim().startsWith('-') && next.originalText.trim().startsWith('-');
 
-    // Merge logic:
-    // If we MUST merge (sentence incomplete) or we SHOULD merge (block too short), try to merge.
-    // But never exceed hard limits.
     const shouldMerge = isGapAcceptable && isUnderMaxLimit && isDurationAcceptable && !isDialogueMismatch && (needsMoreWords || sentenceIncomplete);
 
     if (shouldMerge) {
       current.endTime = next.endTime;
-      // Maintain separation for dialogue or existing multiline blocks
       if (next.originalText.trim().startsWith('-') || current.originalText.includes('\n')) {
           current.originalText = `${current.originalText}\n${next.originalText}`;
       } else {
           current.originalText = `${current.originalText} ${next.originalText}`;
       }
     } else {
-      // Recalculate end time for readability if not merging (only if duration is suspiciously short)
-      // This helps with "flashing" subtitles in source files
       const minReadingTime = countWords(current.originalText) * config.MS_PER_WORD;
       const originalDuration = currentEndTimeMs - currentStartMs;
       
       if (originalDuration < minReadingTime) {
           const maxAllowedEndMs = nextStartTimeMs - config.STANDARD_GAP_MS;
           const targetEndMs = currentStartMs + minReadingTime;
-          
-          // Extend, but don't overlap next block
           const finalEndMs = Math.min(targetEndMs, maxAllowedEndMs);
           
           if (finalEndMs > currentStartMs) {
@@ -236,7 +284,6 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
   
   optimized.push(current);
 
-  // Post-optimization: Ensure minimum gaps between all blocks
   for (let i = 0; i < optimized.length - 1; i++) {
      const b1 = optimized[i];
      const b2 = optimized[i+1];
@@ -245,7 +292,6 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
      
      if (end1 >= start2 - config.STANDARD_GAP_MS) {
          const newEnd = start2 - config.STANDARD_GAP_MS;
-         // Ensure we don't invert the block
          if (newEnd > timeToMs(b1.startTime)) {
              b1.endTime = msToTime(newEnd);
          }
@@ -299,19 +345,32 @@ export const stringifySRT = (blocks: SubtitleBlock[]): string => {
   }).join('\n\n');
 };
 
-export const stringifyVTT = (blocks: SubtitleBlock[], styles?: VttStyleConfig): string => {
+export const stringifyVTT = (blocks: SubtitleBlock[], styles?: StyleConfig): string => {
   let header = `WEBVTT\n\n`;
-  const styleClass = 'styled'; // Specific class for VTT styling
+  const styleClass = 'styled';
 
-  // Insert STYLE block if enabled
   if (styles && styles.useStyles) {
     header += `STYLE\n::cue(.${styleClass}) {\n`;
-    if (styles.fontFamily) header += `  font-family: ${styles.fontFamily};\n`;
-    if (styles.fontSize) header += `  font-size: ${styles.fontSize};\n`;
-    if (styles.color) header += `  color: ${styles.color};\n`;
-    if (styles.backgroundColor) header += `  background-color: ${styles.backgroundColor};\n`;
-    if (styles.textShadow) header += `  text-shadow: ${styles.textShadow};\n`;
-    // Default alignment for better presentation
+    header += `  font-family: "${styles.fontFamily}";\n`;
+    // For VTT we approximate size or use a standard relative unit if provided number (e.g. 24 -> 150% rough guess or just use percent if we updated logic)
+    // Here we assume VTT style logic might want a string for compatibility, but our new StyleConfig has number for ASS.
+    // Let's assume standard 100% base and scale.
+    const sizePct = styles.fontSize ? Math.round((styles.fontSize / 18) * 100) : 100;
+    header += `  font-size: ${sizePct}%;\n`;
+    header += `  color: ${styles.primaryColor};\n`;
+    
+    // Convert hex to rgba for opacity if needed, ASS alpha is handled differently.
+    // VTT Background color (Box)
+    if (styles.borderStyle === 'box') {
+        header += `  background-color: ${styles.backgroundColor};\n`;
+    } else {
+        header += `  background-color: transparent;\n`;
+    }
+    
+    if (styles.borderStyle === 'outline') {
+         header += `  text-shadow: -1px -1px 0 ${styles.secondaryColor}, 1px -1px 0 ${styles.secondaryColor}, -1px 1px 0 ${styles.secondaryColor}, 1px 1px 0 ${styles.secondaryColor};\n`;
+    }
+    
     header += `  text-align: center;\n`;
     header += `}\n\n`;
   }
@@ -324,7 +383,6 @@ export const stringifyVTT = (blocks: SubtitleBlock[], styles?: VttStyleConfig): 
       ? block.translatedText 
       : block.originalText;
 
-    // Wrap text in class tag if styles are enabled
     if (styles && styles.useStyles) {
        text = `<c.${styleClass}>${text}</c>`;
     }
@@ -335,11 +393,60 @@ export const stringifyVTT = (blocks: SubtitleBlock[], styles?: VttStyleConfig): 
   return `${header}${content}`;
 };
 
-export const generateSubtitleFile = (blocks: SubtitleBlock[], format: 'srt' | 'vtt', vttStyles?: VttStyleConfig): string => {
+export const stringifyASS = (blocks: SubtitleBlock[], styles?: StyleConfig): string => {
+  // Default values
+  const font = styles?.fontFamily || 'Arial';
+  const size = styles?.fontSize || 20;
+  const primary = hexToAssColor(styles?.primaryColor || '#FFFFFF');
+  const secondary = hexToAssColor(styles?.secondaryColor || '#000000'); // Outline/Shadow
+  const back = hexToAssColor(styles?.backgroundColor || '#000000'); // Box color
+  const bold = styles?.isBold ? -1 : 0;
+  const borderStyle = styles?.borderStyle === 'box' ? 3 : 1;
+  const outline = styles?.outlineWidth || 2;
+  const shadow = styles?.shadowDepth || 0;
+  const align = styles?.alignment || 2;
+
+  const header = `[Script Info]
+Title: SubMaster Pro Generated
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.601
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,${font},${size},${primary},&H000000FF,${secondary},${back},${bold},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${align},10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  const content = blocks.map(block => {
+      const start = msToAssTime(timeToMs(block.startTime));
+      const end = msToAssTime(timeToMs(block.endTime));
+      
+      let text = block.translatedText && block.translatedText.trim() !== '' 
+      ? block.translatedText 
+      : block.originalText;
+      
+      // Convert newlines to \N
+      text = text.replace(/\n/g, '\\N');
+
+      return `Dialogue: 0,${start},${end},Default,,0,0,0,,${text}`;
+  }).join('\n');
+
+  return header + content;
+};
+
+export const generateSubtitleFile = (blocks: SubtitleBlock[], format: 'srt' | 'vtt' | 'ass', styles?: StyleConfig): string => {
   if (format === 'srt') {
     return stringifySRT(blocks);
+  } else if (format === 'ass') {
+    return stringifyASS(blocks, styles);
   } else {
-    return stringifyVTT(blocks, vttStyles);
+    return stringifyVTT(blocks, styles);
   }
 };
 
@@ -353,15 +460,12 @@ export const downloadFile = (filename: string, content: string) => {
   document.body.removeChild(element);
 };
 
-// --- TIMING ADJUSTMENT & NETFLIX CHECKS ---
-
 export const adjustBlockTiming = (blocks: SubtitleBlock[], config: AdjustmentConfig): SubtitleBlock[] => {
   return blocks.map((block, idx) => {
     let startMs = timeToMs(block.startTime);
     let endMs = timeToMs(block.endTime);
     let duration = endMs - startMs;
     const nextBlockStart = blocks[idx + 1] ? timeToMs(blocks[idx + 1].startTime) : Infinity;
-
     const textToUse = block.translatedText || block.originalText;
 
     switch (config.mode) {
@@ -375,7 +479,6 @@ export const adjustBlockTiming = (blocks: SubtitleBlock[], config: AdjustmentCon
         } else if (config.target === 'end') {
           endMs += msValue;
         } else if (config.target === 'both') {
-          // Extend both sides
           startMs -= msValue / 2;
           endMs += msValue / 2;
         }
@@ -384,8 +487,6 @@ export const adjustBlockTiming = (blocks: SubtitleBlock[], config: AdjustmentCon
       case 'percent':
         const multiplier = config.value / 100;
         const newDuration = duration * multiplier;
-        const diff = newDuration - duration;
-        // Usually percent scaling keeps center or extends end. Let's extend end.
         endMs = startMs + newDuration;
         break;
 
@@ -395,22 +496,18 @@ export const adjustBlockTiming = (blocks: SubtitleBlock[], config: AdjustmentCon
         break;
 
       case 'recalculate':
-        // Value is Reading Speed (Chars per second), typically 17-20
         const charCount = countChars(textToUse);
         const idealDurationSec = charCount / (config.value || 20); 
         const idealDurationMs = idealDurationSec * 1000;
-        // Don't shrink below 0.833s (Netflix min)
         const constrainedDuration = Math.max(833, idealDurationMs); 
         endMs = startMs + constrainedDuration;
         break;
     }
 
-    // Safety Checks
-    if (endMs <= startMs) endMs = startMs + 833; // Minimum duration fallback
+    if (endMs <= startMs) endMs = startMs + 833; 
     
-    // Prevent overlap with next block (unless it's a 'shift' operation which moves everything)
     if (config.mode !== 'seconds' || config.target !== 'shift') {
-       if (endMs > nextBlockStart - 84) { // 2 frames gap (approx 84ms)
+       if (endMs > nextBlockStart - 84) { 
            endMs = nextBlockStart - 84;
        }
     }
@@ -436,28 +533,22 @@ export const validateNetflixStandards = (blocks: SubtitleBlock[]): NetflixError[
     
     const blockErrors: NetflixError['types'] = [];
 
-    // 1. Character Limit per line (42)
     const maxLineLength = Math.max(...lines.map(l => l.length));
     if (maxLineLength > 42) blockErrors.push('max_chars');
 
-    // 2. Max Lines (2)
     if (lines.length > 2) blockErrors.push('max_lines');
 
-    // 3. Reading Speed (Max 20 CPS)
     const cps = durationSec > 0 ? charCount / durationSec : 0;
     if (cps > 20) blockErrors.push('cps');
 
-    // 4. Min Duration (5/6 sec ~= 0.833s)
     if (durationSec < 0.833) blockErrors.push('min_duration');
 
-    // 5. Max Duration (7 sec)
     if (durationSec > 7) blockErrors.push('max_duration');
 
-    // 6. Gap check (Min 2 frames ~= 83ms)
     if (idx < blocks.length - 1) {
       const nextStart = timeToMs(blocks[idx+1].startTime);
       const gap = nextStart - endMs;
-      if (gap < 83 && gap > -500) { // Check for small overlaps or small gaps (ignoring huge overlaps which are likely errors)
+      if (gap < 83 && gap > -500) { 
         blockErrors.push('gap');
       }
     }
@@ -482,36 +573,27 @@ export const validateNetflixStandards = (blocks: SubtitleBlock[]): NetflixError[
   return errors;
 };
 
-// Helper for splitting text into lines adhering to Netflix limits
 const smartSplitText = (text: string, maxLen: number = 42): string => {
   const clean = text.replace(/[\r\n]+/g, ' ').trim();
   if (clean.length <= maxLen) return clean;
 
   const words = clean.split(' ');
-  let line1 = '';
-  let line2 = '';
-
-  // Try to find a midpoint split
-  const totalChars = clean.length;
-  const targetSplit = totalChars / 2;
+  const targetSplit = clean.length / 2;
   
   let currentLen = 0;
   let splitIndex = 0;
   
-  // Find best split index
   for (let i = 0; i < words.length; i++) {
-    currentLen += words[i].length + 1; // +1 for space
+    currentLen += words[i].length + 1; 
     if (currentLen >= targetSplit) {
        splitIndex = i;
        break;
     }
   }
 
-  // Adjust split if it violates maxLen
   const p1 = words.slice(0, splitIndex + 1).join(' ');
   const p2 = words.slice(splitIndex + 1).join(' ');
   
-  // If p1 is too long, force split earlier
   if (p1.length > maxLen) {
       let fitLen = 0;
       let fitIndex = 0;
@@ -526,24 +608,16 @@ const smartSplitText = (text: string, maxLen: number = 42): string => {
   return p1 + '\n' + p2;
 };
 
-/**
- * RECALCULATES duration and timing based on Netflix Rules.
- * Solves "Player skipping lines" by strictly enforcing gaps.
- */
 export const fixNetflixStandards = (blocks: SubtitleBlock[]): SubtitleBlock[] => {
-  // 1. Critical: Sort blocks by StartTime to handle out-of-order source files
   let sorted = [...blocks].sort((a, b) => timeToMs(a.startTime) - timeToMs(b.startTime));
-  
-  // Deep copy to avoid mutation issues during map
   sorted = JSON.parse(JSON.stringify(sorted));
 
-  const CPS_LIMIT = 20; // Characters Per Second
-  const MIN_DURATION_MS = 833; // ~20 frames
-  const MAX_DURATION_MS = 7000; // 7 seconds
-  const MIN_GAP_MS = 84; // ~2 frames gap required
+  const CPS_LIMIT = 20; 
+  const MIN_DURATION_MS = 833; 
+  const MAX_DURATION_MS = 7000; 
+  const MIN_GAP_MS = 84; 
 
   return sorted.map((block, idx) => {
-    // A. Text Optimization
     let text = block.translatedText || block.originalText || "";
     text = text.trim();
     const lines = text.split('\n');
@@ -552,47 +626,29 @@ export const fixNetflixStandards = (blocks: SubtitleBlock[]): SubtitleBlock[] =>
       block.translatedText = text;
     }
     
-    // B. Calculate Ideal Duration based on Character Count (Standard for Netflix)
-    // Note: User asked for "based on word count", but Netflix uses CPS.
-    // CPS (Chars Per Second) is the accurate way to determine reading time.
     const charCount = countChars(text);
     let idealDurationMs = (charCount / CPS_LIMIT) * 1000;
 
-    // Apply Constraints
     if (idealDurationMs < MIN_DURATION_MS) idealDurationMs = MIN_DURATION_MS;
     if (idealDurationMs > MAX_DURATION_MS) idealDurationMs = MAX_DURATION_MS;
 
     const startMs = timeToMs(block.startTime);
     let endMs = startMs + idealDurationMs;
 
-    // C. Collision Avoidance (Strict Gap Enforcement)
-    // This fixes the issue where players skip subtitles due to timestamp overlap.
     if (idx < sorted.length - 1) {
         const nextBlock = sorted[idx + 1];
         const nextStartMs = timeToMs(nextBlock.startTime);
-        
-        // Calculate the absolute latest this subtitle can end
         const maxAllowedEndMs = nextStartMs - MIN_GAP_MS;
 
-        // If our calculated end time violates the gap, we must clamp it.
         if (endMs > maxAllowedEndMs) {
             endMs = maxAllowedEndMs;
         }
 
-        // Safety check: Ensure we don't end before we start.
-        // If next subtitle is too close, this subtitle might be extremely short.
-        // We prioritize "No Overlap" over "Min Duration" to prevent player crashes.
         if (endMs <= startMs) {
-            // Extreme edge case: Next subtitle starts at or before this one.
-            // We clamp end to start + small epsilon, effectively hiding it or showing it briefly.
-            // We do NOT extend into the next block as that causes the "missing lines" bug.
-            
-            // Re-eval with smaller emergency gap?
             const emergencyGap = 20; 
             if (nextStartMs - startMs > emergencyGap) {
                 endMs = nextStartMs - emergencyGap;
             } else {
-               // Timestamps are practically identical. Keep it extremely short but positive.
                endMs = startMs + 100; 
             }
         }
