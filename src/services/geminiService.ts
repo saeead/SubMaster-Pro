@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { BatchRequest, BatchResponse, AppSettings, UserAPIKey } from "../types";
+import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage } from "../types";
 import { APP_CONFIG, getSystemInstruction } from "../constants";
 
 // Strict Schema to enforce the 1-to-1 mapping and ID preservation
@@ -328,11 +328,12 @@ export const translateBatch = async (
 };
 
 /**
- * Translates a single block of free text preserving formatting
+ * Translates a single block of free text preserving formatting with support for multiple languages
  */
 export const translateFreeText = async (
     text: string, 
-    settings: AppSettings
+    settings: AppSettings,
+    targetLanguage: TargetLanguage = 'fa'
 ): Promise<string> => {
     if (!text || !text.trim()) return '';
 
@@ -346,24 +347,58 @@ export const translateFreeText = async (
     let attempt = 0;
     const maxRetries = 2 + settings.apiKeys.length;
 
+    // --- LANGUAGE SPECIFIC PROMPTS ---
+    const getPromptForLanguage = (lang: TargetLanguage, tone: string, topic: string) => {
+        const baseRules = `
+        CRITICAL RULES:
+        1. Preserve ALL formatting exactly (paragraphs, line breaks, bullet points, headers).
+        2. Do not output JSON. Output raw text.
+        3. Inherit the following style guide:
+           - Tone: ${tone}
+           - Topic: ${topic}
+        4. Detect the input language automatically.`;
+
+        switch (lang) {
+            case 'en':
+                return `You are an expert English Translator/Editor. 
+                Your task is to translate the input text into professional, natural-sounding English.
+                ${baseRules}
+                5. Use correct English grammar and punctuation.
+                6. If the tone is 'formal', use academic/business vocabulary. If 'conversational', use natural idioms.`;
+            
+            case 'ru':
+                return `You are an expert Russian Translator. 
+                Your task is to translate the input text into natural, grammatical Russian.
+                ${baseRules}
+                5. Pay strict attention to cases, declensions, and verb aspects.
+                6. Distinguish between 'Ty' (informal) and 'Vy' (formal) based on the tone setting.
+                7. Ensure the translation does not sound machine-generated.`;
+            
+            case 'zh':
+                return `You are an expert Chinese Translator.
+                Your task is to translate the input text into Modern Standard Mandarin (Simplified Chinese).
+                ${baseRules}
+                5. Use correct characters and grammar.
+                6. If the tone is 'formal' or 'literary', appropriate use of idioms (Chengyu) is encouraged.
+                7. Ensure fluidity and natural expression suitable for a native speaker.`;
+
+            case 'fa':
+            default:
+                return `You are a professional Persian translator. 
+                Your task is to translate the input text into Persian (Farsi).
+                ${baseRules}
+                5. Use proper Persian punctuation.
+                6. If the input is already Persian, improve its style/grammar based on the settings.`;
+        }
+    };
+
     while (attempt < maxRetries) {
         let currentApiKey = '';
         try {
             currentApiKey = keyManager.getActiveKey();
             const ai = new GoogleGenAI({ apiKey: currentApiKey });
 
-            const systemInstruction = `You are a professional Persian translator. 
-            Your task is to translate the input text into Persian (Farsi).
-            
-            CRITICAL RULES:
-            1. Preserve ALL formatting exactly (paragraphs, line breaks, bullet points, headers).
-            2. Do not output JSON. Output raw text.
-            3. Inherit the following style guide:
-               - Tone: ${settings.tone}
-               - Topic: ${settings.topic}
-               - Use proper Persian punctuation.
-            
-            Detect the input language automatically. If it's already Persian, improve the style/grammar based on the settings.`;
+            const systemInstruction = getPromptForLanguage(targetLanguage, settings.tone, settings.topic);
 
             const response = await ai.models.generateContent({
                 model: modelName,

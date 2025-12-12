@@ -69,6 +69,7 @@ export interface GlossaryItem {
 export type ToneType = 'conversational' | 'formal' | 'news' | 'movie' | 'podcast';
 export type TopicType = 'educational' | 'entertainment' | 'podcast' | 'news' | 'sports';
 export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
+export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh';
 
 export interface AppSettings {
   tone: ToneType;
