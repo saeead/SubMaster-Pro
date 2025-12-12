@@ -1,10 +1,5 @@
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
-import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft } from 'lucide-react';
+import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft, Info, ExternalLink, ChevronLeft } from 'lucide-react';
 import { AppSettings, UserAPIKey } from '../types';
 import { validateAPIConnection } from '../services/geminiService';
 import { getMemorySize, clearMemory } from '../services/translationMemory';
@@ -22,11 +17,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [memSize, setMemSize] = useState(getMemorySize());
+  const [showHelp, setShowHelp] = useState(false);
 
   // Update memory size whenever modal opens
   useEffect(() => {
     if (isOpen) {
       setMemSize(getMemorySize());
+      setShowHelp(false); // Reset help view
     }
   }, [isOpen]);
 
@@ -112,7 +109,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
       
       <div className="relative w-full max-w-lg glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
-        <div className="p-6 overflow-y-auto custom-scrollbar">
+        
+        {/* Help Panel Overlay */}
+        {showHelp && (
+            <div className="absolute inset-0 z-20 bg-[#0a0e27] flex flex-col animate-in slide-in-from-right-10 duration-300">
+                <div className="p-4 border-b border-white/10 flex items-center gap-2 bg-[#0a0e27]">
+                    <button onClick={() => setShowHelp(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                        <ChevronLeft className="w-5 h-5 text-white" />
+                    </button>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Info className="w-4 h-4 text-[#00f0ff]" />
+                        راهنمای دریافت کلید رایگان Gemini
+                    </h3>
+                </div>
+                
+                <div className="p-6 overflow-y-auto custom-scrollbar space-y-6 text-sm text-white/80 leading-7">
+                    <ol className="space-y-6 list-none m-0 p-0">
+                        <li className="relative pr-4 border-r-2 border-[#00f0ff]/30">
+                            <div className="absolute -right-[5px] top-1 w-2.5 h-2.5 rounded-full bg-[#00f0ff]"></div>
+                            <strong className="block text-white mb-1">1. ورود به هوش مصنوعی گوگل</strong>
+                            به وب‌سایت <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-[#00f0ff] hover:underline inline-flex items-center gap-1 dir-ltr">aistudio.google.com <ExternalLink className="w-3 h-3"/></a> بروید.
+                        </li>
+                        <li className="relative pr-4 border-r-2 border-[#00f0ff]/30">
+                            <div className="absolute -right-[5px] top-1 w-2.5 h-2.5 rounded-full bg-[#00f0ff]/70"></div>
+                            <strong className="block text-white mb-1">2. ورود به حساب</strong>
+                            با حساب گوگل (Gmail) خود وارد شوید. اگر برای اولین بار وارد می‌شوید، شرایط سرویس را بپذیرید.
+                        </li>
+                         <li className="relative pr-4 border-r-2 border-[#00f0ff]/30">
+                            <div className="absolute -right-[5px] top-1 w-2.5 h-2.5 rounded-full bg-[#00f0ff]/50"></div>
+                            <strong className="block text-white mb-1">3. بخش API Key</strong>
+                            در منوی سمت چپ (یا دکمه آبی رنگ بالا)، روی گزینه <strong>Get API key</strong> کلیک کنید.
+                        </li>
+                        <li className="relative pr-4 border-r-2 border-[#00f0ff]/30">
+                            <div className="absolute -right-[5px] top-1 w-2.5 h-2.5 rounded-full bg-[#00f0ff]/30"></div>
+                            <strong className="block text-white mb-1">4. ساخت کلید</strong>
+                            روی دکمه <strong>Create API key</strong> کلیک کنید. می‌توانید گزینه "Create API key in new project" را انتخاب کنید.
+                        </li>
+                        <li className="relative pr-4 border-r-2 border-transparent">
+                            <div className="absolute -right-[5px] top-1 w-2.5 h-2.5 rounded-full bg-white/20"></div>
+                            <strong className="block text-white mb-1">5. کپی کردن</strong>
+                            کلید طولانی (شروع شده با AIza) را کپی کنید و در کادر تنظیمات این برنامه وارد نمایید.
+                        </li>
+                    </ol>
+                    
+                    <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-xl text-xs text-yellow-200 leading-5">
+                        <strong className="block mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> نکته مهم:</strong>
+                         این سرویس برای اکثر کشورها رایگان است (تا سقف مشخصی در دقیقه). اگر با خطای 403 مواجه شدید، ممکن است نیاز به استفاده از نرم‌افزار تغییر IP (فیلترشکن) داشته باشید.
+                    </div>
+                    
+                    <button 
+                        onClick={() => setShowHelp(false)}
+                        className="w-full py-3 bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 rounded-xl font-bold transition-colors"
+                    >
+                        متوجه شدم، بازگشت به تنظیمات
+                    </button>
+                </div>
+            </div>
+        )}
+
+        <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <Cpu className="w-6 h-6 text-[#ff00ea]" />
@@ -163,10 +218,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
             {/* API Key Management */}
             <div className="space-y-4">
-              <h3 className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
-                <Key className="w-4 h-4" />
-                مدیریت کلیدهای API
-              </h3>
+              <div className="flex items-center justify-between">
+                  <h3 className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    مدیریت کلیدهای API
+                  </h3>
+                  <button 
+                    onClick={() => setShowHelp(true)}
+                    className="text-[10px] text-[#00f0ff] bg-[#00f0ff]/5 hover:bg-[#00f0ff]/10 px-2 py-1 rounded-md border border-[#00f0ff]/20 flex items-center gap-1 transition-colors"
+                  >
+                    <Info className="w-3 h-3" />
+                    راهنمای دریافت کلید
+                  </button>
+              </div>
               
               <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-4">
                 <p className="text-xs text-white/60 leading-relaxed">
