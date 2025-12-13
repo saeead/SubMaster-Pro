@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Copy, Languages, Sparkles, ArrowRight, Loader2, Trash2, CheckCircle, Globe2 } from 'lucide-react';
-import { AppSettings, TargetLanguage } from '../types';
+import { X, Copy, Languages, Sparkles, ArrowRight, Loader2, Trash2, CheckCircle } from 'lucide-react';
+import { AppSettings } from '../types';
 import { translateFreeText } from '../services/geminiService';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 
@@ -10,17 +10,9 @@ interface TextTranslatorModalProps {
   settings: AppSettings;
 }
 
-const LANGUAGE_OPTIONS: { id: TargetLanguage; label: string; dir: 'rtl' | 'ltr'; icon: string }[] = [
-    { id: 'fa', label: 'فارسی (Persian)', dir: 'rtl', icon: '🇮🇷' },
-    { id: 'en', label: 'انگلیسی (English)', dir: 'ltr', icon: '🇺🇸' },
-    { id: 'ru', label: 'روسی (Russian)', dir: 'ltr', icon: '🇷🇺' },
-    { id: 'zh', label: 'چینی (Chinese)', dir: 'ltr', icon: '🇨🇳' },
-];
-
 export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen, onClose, settings }) => {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
-  const [targetLang, setTargetLang] = useState<TargetLanguage>('fa');
   const [isTranslating, setIsTranslating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +33,7 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
     setOutputText('');
 
     try {
-        const result = await translateFreeText(inputText, settings, targetLang);
+        const result = await translateFreeText(inputText, settings);
         setOutputText(result);
     } catch (err: any) {
         setError(err.message || "خطا در برقراری ارتباط با هوش مصنوعی");
@@ -68,8 +60,6 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
     if (temp < 0.7) return "متعادل (Balanced)";
     return "خلاقانه (Creative)";
   };
-
-  const activeLangConfig = LANGUAGE_OPTIONS.find(l => l.id === targetLang) || LANGUAGE_OPTIONS[0];
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -110,32 +100,6 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
           </button>
         </div>
 
-        {/* Toolbar - Language Selection */}
-        <div className="px-6 py-3 border-b border-white/5 bg-[#0a0e27]/30 flex items-center gap-4 overflow-x-auto custom-scrollbar">
-            <div className="flex items-center gap-2 text-xs text-white/60 font-bold whitespace-nowrap">
-                <Globe2 className="w-4 h-4" />
-                زبان خروجی:
-            </div>
-            <div className="flex gap-2">
-                {LANGUAGE_OPTIONS.map((lang) => (
-                    <button
-                        key={lang.id}
-                        onClick={() => setTargetLang(lang.id)}
-                        className={`
-                            px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 border whitespace-nowrap
-                            ${targetLang === lang.id 
-                                ? 'bg-[#ff00ea]/20 border-[#ff00ea] text-white shadow-[0_0_10px_rgba(255,0,234,0.2)]' 
-                                : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:text-white'
-                            }
-                        `}
-                    >
-                        <span>{lang.icon}</span>
-                        {lang.label}
-                    </button>
-                ))}
-            </div>
-        </div>
-
         {/* Body */}
         <div className="flex-1 flex flex-col md:flex-row p-6 gap-6 overflow-hidden">
             
@@ -171,7 +135,7 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
             {/* Output Section */}
             <div className="flex-1 flex flex-col gap-3 h-full">
                  <div className="flex justify-between items-center text-xs text-white/50 px-1">
-                    <span className="font-bold text-[#ff00ea]">ترجمه {activeLangConfig.label.split('(')[0].trim()}</span>
+                    <span className="font-bold text-[#ff00ea]">ترجمه فارسی</span>
                     {outputText && (
                         <button 
                             onClick={handleCopy} 
@@ -186,10 +150,9 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
                     <textarea 
                         readOnly
                         value={outputText}
-                        dir={activeLangConfig.dir}
                         placeholder={isTranslating ? "در حال ترجمه..." : "نتیجه ترجمه اینجا نمایش داده می‌شود"}
                         className={`
-                            flex-1 w-full h-full bg-[#0a0e27] border rounded-xl p-4 text-sm text-white focus:outline-none resize-none leading-7 custom-scrollbar
+                            flex-1 w-full h-full bg-[#0a0e27] border rounded-xl p-4 text-sm text-white focus:outline-none resize-none leading-7 custom-scrollbar dir-rtl
                             ${isTranslating ? 'animate-pulse border-[#00f0ff]/30 text-white/50' : outputText ? 'border-[#ff00ea]/50' : 'border-white/5'}
                         `}
                     />

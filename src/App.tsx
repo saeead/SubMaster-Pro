@@ -12,12 +12,12 @@ import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, NetflixError, StyleConfig, GlossaryItem, SubtitleFile } from './types';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
 import { translateBatch } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, File, Check, X as XIcon, Wand2 } from 'lucide-react';
+import { Loader2, Check, Wand2 } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -29,6 +29,8 @@ const App: React.FC = () => {
   
   const [toast, setToast] = useState<{msg: string, type: ToastType} | null>(null);
   
+  // UI State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -72,7 +74,7 @@ const App: React.FC = () => {
      }
   }, [settings.theme]);
 
-  // Load settings and version from localStorage on mount
+  // Load settings
   useEffect(() => {
     const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (savedSettings) {
@@ -286,9 +288,6 @@ const App: React.FC = () => {
       files.forEach(f => {
          const format = settings.outputFormat;
          const outputName = f.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_fa.${format}`);
-         // We generate with default style config if ASS/VTT is chosen for batch, 
-         // or we could prompt for style, but for ZIP "One Click" we rely on defaults or saved settings.
-         // Assuming basic generation here.
          const content = generateSubtitleFile(f.blocks, format); 
          zip.file(outputName, content);
       });
@@ -545,17 +544,24 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-background text-text transition-colors duration-300">
       
+      {/* Sidebar - Passed isOpen state and close handler */}
       <Sidebar 
         settings={settings} 
         updateSettings={updateSettings} 
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenGlossary={() => setIsGlossaryModalOpen(true)}
-        onOpenTextTranslator={() => setIsTranslatorOpen(true)}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onOpenSettings={() => { setIsSettingsOpen(true); setIsSidebarOpen(false); }}
+        onOpenGlossary={() => { setIsGlossaryModalOpen(true); setIsSidebarOpen(false); }}
+        onOpenTextTranslator={() => { setIsTranslatorOpen(true); setIsSidebarOpen(false); }}
       />
 
-      <div className="flex-1 flex flex-col relative overflow-hidden">
+      <div className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
         
-        <Header theme={settings.theme} />
+        {/* Header - Passed toggle handler */}
+        <Header 
+            theme={settings.theme} 
+            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        />
 
         <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-5xl mx-auto pb-24">
             
@@ -586,7 +592,7 @@ const App: React.FC = () => {
                                 key={file.id}
                                 onClick={() => setActiveFileId(file.id)}
                                 className={`
-                                    flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px]
+                                    flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px] flex-shrink-0
                                     ${activeFileId === file.id 
                                         ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' 
                                         : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'
