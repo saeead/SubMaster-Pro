@@ -1,9 +1,8 @@
 
-
 import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage } from "./types";
 
 export const APP_CONFIG = {
-  version: "1.32",
+  version: "2.0.0",
   maxWordsPerBlock: 24, // Matched to prompt requirement
   minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
   maxFileSize: 100 * 1024 * 1024, // 100MB

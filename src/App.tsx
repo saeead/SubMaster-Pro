@@ -872,28 +872,7 @@ const App: React.FC = () => {
         }));
     }
 
-    // --- CONNECTION DIAGNOSIS ---
-    // Pick the first available key for a quick ping test
-    const testKey = settings.apiKeys.find(k => k.isValid)?.key;
-    if (testKey) {
-        // We use a toast to indicate checking
-        // showToast('در حال بررسی اتصال به سرور گوگل...', 'warning'); 
-        // Actually, let's just run it. If it fails, the error will pop up.
-        
-        const diagnosisError = await diagnoseConnection(testKey);
-        if (diagnosisError) {
-             showToast(diagnosisError, 'error');
-             // Show Settings so user can see keys/config
-             // setIsSettingsOpen(true); // Optional: might be annoying if it's just VPN
-             return;
-        }
-    }
-    // ----------------------------
-
-    isTranslatingRef.current = true;
-    isPausedRef.current = false; // Ensure not paused
-    setCompletionToast(false);
-
+    // Determine pending files
     const pendingFiles = files.filter(f => 
         f.status === AppStatus.READY || 
         f.status === AppStatus.ERROR || 
@@ -904,6 +883,37 @@ const App: React.FC = () => {
         showToast('همه فایل‌ها قبلاً ترجمه شده‌اند.', 'warning');
         return;
     }
+
+    // --- UX IMPROVEMENT: IMMEDIATE FEEDBACK ---
+    // Instead of waiting silently for network check, update the first file's status immediately.
+    // This makes the UI feel responsive instantly.
+    const firstFileId = pendingFiles[0].id;
+    updateFileStatus(firstFileId, {
+        status: AppStatus.TRANSLATING, // Visually engages the UI (Progress bar glows)
+        progressMessage: 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
+    });
+
+    // --- CONNECTION DIAGNOSIS ---
+    // Perform the check while the UI already shows "Working" state
+    const testKey = settings.apiKeys.find(k => k.isValid)?.key;
+    if (testKey) {
+        const diagnosisError = await diagnoseConnection(testKey);
+        if (diagnosisError) {
+             // Revert status if check fails
+             updateFileStatus(firstFileId, { 
+                status: AppStatus.PAUSED, 
+                progressMessage: 'خطای اتصال' 
+             });
+             showToast(diagnosisError, 'error');
+             // Optionally open settings if it's a key issue, but usually it's VPN
+             return;
+        }
+    }
+    // ----------------------------
+
+    isTranslatingRef.current = true;
+    isPausedRef.current = false; // Ensure not paused
+    setCompletionToast(false);
 
     let stoppedEarly = false;
 
