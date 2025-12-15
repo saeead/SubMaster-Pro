@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect } from 'react';
-import { Download, X, Palette, Type, LayoutTemplate, Layout, CheckCircle } from 'lucide-react';
+import { Download, X, Palette, Type, LayoutTemplate, Layout, CheckCircle, Save, RefreshCw } from 'lucide-react';
 import { StyleConfig, StyleTemplate } from '../types';
 import { STYLE_TEMPLATES } from '../constants';
 
@@ -13,17 +14,27 @@ interface ExportModalProps {
 
 const FONT_OPTIONS = [
   { label: 'Default (Sans-Serif)', value: 'sans-serif' },
-  { label: 'Vazirmatn (فارسی)', value: 'Vazirmatn' },
+  // Persian Fonts
+  { label: 'Vazirmatn (وزیرمتن)', value: 'Vazirmatn' },
+  { label: 'Estedad (استعداد)', value: 'Estedad' },
+  { label: 'Sahel (ساحل)', value: 'Sahel' },
+  { label: 'Arad (آراد)', value: 'Arad' },
+  { label: 'Lalezar (لاله‌زار)', value: 'Lalezar' },
+  // English / Latin Fonts
+  { label: 'Montserrat', value: 'Montserrat' },
+  { label: 'Poppins', value: 'Poppins' },
+  { label: 'Roboto', value: 'Roboto' },
   { label: 'Arial', value: 'Arial' },
   { label: 'Tahoma', value: 'Tahoma' },
-  { label: 'Roboto', value: 'Roboto' },
-  { label: 'Courier New', value: 'Courier New' },
 ];
+
+const STYLE_STORAGE_KEY = 'submaster_pro_user_style_v1';
 
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onConfirm, defaultFormat }) => {
   const [format, setFormat] = useState<'srt' | 'vtt' | 'ass'>(defaultFormat);
   const [useStyles, setUseStyles] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState<string>('custom');
+  const [isSavedFeedback, setIsSavedFeedback] = useState(false);
   
   const [styles, setStyles] = useState<StyleConfig>({
     useStyles: false,
@@ -31,7 +42,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
     fontSize: 20,
     primaryColor: '#ffffff',
     secondaryColor: '#000000',
-    backgroundColor: '#000000', 
+    backgroundColor: '#000000',
+    backgroundOpacity: 100, 
     isBold: false,
     borderStyle: 'outline',
     outlineWidth: 2,
@@ -42,6 +54,29 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
   useEffect(() => {
     setFormat(defaultFormat);
   }, [defaultFormat, isOpen]);
+
+  // Load User Defaults on Mount
+  useEffect(() => {
+      if (isOpen) {
+          const savedStyles = localStorage.getItem(STYLE_STORAGE_KEY);
+          if (savedStyles) {
+              try {
+                  const parsed = JSON.parse(savedStyles);
+                  setStyles(prev => ({ 
+                      ...prev, 
+                      ...parsed,
+                      // Ensure backward compatibility if backgroundOpacity doesn't exist in saved data
+                      backgroundOpacity: parsed.backgroundOpacity ?? 100
+                  }));
+                  if (parsed.useStyles) {
+                      setUseStyles(true);
+                  }
+              } catch (e) {
+                  console.error("Failed to load saved styles", e);
+              }
+          }
+      }
+  }, [isOpen]);
 
   // When format changes to SRT, disable styles. When others, allow.
   useEffect(() => {
@@ -62,6 +97,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
           setStyles({ ...tmpl.config, useStyles: true });
           setUseStyles(true);
       }
+  };
+
+  const handleSaveAsDefault = () => {
+      const configToSave = { ...styles, useStyles };
+      localStorage.setItem(STYLE_STORAGE_KEY, JSON.stringify(configToSave));
+      
+      // Visual feedback
+      setIsSavedFeedback(true);
+      setTimeout(() => setIsSavedFeedback(false), 2000);
   };
 
   if (!isOpen) return null;
@@ -90,7 +134,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
             
             {/* Sidebar Controls */}
-            <div className="w-full md:w-1/3 border-l border-border bg-surface/30 p-4 overflow-y-auto custom-scrollbar">
+            <div className="w-full md:w-1/3 border-l border-border bg-surface/30 p-4 overflow-y-auto custom-scrollbar flex flex-col">
                 
                 {/* Format Selection */}
                 <div className="mb-6 space-y-3">
@@ -139,6 +183,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
                              </button>
                          </div>
                     </div>
+                )}
+                
+                <div className="flex-1"></div>
+
+                {/* Save Default Button */}
+                {format !== 'srt' && useStyles && (
+                    <button
+                        onClick={handleSaveAsDefault}
+                        className={`
+                            mt-4 w-full py-2.5 px-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition-all
+                            ${isSavedFeedback 
+                                ? 'bg-green-500/20 border-green-500 text-green-400' 
+                                : 'bg-surface border-border text-text-muted hover:text-text hover:border-text-muted'
+                            }
+                        `}
+                    >
+                        {isSavedFeedback ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                        {isSavedFeedback ? 'ذخیره شد' : 'ذخیره تنظیمات فعلی به عنوان پیش‌فرض'}
+                    </button>
                 )}
             </div>
 
@@ -237,14 +300,32 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
                                             className="w-8 h-8 rounded bg-transparent cursor-pointer"
                                         />
                                      </div>
-                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs text-primary font-bold">رنگ پس‌زمینه (Box)</label>
-                                        <input 
-                                            type="color" 
-                                            value={styles.backgroundColor}
-                                            onChange={(e) => { setStyles({...styles, backgroundColor: e.target.value}); setActiveTemplate('custom'); }}
-                                            className="w-8 h-8 rounded bg-transparent cursor-pointer"
-                                        />
+                                     
+                                     {/* Background Color & Opacity */}
+                                     <div className="space-y-2">
+                                         <div className="flex items-center justify-between">
+                                            <label className="text-xs text-primary font-bold">رنگ پس‌زمینه (Box)</label>
+                                            <input 
+                                                type="color" 
+                                                value={styles.backgroundColor}
+                                                onChange={(e) => { setStyles({...styles, backgroundColor: e.target.value}); setActiveTemplate('custom'); }}
+                                                className="w-8 h-8 rounded bg-transparent cursor-pointer"
+                                            />
+                                         </div>
+                                         <div className="pt-1">
+                                             <div className="flex justify-between text-[10px] text-text-muted mb-1">
+                                                 <span>شفافیت (Opacity):</span>
+                                                 <span>{styles.backgroundOpacity ?? 100}%</span>
+                                             </div>
+                                             <input 
+                                                 type="range"
+                                                 min="0"
+                                                 max="100"
+                                                 value={styles.backgroundOpacity ?? 100}
+                                                 onChange={(e) => { setStyles({...styles, backgroundOpacity: parseInt(e.target.value)}); setActiveTemplate('custom'); }}
+                                                 className="w-full h-1.5 bg-surface rounded-lg appearance-none cursor-pointer accent-secondary"
+                                             />
+                                         </div>
                                      </div>
                                 </div>
 
@@ -274,7 +355,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onCon
                                         fontWeight: styles.isBold ? 'bold' : 'normal',
                                         textShadow: styles.borderStyle === 'outline' ? 
                                             `-1px -1px 0 ${styles.secondaryColor}, 1px -1px 0 ${styles.secondaryColor}, -1px 1px 0 ${styles.secondaryColor}, 1px 1px 0 ${styles.secondaryColor}` : 'none',
-                                        backgroundColor: styles.borderStyle === 'box' ? styles.backgroundColor : 'transparent',
+                                        // Preview implementation of box + opacity
+                                        backgroundColor: styles.borderStyle === 'box' 
+                                            ? `${styles.backgroundColor}${Math.round((styles.backgroundOpacity ?? 100) * 2.55).toString(16).padStart(2,'0')}` 
+                                            : 'transparent',
                                         padding: '4px 8px',
                                         borderRadius: '4px',
                                         textAlign: 'center'

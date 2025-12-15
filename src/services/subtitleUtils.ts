@@ -473,7 +473,7 @@ export const stringifyVTT = (blocks: SubtitleBlock[], styles?: StyleConfig): str
     if (styles.borderStyle === 'box') {
         const hex = styles.backgroundColor;
         const opacity = styles.backgroundOpacity ?? 100;
-        // Convert hex to rgb
+        // hex to rgb
         const r = parseInt(hex.slice(1, 3), 16);
         const g = parseInt(hex.slice(3, 5), 16);
         const b = parseInt(hex.slice(5, 7), 16);
