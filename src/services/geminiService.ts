@@ -24,32 +24,43 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const getFriendlyErrorMessage = (error: any, modelName: string): string => {
   const msg = (error.message || error.toString()).toLowerCase();
 
+  // --- GEO-BLOCKING / SANCTIONS ---
+  if (
+    msg.includes('location is not supported') || 
+    msg.includes('region is not supported') ||
+    msg.includes('403 forbidden') ||
+    msg.includes('preconditions check failed')
+  ) {
+    return '⛔ خطای تحریم (IP): گوگل اجازه دسترسی با این IP را نمی‌دهد. لطفاً فیلترشکن (VPN) خود را روشن کرده یا سرور آن را تغییر دهید (پیشنهاد: آمریکا یا اروپا).';
+  }
+
+  // --- NETWORK ISSUES ---
+  if (msg.includes('fetch failed') || msg.includes('networkerror') || msg.includes('failed to fetch')) {
+    return '⚠️ خطای شبکه: اینترنت شما قطع است یا اتصال به سرور گوگل مسدود شده است. اتصال خود را بررسی کنید.';
+  }
+
+  // --- AUTHENTICATION ---
   if (msg.includes('400') || msg.includes('invalid_argument')) {
     return 'خطای درخواست (400): اطلاعات ارسالی نامعتبر است.';
   }
   if (msg.includes('401') || msg.includes('unauthenticated') || msg.includes('api key not valid')) {
     return 'خطای احراز هویت (401): کلید API نامعتبر است.';
   }
-  if (msg.includes('403') || msg.includes('permission_denied')) {
-    return 'خطای دسترسی (403): کلید شما اجازه دسترسی به این مدل را ندارد (احتمالاً تحریم).';
-  }
-  if (msg.includes('404') || msg.includes('not_found')) {
-    return `خطای مدل (404): مدل "${modelName}" یافت نشد.`;
-  }
-  if (msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota')) {
+
+  // --- QUOTA ---
+  if (msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota') || msg.includes('too many requests')) {
     return 'پایان اعتبار (429): سقف استفاده از کلید API پر شده است.';
   }
+
+  // --- SERVER ERRORS ---
   if (msg.includes('500') || msg.includes('503') || msg.includes('internal') || msg.includes('unavailable')) {
-    return 'خطای سرور گوگل (503): سرویس موقتاً در دسترس نیست.';
+    return 'خطای سرور گوگل (503): سرویس موقتاً در دسترس نیست. لطفاً چند لحظه دیگر تلاش کنید.';
   }
   if (msg.includes('safety') || msg.includes('blocked')) {
-    return 'خطای محتوا: ترجمه توسط فیلترهای ایمنی مسدود شد.';
-  }
-  if (msg.includes('fetch failed') || msg.includes('networkerror')) {
-    return 'خطای شبکه: اتصال اینترنت یا فیلترشکن را بررسی کنید.';
+    return 'خطای محتوا: ترجمه توسط فیلترهای ایمنی گوگل مسدود شد.';
   }
 
-  return `خطای ناشناخته: ${msg.substring(0, 100)}...`;
+  return `خطای ناشناخته: ${msg.substring(0, 150)}...`;
 };
 
 /**
@@ -74,6 +85,24 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
 
      return false;
   }
+};
+
+/**
+ * Diagnoses the connection health and IP status before starting a batch.
+ * Returns null if healthy, or a user-friendly error string if failed.
+ */
+export const diagnoseConnection = async (apiKey: string): Promise<string | null> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+        // Use a very cheap/fast model for ping
+        await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: 'ping',
+        });
+        return null; // Connection is Healthy
+    } catch (e: any) {
+        return getFriendlyErrorMessage(e, 'gemini-2.5-flash');
+    }
 };
 
 /**
@@ -197,6 +226,12 @@ export const translateBatch = async (
 
     } catch (error: any) {
       const errorMessage = (error.message || error.toString()).toLowerCase();
+      
+      // Critical Network/Geo Errors should NOT retry immediately, throw them to handle in UI
+      if (errorMessage.includes('fetch failed') || errorMessage.includes('location is not supported')) {
+          throw new Error(getFriendlyErrorMessage(error, modelName));
+      }
+
       const isRateLimit = errorMessage.includes("429") || errorMessage.includes("resource_exhausted");
       
       if (isRateLimit) {
@@ -247,6 +282,12 @@ export const translateFreeText = async (text: string, settings: AppSettings): Pr
             return response.text || '';
         } catch (error: any) {
             const msg = (error.message || "").toLowerCase();
+            
+            // Fast fail for connection issues
+            if (msg.includes('fetch failed') || msg.includes('location')) {
+                 throw new Error(getFriendlyErrorMessage(error, modelName));
+            }
+
             if (msg.includes("429") || msg.includes("resource_exhausted")) {
                 keyManager.markCurrentAsRateLimited();
                 if (!keyManager.hasAvailableKeys()) throw new Error("All keys exhausted");

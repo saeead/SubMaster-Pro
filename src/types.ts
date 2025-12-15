@@ -20,6 +20,17 @@ export enum AppStatus {
   CANCELLED = 'CANCELLED'
 }
 
+// History tracking for Undo/Redo
+export interface Modification {
+  blockId: number;
+  // Flexible state tracking (can track text, startTime, endTime, etc.)
+  oldState: Partial<SubtitleBlock>;
+  newState: Partial<SubtitleBlock>;
+  // Group ID allows undoing multiple block changes as one action (e.g. Find/Replace)
+  groupId?: string; 
+  timestamp: string;
+}
+
 // New Interface for Multi-File Support
 export interface SubtitleFile {
   id: string; // Unique UUID
@@ -34,6 +45,10 @@ export interface SubtitleFile {
   processingDuration?: string | null;
   netflixErrors?: NetflixError[];
   processedCount: number;
+  
+  // Undo/Redo History
+  modificationsMade: Modification[];
+  historyPointer: number;
 }
 
 export interface TranslationStats {

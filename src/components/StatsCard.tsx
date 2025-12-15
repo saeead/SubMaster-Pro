@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { SubtitleFile, AppStatus, NetflixError } from '../types';
-import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive } from 'lucide-react';
+import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive, Save, FileJson, Sparkles } from 'lucide-react';
 
 interface StatsCardProps {
   activeFile: SubtitleFile;
@@ -16,6 +16,9 @@ interface StatsCardProps {
   onNewProject: () => void;
   onOpenTimingTools: () => void;
   onFixErrors: () => void;
+  onSave?: () => void;
+  onExportBackup?: () => void;
+  onOptimizeStructure?: () => void; // New Prop
 }
 
 export const StatsCard: React.FC<StatsCardProps> = ({ 
@@ -29,7 +32,10 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   onDownloadZip,
   onNewProject,
   onOpenTimingTools,
-  onFixErrors
+  onFixErrors,
+  onSave,
+  onExportBackup,
+  onOptimizeStructure
 }) => {
   const blocks = activeFile.blocks;
   const status = activeFile.status;
@@ -58,12 +64,10 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const isError = status === AppStatus.ERROR;
   const validationErrors = activeFile.netflixErrors || [];
   const hasErrors = validationErrors.length > 0;
+  const hasTranslation = translatedCount > 0;
 
   // Tools should be available if we have blocks loaded, regardless of translation status (mostly)
   const showTools = blocks.length > 0 && !isProcessing;
-
-  // Check if ALL files are completed to show Download ZIP
-  const isAllFilesDone = true; // Simplified for UI, logic handled in App
 
   return (
     <div className="glass rounded-3xl p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 relative overflow-hidden group">
@@ -80,17 +84,41 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                 )}
             </div>
             <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-bold text-white truncate dir-ltr text-right max-w-md" title={activeFile.name}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h3 className="text-xl font-bold text-white truncate dir-ltr text-right max-w-md order-1" title={activeFile.name}>
                     {activeFile.name}
                     </h3>
                     
-                    <div className="flex items-center gap-2 md:mr-4">
+                    <div className="flex items-center gap-2 md:mr-4 order-2 md:order-2 ml-auto md:ml-0">
+                        {/* Manual Save (Browser) */}
+                        {onSave && (
+                            <button 
+                                onClick={onSave}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 transition-all text-xs font-bold"
+                                title="ذخیره وضعیت در حافظه مرورگر"
+                            >
+                                <Save className="w-4 h-4" />
+                                <span>ذخیره</span>
+                            </button>
+                        )}
+
+                        {/* Export Backup (File) */}
+                        {onExportBackup && (
+                            <button 
+                                onClick={onExportBackup}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-all text-xs font-bold"
+                                title="دانلود فایل پروژه (JSON)"
+                            >
+                                <FileJson className="w-4 h-4" />
+                                <span>بکاپ</span>
+                            </button>
+                        )}
+
                         {/* Timing Tools Button */}
                         {showTools && (
                             <button 
                                 onClick={onOpenTimingTools}
-                                className="p-2 rounded-lg hover:bg-[#00f0ff]/10 text-[#00f0ff]/70 hover:text-[#00f0ff] transition-colors"
+                                className="p-1.5 rounded-lg hover:bg-[#00f0ff]/10 text-[#00f0ff]/70 hover:text-[#00f0ff] transition-colors"
                                 title="ابزارهای زمان‌بندی و استاندارد نتفلیکس"
                             >
                                 <Settings2 className="w-5 h-5" />
@@ -98,11 +126,10 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         )}
 
                         {/* Delete/Remove File Icon */}
-                        {/* Currently resets whole project for simplicity */}
                         {(isReady || isCancelled || isCompleted || isError) && (
                             <button 
                                 onClick={onNewProject}
-                                className="p-2 rounded-lg hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors"
+                                className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors"
                                 title="حذف فایل / پروژه جدید"
                             >
                                 <Trash2 className="w-5 h-5" />
@@ -158,27 +185,38 @@ export const StatsCard: React.FC<StatsCardProps> = ({
             </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col md:flex-row items-center gap-4">
-             {/* Netflix Fix Button - Prominent when errors exist */}
+        {/* Action Buttons - Centered and 1/3 Width on Desktop */}
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4">
+             {/* Netflix Fix Button */}
              {hasErrors && onFixErrors && (
                  <button 
                     onClick={onFixErrors}
-                    className="w-full flex-1 bg-[#E50914] hover:bg-[#b20710] text-white font-bold py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(229,9,20,0.4)] transition-all flex items-center justify-center gap-2 animate-in slide-in-from-top-2"
+                    className="w-full md:w-1/3 bg-[#E50914] hover:bg-[#b20710] text-white font-bold py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(229,9,20,0.4)] transition-all flex items-center justify-center gap-2 animate-in slide-in-from-top-2"
                  >
                      <Wand2 className="w-5 h-5" />
-                     اصلاح خودکار مشکلات ({validationErrors.length})
+                     اصلاح خودکار ({validationErrors.length})
                  </button>
+             )}
+
+             {/* Persian Structure Optimization Button */}
+             {hasTranslation && !isProcessing && onOptimizeStructure && (
+                  <button 
+                     onClick={onOptimizeStructure}
+                     className="w-full md:w-1/3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 animate-in slide-in-from-top-2"
+                  >
+                      <Sparkles className="w-5 h-5" />
+                      بهینه‌سازی ساختار
+                  </button>
              )}
 
              {/* Start / Resume */}
              {(isReady || isPaused || isError) && !hasErrors && (
                  <button 
                     onClick={onStart}
-                    className="w-full flex-1 bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black font-bold py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(0,240,255,0.3)] hover:shadow-[0_0_30px_rgba(0,240,255,0.5)] transition-all transform hover:-translate-y-1 flex items-center justify-center gap-2"
+                    className="w-full md:w-1/3 bg-gradient-to-r from-[#00f0ff] to-[#00c0cc] text-black font-bold py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(0,240,255,0.3)] hover:shadow-[0_0_30px_rgba(0,240,255,0.5)] transition-all transform hover:-translate-y-1 flex items-center justify-center gap-2"
                  >
                     <Play className="w-5 h-5 fill-current" />
-                    {totalFiles > 1 ? 'ترجمه نوبتی فایل‌ها' : (isPaused ? 'ادامه ترجمه' : 'شروع ترجمه')}
+                    {totalFiles > 1 ? 'ترجمه نوبتی' : (isPaused ? 'ادامه ترجمه' : 'شروع ترجمه')}
                  </button>
              )}
 
@@ -186,7 +224,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
              {isProcessing && (
                 <button 
                     onClick={onPause}
-                    className="w-full flex-1 bg-white/10 hover:bg-white/20 text-white font-bold py-3 px-6 rounded-xl border border-white/10 transition-all flex items-center justify-center gap-2"
+                    className="w-full md:w-1/3 bg-white/10 hover:bg-white/20 text-white font-bold py-3 px-6 rounded-xl border border-white/10 transition-all flex items-center justify-center gap-2"
                  >
                     <Pause className="w-5 h-5 fill-current" />
                     توقف
@@ -197,18 +235,18 @@ export const StatsCard: React.FC<StatsCardProps> = ({
              {(isProcessing || isPaused) && (
                  <button 
                     onClick={onCancel}
-                    className="w-full flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 font-bold py-3 px-6 rounded-xl border border-red-500/20 transition-all flex items-center justify-center gap-2"
+                    className="w-full md:w-1/3 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 font-bold py-3 px-6 rounded-xl border border-red-500/20 transition-all flex items-center justify-center gap-2"
                  >
                     <XCircle className="w-5 h-5" />
                     لغو
                  </button>
              )}
 
-             {/* Download Output - Visible when COMPLETED */}
+             {/* Download Output */}
              {isCompleted && (
                  <button 
                     onClick={onDownload}
-                    className="w-full flex-1 bg-[#ff00ea]/10 text-[#ff00ea] border border-[#ff00ea] hover:bg-[#ff00ea]/20 shadow-[0_0_15px_rgba(255,0,234,0.2)] font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 animate-in zoom-in"
+                    className="w-full md:w-1/3 bg-[#ff00ea]/10 text-[#ff00ea] border border-[#ff00ea] hover:bg-[#ff00ea]/20 shadow-[0_0_15px_rgba(255,0,234,0.2)] font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 animate-in zoom-in"
                   >
                     <Download className="w-5 h-5" />
                     دانلود فایل
@@ -219,7 +257,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
              {totalFiles > 1 && (
                  <button 
                     onClick={onDownloadZip}
-                    className="w-full flex-1 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                    className="w-full md:w-1/3 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
                     title="دانلود همه فایل‌ها بصورت زیپ"
                   >
                     <Archive className="w-5 h-5" />
@@ -227,11 +265,11 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                   </button>
              )}
 
-             {/* New Project / Replace File - Visible when Finished or Cancelled */}
+             {/* New Project / Replace File */}
              {(isCompleted || isCancelled) && (
                  <button 
                     onClick={onNewProject}
-                    className="w-full flex-1 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                    className="w-full md:w-1/3 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
                   >
                     <RefreshCw className="w-5 h-5" />
                     پروژه جدید

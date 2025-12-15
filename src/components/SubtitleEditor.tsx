@@ -1,8 +1,7 @@
 
-
 import React, { useState } from 'react';
 import { SubtitleBlock, NetflixError } from '../types';
-import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers } from 'lucide-react';
+import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers, Undo, Redo } from 'lucide-react';
 
 interface SubtitleEditorProps {
   blocks: SubtitleBlock[];
@@ -10,6 +9,13 @@ interface SubtitleEditorProps {
   validationErrors?: NetflixError[];
   onFindReplace: (find: string, replace: string, scope: 'current' | 'all') => void;
   hasMultipleFiles: boolean;
+  
+  // Undo/Redo Props
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onCommitChange: (id: number, oldText: string, newText: string) => void;
 }
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ 
@@ -17,7 +23,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   onUpdateBlock, 
   validationErrors = [],
   onFindReplace,
-  hasMultipleFiles
+  hasMultipleFiles,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  onCommitChange
 }) => {
   const [findTerm, setFindTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
@@ -44,23 +55,57 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 <h3 className="font-bold text-sm">تصحیح گروهی کلمات (Find & Replace)</h3>
             </div>
             
-            {hasMultipleFiles && (
-                <div className="flex bg-[#0a0e27] rounded-lg p-1 border border-white/10">
+            <div className="flex items-center gap-3">
+                {/* Separate Square Undo / Redo Buttons */}
+                <div className="flex items-center gap-2 mr-4">
                     <button 
-                        onClick={() => setScope('current')}
-                        className={`px-3 py-1 text-xs rounded transition-colors ${scope === 'current' ? 'bg-white/10 text-white' : 'text-white/50'}`}
+                        onClick={onUndo}
+                        disabled={!canUndo}
+                        className={`
+                            w-9 h-9 flex items-center justify-center rounded-xl border transition-all duration-200
+                            ${canUndo 
+                                ? 'bg-[#0a0e27] hover:bg-white/10 border-white/10 text-white hover:border-[#00f0ff]/50' 
+                                : 'bg-black/20 border-transparent text-white/20 cursor-not-allowed'
+                            }
+                        `}
+                        title="Undo (Ctrl+Z)"
                     >
-                        فایل جاری
+                        <Undo className="w-4 h-4" />
                     </button>
                     <button 
-                        onClick={() => setScope('all')}
-                        className={`px-3 py-1 text-xs rounded transition-colors flex items-center gap-1 ${scope === 'all' ? 'bg-[#ff00ea]/20 text-[#ff00ea]' : 'text-white/50'}`}
+                        onClick={onRedo}
+                        disabled={!canRedo}
+                        className={`
+                            w-9 h-9 flex items-center justify-center rounded-xl border transition-all duration-200
+                            ${canRedo 
+                                ? 'bg-[#0a0e27] hover:bg-white/10 border-white/10 text-white hover:border-[#00f0ff]/50' 
+                                : 'bg-black/20 border-transparent text-white/20 cursor-not-allowed'
+                            }
+                        `}
+                        title="Redo (Ctrl+Shift+Z)"
                     >
-                        <Layers className="w-3 h-3" />
-                        همه فایل‌ها
+                        <Redo className="w-4 h-4" />
                     </button>
                 </div>
-            )}
+
+                {hasMultipleFiles && (
+                    <div className="flex bg-[#0a0e27] rounded-lg p-1 border border-white/10">
+                        <button 
+                            onClick={() => setScope('current')}
+                            className={`px-3 py-1 text-xs rounded transition-colors ${scope === 'current' ? 'bg-white/10 text-white' : 'text-white/50'}`}
+                        >
+                            فایل جاری
+                        </button>
+                        <button 
+                            onClick={() => setScope('all')}
+                            className={`px-3 py-1 text-xs rounded transition-colors flex items-center gap-1 ${scope === 'all' ? 'bg-[#ff00ea]/20 text-[#ff00ea]' : 'text-white/50'}`}
+                        >
+                            <Layers className="w-3 h-3" />
+                            همه فایل‌ها
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
         
         <div className="flex flex-col md:flex-row gap-4 items-end">
@@ -159,6 +204,18 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                     <textarea
                         value={block.translatedText || ''}
                         onChange={(e) => onUpdateBlock(block.id, e.target.value)}
+                        onFocus={(e) => {
+                             // Capture original value on focus to detect changes for Undo stack
+                             e.currentTarget.dataset.originalValue = block.translatedText || '';
+                        }}
+                        onBlur={(e) => {
+                            const oldVal = e.currentTarget.dataset.originalValue;
+                            const newVal = block.translatedText || '';
+                            // Only commit if text actually changed from when user focused
+                            if (oldVal !== undefined && oldVal !== newVal) {
+                                onCommitChange(block.id, oldVal, newVal);
+                            }
+                        }}
                         placeholder="در انتظار ترجمه..."
                         className={`
                             w-full p-4 bg-[#0a0e27] rounded-xl text-sm leading-7 dir-rtl text-right resize-y min-h-[100px] focus:outline-none border transition-all

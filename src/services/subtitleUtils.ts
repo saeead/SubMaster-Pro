@@ -172,7 +172,9 @@ const countChars = (text: string): number => {
 };
 
 const isSentenceComplete = (text: string): boolean => {
-  return /[.?!؟]$/.test(text.trim());
+  // Checks for . ! ? ; and also Persian equivalents like ؟
+  // Also ignores trailing quotes like "End."
+  return /[.?!؟!;]['"]?$/.test(text.trim());
 };
 
 export const formatPersianSubtitle = (text: string): string => {
@@ -219,6 +221,10 @@ export const formatPersianSubtitle = (text: string): string => {
   return `${line1}\n${line2}`;
 };
 
+/**
+ * Advanced Semantic Block Optimization
+ * Merges blocks to keep sentences together while respecting hard limits.
+ */
 export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'normal' | 'netflix' = 'normal'): SubtitleBlock[] => {
   if (blocks.length === 0) return [];
 
@@ -226,64 +232,95 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
   const MAX_DURATION_MS = standard === 'netflix' ? 7000 : 12000;
   
   const optimized: SubtitleBlock[] = [];
-  let current = { ...blocks[0] }; 
-
+  
+  // "Accumulator" buffer for building semantic blocks
+  let bufferBlock: SubtitleBlock = { ...blocks[0] };
+  
   for (let i = 1; i < blocks.length; i++) {
-    const next = blocks[i];
+    const nextBlock = blocks[i];
     
-    const currentWordCount = countWords(current.originalText);
-    const nextWordCount = countWords(next.originalText);
-    const totalWords = currentWordCount + nextWordCount;
+    // Metrics for decision making
+    const bufferWords = countWords(bufferBlock.originalText);
+    const nextWords = countWords(nextBlock.originalText);
+    const totalWords = bufferWords + nextWords;
     
-    const currentChars = countChars(current.originalText);
-    const nextChars = countChars(next.originalText);
+    const bufferChars = countChars(bufferBlock.originalText);
+    const nextChars = countChars(nextBlock.originalText);
     
-    const currentStartMs = timeToMs(current.startTime);
-    const currentEndTimeMs = timeToMs(current.endTime);
-    const nextStartTimeMs = timeToMs(next.startTime);
-    const nextEndTimeMs = timeToMs(next.endTime);
+    const bufferEndMs = timeToMs(bufferBlock.endTime);
+    const nextStartMs = timeToMs(nextBlock.startTime);
+    const nextEndMs = timeToMs(nextBlock.endTime);
+    const bufferStartMs = timeToMs(bufferBlock.startTime);
     
-    const gap = nextStartTimeMs - currentEndTimeMs;
-    const combinedDuration = nextEndTimeMs - currentStartMs;
+    const gapMs = nextStartMs - bufferEndMs;
+    const combinedDurationMs = nextEndMs - bufferStartMs;
 
-    const isGapAcceptable = gap <= config.MAX_MERGE_GAP_MS;
-    const isUnderMaxLimit = totalWords <= config.MAX_WORDS_PER_BLOCK && (currentChars + nextChars) <= config.MAX_MERGE_CHARACTERS;
-    const isDurationAcceptable = combinedDuration <= MAX_DURATION_MS;
+    // --- DECISION LOGIC ---
+
+    // 1. Hard Constraints (Must Break)
+    const isGapTooLarge = gapMs > config.MAX_MERGE_GAP_MS;
+    const isTooLongDuration = combinedDurationMs > MAX_DURATION_MS;
+    const isTooManyWords = totalWords > config.MAX_WORDS_PER_BLOCK;
+    const isTooManyChars = (bufferChars + nextChars) > config.MAX_MERGE_CHARACTERS;
+    const isDialogueSwitch = bufferBlock.originalText.trim().startsWith('-') && nextBlock.originalText.trim().startsWith('-');
+
+    const mustBreak = isGapTooLarge || isTooLongDuration || isTooManyWords || isTooManyChars || isDialogueSwitch;
+
+    // 2. Semantic Logic (Should Merge?)
+    // If the current buffer is NOT a complete sentence, we aggressively want to merge,
+    // provided hard constraints aren't violated.
+    const isBufferIncomplete = !isSentenceComplete(bufferBlock.originalText);
     
-    const needsMoreWords = currentWordCount < config.MIN_WORDS_PER_BLOCK;
-    const sentenceIncomplete = !isSentenceComplete(current.originalText);
-    const isDialogueMismatch = current.originalText.trim().startsWith('-') && next.originalText.trim().startsWith('-');
+    // 3. Optimization Logic (Too Short?)
+    // If the buffer IS a complete sentence but very short, and the next one is close, merge them
+    // to create a more readable block (unless Netflix/Strict mode prefers simpler blocks).
+    const isBufferTooShort = bufferWords < config.MIN_WORDS_PER_BLOCK;
 
-    const shouldMerge = isGapAcceptable && isUnderMaxLimit && isDurationAcceptable && !isDialogueMismatch && (needsMoreWords || sentenceIncomplete);
+    if (!mustBreak && (isBufferIncomplete || isBufferTooShort)) {
+        // --- MERGE ---
+        bufferBlock.endTime = nextBlock.endTime;
+        
+        // Handle text joining
+        const bufferEndsWithHyphen = bufferBlock.originalText.trim().endsWith('-');
+        const nextStartsWithHyphen = nextBlock.originalText.trim().startsWith('-');
+        const isDialogList = bufferBlock.originalText.includes('\n-') || bufferBlock.originalText.startsWith('-');
 
-    if (shouldMerge) {
-      current.endTime = next.endTime;
-      if (next.originalText.trim().startsWith('-') || current.originalText.includes('\n')) {
-          current.originalText = `${current.originalText}\n${next.originalText}`;
-      } else {
-          current.originalText = `${current.originalText} ${next.originalText}`;
-      }
+        if (nextStartsWithHyphen || isDialogList) {
+            // New line for dialogue
+             bufferBlock.originalText = `${bufferBlock.originalText}\n${nextBlock.originalText}`;
+        } else {
+            // Standard sentence join
+            bufferBlock.originalText = `${bufferBlock.originalText.trim()} ${nextBlock.originalText.trim()}`;
+        }
+
     } else {
-      const minReadingTime = countWords(current.originalText) * config.MS_PER_WORD;
-      const originalDuration = currentEndTimeMs - currentStartMs;
-      
-      if (originalDuration < minReadingTime) {
-          const maxAllowedEndMs = nextStartTimeMs - config.STANDARD_GAP_MS;
-          const targetEndMs = currentStartMs + minReadingTime;
-          const finalEndMs = Math.min(targetEndMs, maxAllowedEndMs);
-          
-          if (finalEndMs > currentStartMs) {
-             current.endTime = msToTime(finalEndMs);
-          }
-      }
+        // --- FINALIZE BUFFER & START NEW ---
+        
+        // Final sanity check on timing before pushing
+        // Ensure minimum reading time for the finished block if it wasn't merged
+        const minReadingTime = countWords(bufferBlock.originalText) * config.MS_PER_WORD;
+        const currentDuration = timeToMs(bufferBlock.endTime) - timeToMs(bufferBlock.startTime);
+        
+        if (currentDuration < minReadingTime) {
+            // Extend end time slightly if space allows (without overlapping next)
+            const maxAllowedEnd = nextStartMs - config.STANDARD_GAP_MS;
+            const targetEnd = timeToMs(bufferBlock.startTime) + minReadingTime;
+            const finalEnd = Math.min(targetEnd, maxAllowedEnd);
+            
+            if (finalEnd > timeToMs(bufferBlock.startTime)) {
+                bufferBlock.endTime = msToTime(finalEnd);
+            }
+        }
 
-      optimized.push(current);
-      current = { ...next };
+        optimized.push(bufferBlock);
+        bufferBlock = { ...nextBlock };
     }
   }
   
-  optimized.push(current);
+  // Push the final leftover block
+  optimized.push(bufferBlock);
 
+  // Post-Processing: Ensure Gap Consistency
   for (let i = 0; i < optimized.length - 1; i++) {
      const b1 = optimized[i];
      const b2 = optimized[i+1];
@@ -303,6 +340,76 @@ export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: 'norma
     id: idx + 1,
     index: idx + 1
   }));
+};
+
+/**
+ * Post-Processing: Optimizes Persian text structure AFTER translation.
+ * Merges blocks if Persian text is incomplete (ending in conjunctions) or visually unbalanced.
+ */
+export const optimizePersianStructure = (blocks: SubtitleBlock[]): SubtitleBlock[] => {
+    if (blocks.length === 0) return [];
+    
+    const processed: SubtitleBlock[] = [];
+    const MAX_GAP = 1200; // 1.2s max gap to consider merging for continuity
+    const MAX_CHARS = 85; // Safety limit
+    
+    // Conjunctions that signal "More to come" in Persian
+    const connectors = ['که', 'و', 'ولی', 'اما', 'اگر', 'چون', 'تا', 'پس'];
+    
+    let buffer = { ...blocks[0] };
+    
+    for (let i = 1; i < blocks.length; i++) {
+        const next = blocks[i];
+        
+        // Get Texts
+        const textA = buffer.translatedText || buffer.originalText || '';
+        const textB = next.translatedText || next.originalText || '';
+        
+        // --- Analysis ---
+        const gap = timeToMs(next.startTime) - timeToMs(buffer.endTime);
+        const combinedLen = textA.length + textB.length + 1;
+        
+        // 1. Check for hanging connectors (e.g., "می‌دانم که")
+        const endsWithConnector = connectors.some(c => textA.trim().endsWith(` ${c}`));
+        
+        // 2. Check for Sentence Incompleteness (No punctuation at end of A)
+        const isIncomplete = !/[.?!؟!;]$/.test(textA.trim());
+        
+        // 3. Check for Dialogue Dash (Don't merge different speakers)
+        const isDialogue = textA.startsWith('-') || textB.startsWith('-');
+        
+        const shouldMerge = !isDialogue && 
+                            gap < MAX_GAP && 
+                            combinedLen < MAX_CHARS &&
+                            (endsWithConnector || (isIncomplete && gap < 500)); // Stricter gap check if just incomplete
+        
+        if (shouldMerge) {
+            // Merge
+            buffer.endTime = next.endTime;
+            buffer.translatedText = `${textA.trim()} ${textB.trim()}`;
+            // We also merge original text to keep data consistent, though translated is what matters here
+            buffer.originalText = `${buffer.originalText} ${next.originalText}`; 
+            
+            // Re-balance the merged text if it has lines
+            buffer.translatedText = formatPersianSubtitle(buffer.translatedText);
+        } else {
+            // Apply formatting to buffer before pushing
+            if (buffer.translatedText) {
+                buffer.translatedText = formatPersianSubtitle(buffer.translatedText);
+            }
+            processed.push(buffer);
+            buffer = { ...next };
+        }
+    }
+    
+    // Process final buffer
+    if (buffer.translatedText) {
+        buffer.translatedText = formatPersianSubtitle(buffer.translatedText);
+    }
+    processed.push(buffer);
+
+    // Re-index
+    return processed.map((b, idx) => ({ ...b, id: idx + 1, index: idx + 1 }));
 };
 
 export interface SubtitleChunk {

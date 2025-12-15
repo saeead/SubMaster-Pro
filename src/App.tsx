@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import JSZip from 'jszip';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -12,12 +12,13 @@ import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile } from './types';
-import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards } from './services/subtitleUtils';
-import { translateBatch } from './services/geminiService';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification } from './types';
+import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
+import { translateBatch, diagnoseConnection } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
+import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, Check, Wand2 } from 'lucide-react';
+import { Loader2, Check, Wand2, History } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -26,6 +27,7 @@ const App: React.FC = () => {
   // --- STATE ---
   const [files, setFiles] = useState<SubtitleFile[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [savedProjects, setSavedProjects] = useState<string[]>([]); // Track saved sessions
   
   const [toast, setToast] = useState<{msg: string, type: ToastType} | null>(null);
   
@@ -57,6 +59,7 @@ const App: React.FC = () => {
   // Refs for processing
   const filesRef = useRef<SubtitleFile[]>([]);
   const isTranslatingRef = useRef<boolean>(false);
+  const isPausedRef = useRef<boolean>(false); // New Ref to track Pause vs Cancel
   const settingsRef = useRef<AppSettings>(settings);
 
   useEffect(() => { filesRef.current = files; }, [files]);
@@ -74,7 +77,7 @@ const App: React.FC = () => {
      }
   }, [settings.theme]);
 
-  // Load settings
+  // Load settings & saved projects
   useEffect(() => {
     const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (savedSettings) {
@@ -96,7 +99,90 @@ const App: React.FC = () => {
     if (savedVersion) {
         APP_CONFIG.version = savedVersion;
     }
+
+    // Check for saved project states
+    const projects = ProjectStateManager.listSavedProjects();
+    setSavedProjects(projects);
   }, []);
+
+  // --- SAVE LOGIC ---
+
+  // Reusable function to save current state
+  const saveCurrentProjectState = useCallback(() => {
+    if (files.length > 0) {
+      files.forEach(file => {
+        // Map SubtitleFile to ProjectState
+        const state: ProjectState = {
+          id: file.id,
+          name: file.name,
+          type: file.type,
+          status: file.status,
+          progress: file.progress,
+          allBlocks: file.blocks,
+          
+          // Required Schema mapping
+          totalChunks: file.blocks.length,
+          completedChunks: file.processedCount,
+          remainingChunks: file.blocks.length - file.processedCount,
+          processedBlocks: file.blocks.filter(b => !!b.translatedText).map(b => ({ original: b.originalText, translated: b.translatedText! })),
+          fullInputContent: '', // Optional/Heavy
+          apiKeyUsed: settings.apiKeys.find(k => k.isValid)?.key || 'unknown',
+          
+          // Map Modifications history
+          modificationsMade: file.modificationsMade || [],
+          
+          lastProcessedIndex: file.blocks.findIndex(b => !!b.translatedText) - 1, // Approximation
+          timestamp: new Date().toISOString()
+        };
+        
+        ProjectStateManager.saveProjectState(file.id, state);
+      });
+      // Update saved list
+      setSavedProjects(ProjectStateManager.listSavedProjects());
+    }
+  }, [files, settings.apiKeys]);
+
+  // Auto-Save Logic (Debounced slightly by React batched updates, runs on file change)
+  useEffect(() => {
+    saveCurrentProjectState();
+  }, [files, saveCurrentProjectState]); 
+
+  // Manual Save Handler (To LocalStorage)
+  const handleManualSave = () => {
+    saveCurrentProjectState();
+    showToast('پروژه با موفقیت در مرورگر ذخیره شد.', 'success');
+  };
+
+  // Export Project to JSON File (Portable)
+  const handleExportProjectFile = () => {
+    const file = getActiveFile();
+    if (!file) return;
+
+    // Create current state
+    const state: ProjectState = {
+        id: file.id,
+        name: file.name,
+        type: file.type,
+        status: file.status,
+        progress: file.progress,
+        allBlocks: file.blocks,
+        totalChunks: file.blocks.length,
+        completedChunks: file.processedCount,
+        remainingChunks: file.blocks.length - file.processedCount,
+        processedBlocks: file.blocks.filter(b => !!b.translatedText).map(b => ({ original: b.originalText, translated: b.translatedText! })),
+        fullInputContent: '', 
+        apiKeyUsed: '', // SECURITY: Strip API Key
+        modificationsMade: file.modificationsMade || [],
+        lastProcessedIndex: file.blocks.findIndex(b => !!b.translatedText) - 1,
+        timestamp: new Date().toISOString()
+    };
+
+    const jsonString = JSON.stringify(state, null, 2);
+    const fileName = `${file.name.replace(/\.[^/.]+$/, "")}_backup.json`;
+    downloadFile(fileName, jsonString);
+    showToast('فایل پشتیبان پروژه دانلود شد.', 'success');
+  };
+
 
   // Auto-adjust temperature when topic changes
   useEffect(() => {
@@ -138,7 +224,10 @@ const App: React.FC = () => {
       status: AppStatus.READY,
       progress: 0,
       processedCount: 0,
-      netflixErrors: []
+      netflixErrors: [],
+      // Initialize History
+      modificationsMade: [],
+      historyPointer: -1
     }));
 
     setFiles(prev => [...prev, ...newFiles]);
@@ -148,16 +237,90 @@ const App: React.FC = () => {
     setToast(null);
   };
 
+  // Handle Importing a Backup JSON file
+  const handleProjectImport = (projectState: ProjectState) => {
+    const restoredFile: SubtitleFile = {
+        id: projectState.id || crypto.randomUUID(),
+        name: projectState.name,
+        size: 0, // Not strictly needed for resume
+        type: projectState.type,
+        originalType: projectState.type,
+        blocks: projectState.allBlocks,
+        status: projectState.status as AppStatus,
+        progress: projectState.progress,
+        processedCount: projectState.completedChunks,
+        netflixErrors: [],
+        // Restore History if available
+        modificationsMade: projectState.modificationsMade || [],
+        historyPointer: projectState.modificationsMade ? projectState.modificationsMade.length - 1 : -1
+    };
+
+    // If importing a completed file, ensure status is reflected
+    if (restoredFile.progress >= 100) {
+        restoredFile.status = AppStatus.COMPLETED;
+    } else if (restoredFile.status === AppStatus.TRANSLATING) {
+        restoredFile.status = AppStatus.PAUSED; // Don't auto-start translating
+    }
+
+    setFiles([restoredFile]); // Replace current workspace? Or append? Let's replace for a cleaner state restore.
+    setActiveFileId(restoredFile.id);
+    
+    // Save to LS immediately so it sticks
+    ProjectStateManager.saveProjectState(restoredFile.id, projectState);
+    setSavedProjects(ProjectStateManager.listSavedProjects());
+
+    showToast(`پروژه "${projectState.name}" با موفقیت بازیابی شد.`, 'success');
+  };
+
+  const handleResumeSession = () => {
+    const loadedFiles: SubtitleFile[] = [];
+    savedProjects.forEach(pid => {
+        const pState = ProjectStateManager.loadProjectState(pid);
+        if (pState) {
+            loadedFiles.push({
+                id: pState.id,
+                name: pState.name,
+                size: 0, // Metadata lost in simple schema, not critical
+                type: pState.type,
+                originalType: pState.type,
+                blocks: pState.allBlocks,
+                status: pState.status as AppStatus,
+                progress: pState.progress,
+                processedCount: pState.completedChunks,
+                netflixErrors: [],
+                modificationsMade: pState.modificationsMade || [],
+                historyPointer: pState.modificationsMade ? pState.modificationsMade.length - 1 : -1
+            });
+        }
+    });
+
+    if (loadedFiles.length > 0) {
+        setFiles(loadedFiles);
+        setActiveFileId(loadedFiles[0].id);
+        showToast(`نشست قبلی با ${loadedFiles.length} فایل بازیابی شد.`, 'success');
+    }
+  };
+
+  const handleClearSavedSessions = () => {
+      savedProjects.forEach(pid => ProjectStateManager.deleteProjectState(pid));
+      setSavedProjects([]);
+      showToast('تاریخچه ذخیره شده پاک شد.', 'success');
+  };
+
   const handleFileError = (msg: string) => {
     showToast(msg, 'error');
   };
 
   const resetProject = () => {
+    files.forEach(f => ProjectStateManager.deleteProjectState(f.id));
+    
     setFiles([]);
     setActiveFileId(null);
     setToast(null);
     setCompletionToast(false);
     isTranslatingRef.current = false;
+    isPausedRef.current = false;
+    setSavedProjects(ProjectStateManager.listSavedProjects());
   };
 
   const updateBlock = (fileId: string, blockId: number, text: string) => {
@@ -180,29 +343,177 @@ const App: React.FC = () => {
     return files.findIndex(f => f.id === activeFileId);
   }
 
+  // --- UNDO / REDO LOGIC ---
+
+  const handleCommitChange = (blockId: number, oldText: string, newText: string) => {
+      if (!activeFileId || oldText === newText) return;
+
+      setFiles(prev => prev.map(f => {
+          if (f.id === activeFileId) {
+              const newHistory = f.modificationsMade.slice(0, f.historyPointer + 1);
+              newHistory.push({
+                  blockId,
+                  oldState: { translatedText: oldText },
+                  newState: { translatedText: newText },
+                  timestamp: new Date().toISOString()
+              });
+              
+              return {
+                  ...f,
+                  modificationsMade: newHistory,
+                  historyPointer: newHistory.length - 1
+              };
+          }
+          return f;
+      }));
+  };
+
+  const handleUndo = useCallback(() => {
+      if (!activeFileId) return;
+      
+      setFiles(prev => prev.map(f => {
+          if (f.id === activeFileId && f.historyPointer > -1) {
+              let currentPtr = f.historyPointer;
+              let currentMod = f.modificationsMade[currentPtr];
+              const groupId = currentMod.groupId;
+              
+              let newBlocks = [...f.blocks];
+
+              // Logic loop to handle grouped actions (undo all actions with same GroupID)
+              do {
+                   currentMod = f.modificationsMade[currentPtr];
+                   newBlocks = newBlocks.map(b => {
+                        if (b.id === currentMod.blockId) {
+                            return { ...b, ...currentMod.oldState };
+                        }
+                        return b;
+                   });
+                   currentPtr--;
+              } while (
+                  groupId && 
+                  currentPtr > -1 && 
+                  f.modificationsMade[currentPtr].groupId === groupId
+              );
+
+              return {
+                  ...f,
+                  blocks: newBlocks,
+                  historyPointer: currentPtr
+              };
+          }
+          return f;
+      }));
+      showToast('Undo performed', 'success');
+  }, [activeFileId]);
+
+  const handleRedo = useCallback(() => {
+      if (!activeFileId) return;
+
+      setFiles(prev => prev.map(f => {
+          if (f.id === activeFileId && f.historyPointer < f.modificationsMade.length - 1) {
+              let currentPtr = f.historyPointer + 1;
+              let currentMod = f.modificationsMade[currentPtr];
+              const groupId = currentMod.groupId;
+
+              let newBlocks = [...f.blocks];
+
+              // Logic loop to handle grouped actions (redo all actions with same GroupID)
+              do {
+                   currentMod = f.modificationsMade[currentPtr];
+                   newBlocks = newBlocks.map(b => {
+                        if (b.id === currentMod.blockId) {
+                            return { ...b, ...currentMod.newState };
+                        }
+                        return b;
+                   });
+                   
+                   // Check next item to see if it belongs to same group
+                   if (groupId && currentPtr < f.modificationsMade.length - 1) {
+                       if (f.modificationsMade[currentPtr + 1].groupId === groupId) {
+                           currentPtr++;
+                           continue;
+                       }
+                   }
+                   break; // Stop if next item is not in group or end of list
+              } while (true);
+
+              return {
+                  ...f,
+                  blocks: newBlocks,
+                  historyPointer: currentPtr
+              };
+          }
+          return f;
+      }));
+       showToast('Redo performed', 'success');
+  }, [activeFileId]);
+
+  // Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+              e.preventDefault();
+              if (e.shiftKey) {
+                  handleRedo();
+              } else {
+                  handleUndo();
+              }
+          }
+          // Support Ctrl+Y for Redo on Windows
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !e.shiftKey) {
+              e.preventDefault();
+              handleRedo();
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
   // --- BATCH ACTION LOGIC ---
 
   const handleFindReplace = (find: string, replace: string, scope: 'current' | 'all') => {
     if (!find) return;
     let totalOccurrences = 0;
     const targetFiles = scope === 'all' ? files : files.filter(f => f.id === activeFileId);
+    
+    // Batch ID for Undo/Redo Grouping
+    const groupId = crypto.randomUUID();
 
     const updatedFiles = files.map(f => {
        if (!targetFiles.find(tf => tf.id === f.id)) return f;
 
+       const newHistory = f.modificationsMade ? f.modificationsMade.slice(0, f.historyPointer + 1) : [];
        let fileOccurrences = 0;
+       
        const newBlocks = f.blocks.map(block => {
          if (block.translatedText && block.translatedText.includes(find)) {
             const newText = block.translatedText.replaceAll(find, replace);
             if (newText !== block.translatedText) {
                 fileOccurrences++;
+                
+                // Add to history
+                newHistory.push({
+                    blockId: block.id,
+                    oldState: { translatedText: block.translatedText },
+                    newState: { translatedText: newText },
+                    groupId: groupId,
+                    timestamp: new Date().toISOString()
+                });
+
+                return { ...block, translatedText: newText };
             }
-            return { ...block, translatedText: newText };
          }
          return block;
        });
+
        totalOccurrences += fileOccurrences;
-       return { ...f, blocks: newBlocks };
+       return { 
+           ...f, 
+           blocks: newBlocks,
+           modificationsMade: newHistory,
+           historyPointer: newHistory.length - 1
+       };
     });
 
     if (totalOccurrences > 0) {
@@ -250,13 +561,48 @@ const App: React.FC = () => {
     const file = files.find(f => f.id === activeFileId);
     if (!file) return;
 
+    // Batch ID for Undo/Redo
+    const groupId = crypto.randomUUID();
+    const newHistory = file.modificationsMade ? file.modificationsMade.slice(0, file.historyPointer + 1) : [];
+
+    // Calculate fixes
     const fixedBlocks = fixNetflixStandards(file.blocks);
+    
+    // Determine which blocks actually changed to log them in history
+    let changesCount = 0;
+    fixedBlocks.forEach((newBlock) => {
+        const oldBlock = file.blocks.find(b => b.id === newBlock.id);
+        if (oldBlock) {
+             const textChanged = oldBlock.translatedText !== newBlock.translatedText;
+             const timeChanged = oldBlock.endTime !== newBlock.endTime;
+
+             if (textChanged || timeChanged) {
+                 changesCount++;
+                 newHistory.push({
+                     blockId: newBlock.id,
+                     oldState: { 
+                         translatedText: oldBlock.translatedText, 
+                         endTime: oldBlock.endTime 
+                     },
+                     newState: { 
+                         translatedText: newBlock.translatedText, 
+                         endTime: newBlock.endTime 
+                     },
+                     groupId: groupId,
+                     timestamp: new Date().toISOString()
+                 });
+             }
+        }
+    });
+
     const remainingErrors = validateNetflixStandards(fixedBlocks);
 
     setFiles(prev => prev.map(f => f.id === file.id ? { 
         ...f, 
         blocks: fixedBlocks, 
-        netflixErrors: remainingErrors 
+        netflixErrors: remainingErrors,
+        modificationsMade: newHistory,
+        historyPointer: newHistory.length - 1
     } : f));
 
     if (remainingErrors.length === 0) {
@@ -264,6 +610,28 @@ const App: React.FC = () => {
     } else {
         showToast(`اصلاح خودکار انجام شد. ${remainingErrors.length} مورد باقی مانده است.`, 'warning');
     }
+  };
+
+  const handleOptimizePersianStructure = () => {
+      if (!activeFileId) return;
+      const file = files.find(f => f.id === activeFileId);
+      if (!file) return;
+
+      const optimizedBlocks = optimizePersianStructure(file.blocks);
+      
+      // Since optimization merges blocks (changing IDs and count), we reset history for safety or treat it as a massive change
+      // A better approach would be to clear redo stack and push a massive 'optimize' state, but matching IDs for undo is hard if IDs change.
+      // For now, we will reset errors and update blocks.
+
+      const newErrors = validateNetflixStandards(optimizedBlocks);
+
+      setFiles(prev => prev.map(f => f.id === activeFileId ? {
+          ...f,
+          blocks: optimizedBlocks,
+          netflixErrors: newErrors
+      } : f));
+
+      showToast('ساختار زیرنویس بر اساس زبان فارسی بهینه‌سازی شد.', 'success');
   };
 
   // --- EXPORT LOGIC ---
@@ -346,9 +714,17 @@ const App: React.FC = () => {
      };
 
      for (let i = startChunkIndex; i < totalChunks; i++) {
+        // Critical: Check if stopped. If stopped via Pause, don't set to Cancelled.
         if (!isTranslatingRef.current) {
-            updateFileStatus(fileId, { status: AppStatus.CANCELLED, progressMessage: 'لغو شده' });
-            return;
+            if (isPausedRef.current) {
+                // Stopped because of Pause
+                updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)' });
+                return;
+            } else {
+                // Stopped because of Cancel
+                updateFileStatus(fileId, { status: AppStatus.CANCELLED, progressMessage: 'لغو شده' });
+                return;
+            }
         }
 
         const chunk = chunks[i];
@@ -406,7 +782,27 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
+                
                 const errorMessage = (err.message || err.toString() || "").toLowerCase();
+                
+                // --- NEW CONNECTION HANDLING ---
+                if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) {
+                    updateFileStatus(fileId, { 
+                         status: AppStatus.PAUSED, 
+                         progressMessage: 'خطای اتصال (توقف)' 
+                    });
+                    showToast(errorMessage, 'error'); // The message is already friendly from service
+                    isTranslatingRef.current = false;
+                    return;
+                }
+                // ------------------------------
+
+                // If paused during error, prioritize Pause status
+                if (!isTranslatingRef.current && isPausedRef.current) {
+                     updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)' });
+                     return;
+                }
+
                 const isQuotaError = errorMessage.includes("429") || 
                                      errorMessage.includes("quota") || 
                                      errorMessage.includes("پایان اعتبار") || 
@@ -468,6 +864,7 @@ const App: React.FC = () => {
       return;
     }
     
+    // Reset rate limits if manual restart
     if (!hasAvailableKeys) {
         setSettings(prev => ({
             ...prev,
@@ -475,7 +872,26 @@ const App: React.FC = () => {
         }));
     }
 
+    // --- CONNECTION DIAGNOSIS ---
+    // Pick the first available key for a quick ping test
+    const testKey = settings.apiKeys.find(k => k.isValid)?.key;
+    if (testKey) {
+        // We use a toast to indicate checking
+        // showToast('در حال بررسی اتصال به سرور گوگل...', 'warning'); 
+        // Actually, let's just run it. If it fails, the error will pop up.
+        
+        const diagnosisError = await diagnoseConnection(testKey);
+        if (diagnosisError) {
+             showToast(diagnosisError, 'error');
+             // Show Settings so user can see keys/config
+             // setIsSettingsOpen(true); // Optional: might be annoying if it's just VPN
+             return;
+        }
+    }
+    // ----------------------------
+
     isTranslatingRef.current = true;
+    isPausedRef.current = false; // Ensure not paused
     setCompletionToast(false);
 
     const pendingFiles = files.filter(f => 
@@ -504,6 +920,7 @@ const App: React.FC = () => {
                 await processFile(file.id);
             } catch (e: any) {
                 console.error(`Failed to process file ${file.name}`, e);
+                // processFile handles UI updates for error, but loop must decide to continue or break
                 if (!isTranslatingRef.current) {
                     stoppedEarly = true;
                     break;
@@ -529,11 +946,19 @@ const App: React.FC = () => {
 
   const pauseTranslation = () => {
     isTranslatingRef.current = false;
+    isPausedRef.current = true; // Signal that this is a Pause, not Cancel
+    
+    // Immediate UI feedback
     setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت' } : f));
+    
+    // Auto-save on pause
+    saveCurrentProjectState();
+    showToast('پروژه متوقف و ذخیره شد.', 'warning');
   };
 
   const cancelTranslation = () => {
     isTranslatingRef.current = false;
+    isPausedRef.current = false; // Signal that this is a full Cancel
     setFiles(prev => prev.map(f => 
         (f.status === AppStatus.TRANSLATING || f.status === AppStatus.PAUSED) 
         ? { ...f, status: AppStatus.CANCELLED, progressMessage: 'لغو شد' } 
@@ -563,11 +988,11 @@ const App: React.FC = () => {
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         />
 
-        <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-5xl mx-auto pb-24">
+        <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-7xl mx-auto pb-24">
             
             {files.length === 0 ? (
-                <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                     <div className="text-center mb-10 space-y-4">
+                <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+                     <div className="text-center mb-4 space-y-4">
                         <h2 className="text-4xl md:text-5xl font-montserrat font-bold text-text leading-tight">
                             Translation <br />
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">Reimagined</span>
@@ -576,12 +1001,33 @@ const App: React.FC = () => {
                              مترجم هوشمند با قابلیت تشخیص لحن و موضوع. فایل خود را آپلود کنید و از نتیجه حرفه‌ای لذت ببرید.
                         </p>
                     </div>
+                    
                     <FileUpload 
                         onLoad={handleFilesLoaded} 
+                        onProjectLoad={handleProjectImport}
                         onError={handleFileError} 
                         status={AppStatus.IDLE} 
                         outputStandard={settings.outputStandard} 
                     />
+
+                    {/* Resume Saved Projects Button */}
+                    {savedProjects.length > 0 && (
+                        <div className="flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2 mt-4">
+                            <button 
+                                onClick={handleResumeSession}
+                                className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-[#00f0ff]/50 transition-all text-sm text-text"
+                            >
+                                <History className="w-4 h-4 text-[#00f0ff]" />
+                                <span>بازیابی نشست قبلی ({savedProjects.length} فایل ذخیره شده)</span>
+                            </button>
+                            <button 
+                                onClick={handleClearSavedSessions}
+                                className="text-[10px] text-text-muted/50 hover:text-red-400 transition-colors"
+                            >
+                                پاکسازی تاریخچه
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <>
@@ -624,6 +1070,9 @@ const App: React.FC = () => {
                         onNewProject={resetProject}
                         onOpenTimingTools={() => setIsTimingModalOpen(true)}
                         onFixErrors={handleFixNetflixErrors}
+                        onSave={handleManualSave}
+                        onExportBackup={handleExportProjectFile}
+                        onOptimizeStructure={handleOptimizePersianStructure}
                     />
 
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
@@ -645,6 +1094,11 @@ const App: React.FC = () => {
                         validationErrors={getActiveFile().netflixErrors}
                         onFindReplace={handleFindReplace}
                         hasMultipleFiles={files.length > 1}
+                        onCommitChange={handleCommitChange}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1}
+                        canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1}
                     />
                 </>
             )}

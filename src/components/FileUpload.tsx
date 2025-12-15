@@ -1,19 +1,20 @@
 
-
 import React, { useRef, useState } from 'react';
-import { Upload, AlertCircle, Copy } from 'lucide-react';
+import { Upload, AlertCircle, Copy, FileJson } from 'lucide-react';
 import { parseSRT, parseVTT, parseASS, optimizeSubtitleBlocks } from '../services/subtitleUtils';
 import { SubtitleBlock, AppStatus } from '../types';
 import { APP_CONFIG } from '../constants';
+import { ProjectState } from '../services/projectStateManager';
 
 interface FileUploadProps {
   onLoad: (files: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[]) => void;
+  onProjectLoad: (projectState: ProjectState) => void;
   status: AppStatus;
   onError: (msg: string) => void;
   outputStandard: 'normal' | 'netflix';
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError, outputStandard }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, onProjectLoad, status, onError, outputStandard }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -31,7 +32,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
             errors.push(`فایل "${file.name}" بیش از حد مجاز است (Max 100MB)`);
         }
         const ext = file.name.split('.').pop()?.toLowerCase();
-        if (!ext || !APP_CONFIG.supportedFormats.includes(ext)) {
+        if (!ext || !['srt', 'vtt', 'ass', 'ssa', 'json'].includes(ext)) {
             errors.push(`فرمت فایل "${file.name}" پشتیبانی نمی‌شود`);
         }
     }
@@ -52,8 +53,27 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const text = await file.text();
-        let blocks: SubtitleBlock[] = [];
         const extension = file.name.split('.').pop()?.toLowerCase();
+        
+        // Handle Project Backup File
+        if (extension === 'json') {
+            try {
+                const projectState = JSON.parse(text);
+                // Basic Schema Validation
+                if (projectState.id && projectState.allBlocks && projectState.totalChunks !== undefined) {
+                    onProjectLoad(projectState as ProjectState);
+                    return; // Stop processing other files if a backup is loaded
+                } else {
+                    onError('فایل JSON معتبر نیست (ساختار پروژه یافت نشد).');
+                    return;
+                }
+            } catch (e) {
+                onError('خطا در خواندن فایل پشتیبان.');
+                return;
+            }
+        }
+
+        let blocks: SubtitleBlock[] = [];
         let type: 'SRT' | 'VTT' | 'ASS' = 'SRT';
 
         if (extension === 'vtt') {
@@ -79,7 +99,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
       }
 
       if (processedFiles.length === 0) {
-        onError('هیچ فایل معتبری یافت نشد.');
+        // Error is handled inside loop for JSON or generic error
+        if (files[0].name.endsWith('.json')) return; 
+        onError('هیچ فایل زیرنویس معتبری یافت نشد.');
         return;
       }
 
@@ -135,7 +157,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
           ref={inputRef} 
           onChange={handleChange} 
           className="hidden" 
-          accept=".srt,.vtt,.ass,.ssa"
+          accept=".srt,.vtt,.ass,.ssa,.json"
           multiple
         />
         
@@ -156,7 +178,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, status, onError,
           <div className="flex items-center gap-2 text-xs text-text-muted bg-surface px-3 py-1 rounded-full border border-border">
             <span className="uppercase">srt, vtt, ass</span>
             <span>|</span>
-            <span>Batch Supported</span>
+            <span className="flex items-center gap-1"><FileJson className="w-3 h-3" /> Backup JSON</span>
             <span>|</span>
             <span className={`${outputStandard === 'netflix' ? 'text-[#E50914]' : 'text-primary'}`}>
                 {outputStandard === 'netflix' ? 'Netflix Optimized' : 'Standard Optimized'}
