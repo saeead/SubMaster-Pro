@@ -1,10 +1,12 @@
 
+
 import React, { useRef, useState } from 'react';
 import { Upload, AlertCircle, Copy, FileJson } from 'lucide-react';
 import { parseSRT, parseVTT, parseASS, optimizeSubtitleBlocks } from '../services/subtitleUtils';
 import { SubtitleBlock, AppStatus } from '../types';
 import { APP_CONFIG } from '../constants';
 import { ProjectState } from '../services/projectStateManager';
+import { HelpTooltip } from './HelpTooltip';
 
 interface FileUploadProps {
   onLoad: (files: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[]) => void;
@@ -178,7 +180,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, onProjectLoad, s
           <div className="flex items-center gap-2 text-xs text-text-muted bg-surface px-3 py-1 rounded-full border border-border">
             <span className="uppercase">srt, vtt, ass</span>
             <span>|</span>
-            <span className="flex items-center gap-1"><FileJson className="w-3 h-3" /> Backup JSON</span>
+            <span className="flex items-center gap-1">
+                <FileJson className="w-3 h-3" /> 
+                Backup JSON
+                <HelpTooltip text="فایل‌های پشتیبان (JSON) که قبلاً دانلود کرده‌اید را اینجا رها کنید تا پروژه شما دقیقاً به حالت قبل برگردد (Restore)." position="top" />
+            </span>
             <span>|</span>
             <span className={`${outputStandard === 'netflix' ? 'text-[#E50914]' : 'text-primary'}`}>
                 {outputStandard === 'netflix' ? 'Netflix Optimized' : 'Standard Optimized'}

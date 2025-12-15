@@ -3,6 +3,7 @@
 import React from 'react';
 import { SubtitleFile, AppStatus, NetflixError } from '../types';
 import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive, Save, FileJson, Sparkles } from 'lucide-react';
+import { HelpTooltip } from './HelpTooltip';
 
 interface StatsCardProps {
   activeFile: SubtitleFile;
@@ -70,7 +71,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const showTools = blocks.length > 0 && !isProcessing;
 
   return (
-    <div className="glass rounded-3xl p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 relative overflow-hidden group">
+    <div className="glass rounded-3xl p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 relative overflow-visible group">
       
       {/* File Info Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-white/5 pb-8">
@@ -92,26 +93,38 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                     <div className="flex items-center gap-2 md:mr-4 order-2 md:order-2 ml-auto md:ml-0">
                         {/* Manual Save (Browser) */}
                         {onSave && (
-                            <button 
-                                onClick={onSave}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 transition-all text-xs font-bold"
-                                title="ذخیره وضعیت در حافظه مرورگر"
-                            >
-                                <Save className="w-4 h-4" />
-                                <span>ذخیره</span>
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button 
+                                    onClick={onSave}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 transition-all text-xs font-bold"
+                                    title="ذخیره وضعیت در حافظه مرورگر"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    <span>ذخیره</span>
+                                </button>
+                                <HelpTooltip 
+                                    text="این گزینه پروژه شما را در حافظه مرورگر (Local Storage) ذخیره می‌کند. اگر کش مرورگر را پاک کنید، این اطلاعات از بین می‌رود." 
+                                    position="bottom"
+                                />
+                            </div>
                         )}
 
                         {/* Export Backup (File) */}
                         {onExportBackup && (
-                            <button 
-                                onClick={onExportBackup}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-all text-xs font-bold"
-                                title="دانلود فایل پروژه (JSON)"
-                            >
-                                <FileJson className="w-4 h-4" />
-                                <span>بکاپ</span>
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button 
+                                    onClick={onExportBackup}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-all text-xs font-bold"
+                                    title="دانلود فایل پروژه (JSON)"
+                                >
+                                    <FileJson className="w-4 h-4" />
+                                    <span>بکاپ</span>
+                                </button>
+                                <HelpTooltip 
+                                    text="دانلود کامل پروژه به‌صورت فایل JSON. برای بازیابی (Restore)، کافیست این فایل را در صفحه اصلی برنامه آپلود کنید تا پروژه شما دقیقاً به همین حالت برگردد." 
+                                    position="bottom"
+                                />
+                            </div>
                         )}
 
                         {/* Timing Tools Button */}
