@@ -1,7 +1,8 @@
 
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { BatchRequest, BatchResponse, AppSettings, UserAPIKey } from "../types";
-import { APP_CONFIG, getSystemInstruction } from "../constants";
+import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage } from "../types";
+import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
 
 // Strict Schema to enforce the 1-to-1 mapping and ID preservation
 const responseSchema: Schema = {
@@ -256,7 +257,7 @@ export const translateBatch = async (
   throw new Error("Failed to process batch after multiple retries.");
 };
 
-export const translateFreeText = async (text: string, settings: AppSettings): Promise<string> => {
+export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';
 
     let modelName = APP_CONFIG.geminiModels.standard;
@@ -267,6 +268,11 @@ export const translateFreeText = async (text: string, settings: AppSettings): Pr
     let attempt = 0;
     const maxRetries = 2 + settings.apiKeys.length;
 
+    // Fetch the specific prompt for the target language
+    const langPrompt = LANGUAGE_PROMPTS[targetLang] || LANGUAGE_PROMPTS.fa;
+    const toneInfo = `\nTone: ${settings.tone} (Apply this tone appropriately to the target language).`;
+    const fullSystemInstruction = `${langPrompt}\n${toneInfo}\nPreserve original formatting and line breaks.`;
+
     while (attempt < maxRetries) {
         try {
             const currentApiKey = keyManager.getActiveKey();
@@ -275,7 +281,7 @@ export const translateFreeText = async (text: string, settings: AppSettings): Pr
                 model: modelName,
                 contents: text,
                 config: {
-                    systemInstruction: `Translate to Persian (${settings.tone} tone). Preserve formatting.`,
+                    systemInstruction: fullSystemInstruction,
                     temperature: settings.temperature || 0.7,
                 },
             });

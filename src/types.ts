@@ -84,6 +84,7 @@ export interface GlossaryItem {
 export type ToneType = 'conversational' | 'formal' | 'news' | 'movie' | 'podcast';
 export type TopicType = 'educational' | 'entertainment' | 'podcast' | 'news' | 'sports';
 export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
+export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 
 export interface AppSettings {
   tone: ToneType;
@@ -125,6 +126,7 @@ export interface StyleConfig {
   primaryColor: string; // Hex
   secondaryColor?: string; // Hex (Outline/Shadow)
   backgroundColor: string; // Hex (Box)
+  backgroundOpacity: number; // 0-100 (0 = Transparent, 100 = Opaque)
   isBold: boolean;
   borderStyle: 'outline' | 'box' | 'none'; 
   outlineWidth: number;

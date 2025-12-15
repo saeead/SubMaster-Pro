@@ -1,8 +1,10 @@
+
+
 import React, { useState } from 'react';
-import { X, Copy, Languages, Sparkles, ArrowRight, Loader2, Trash2, CheckCircle } from 'lucide-react';
-import { AppSettings } from '../types';
+import { X, Copy, Languages, Sparkles, ArrowRight, Loader2, Trash2, CheckCircle, Globe } from 'lucide-react';
+import { AppSettings, TargetLanguage } from '../types';
 import { translateFreeText } from '../services/geminiService';
-import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
+import { TONE_OPTIONS, TOPIC_OPTIONS, TARGET_LANGUAGES } from '../constants';
 
 interface TextTranslatorModalProps {
   isOpen: boolean;
@@ -13,6 +15,7 @@ interface TextTranslatorModalProps {
 export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen, onClose, settings }) => {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
+  const [targetLang, setTargetLang] = useState<TargetLanguage>('fa');
   const [isTranslating, setIsTranslating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +36,7 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
     setOutputText('');
 
     try {
-        const result = await translateFreeText(inputText, settings);
+        const result = await translateFreeText(inputText, settings, targetLang);
         setOutputText(result);
     } catch (err: any) {
         setError(err.message || "خطا در برقراری ارتباط با هوش مصنوعی");
@@ -135,7 +138,27 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
             {/* Output Section */}
             <div className="flex-1 flex flex-col gap-3 h-full">
                  <div className="flex justify-between items-center text-xs text-white/50 px-1">
-                    <span className="font-bold text-[#ff00ea]">ترجمه فارسی</span>
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-[#ff00ea]">ترجمه به:</span>
+                        {/* Language Selector Dropdown */}
+                        <div className="relative">
+                            <select 
+                                value={targetLang} 
+                                onChange={(e) => setTargetLang(e.target.value as TargetLanguage)}
+                                className="bg-[#ff00ea]/10 border border-[#ff00ea]/30 text-[#ff00ea] text-xs font-bold rounded-lg py-1 px-2 pr-6 outline-none appearance-none cursor-pointer hover:bg-[#ff00ea]/20 transition-colors"
+                            >
+                                {Object.entries(TARGET_LANGUAGES).map(([code, name]) => (
+                                    <option key={code} value={code} className="bg-[#0a0e27] text-white">
+                                        {name}
+                                    </option>
+                                ))}
+                            </select>
+                             <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                <Globe className="w-3 h-3 text-[#ff00ea]" />
+                            </div>
+                        </div>
+                    </div>
+
                     {outputText && (
                         <button 
                             onClick={handleCopy} 
@@ -152,8 +175,9 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
                         value={outputText}
                         placeholder={isTranslating ? "در حال ترجمه..." : "نتیجه ترجمه اینجا نمایش داده می‌شود"}
                         className={`
-                            flex-1 w-full h-full bg-[#0a0e27] border rounded-xl p-4 text-sm text-white focus:outline-none resize-none leading-7 custom-scrollbar dir-rtl
+                            flex-1 w-full h-full bg-[#0a0e27] border rounded-xl p-4 text-sm text-white focus:outline-none resize-none leading-7 custom-scrollbar
                             ${isTranslating ? 'animate-pulse border-[#00f0ff]/30 text-white/50' : outputText ? 'border-[#ff00ea]/50' : 'border-white/5'}
+                            ${targetLang === 'fa' ? 'dir-rtl' : 'dir-ltr'}
                         `}
                     />
                     {!outputText && !isTranslating && (

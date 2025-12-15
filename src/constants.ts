@@ -1,5 +1,6 @@
 
-import { ToneType, TopicType, GlossaryItem, StyleTemplate } from "./types";
+
+import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage } from "./types";
 
 export const APP_CONFIG = {
   version: "1.32",
@@ -63,12 +64,53 @@ export const TOPIC_OPTIONS: Record<TopicType, string> = {
   sports: 'ورزشی',
 };
 
+export const TARGET_LANGUAGES: Record<TargetLanguage, string> = {
+  fa: 'فارسی (Persian)',
+  en: 'انگلیسی (English)',
+  ru: 'روسی (Russian)',
+  zh: 'چینی (Chinese)',
+  de: 'آلمانی (German)',
+  es: 'اسپانیایی (Spanish)',
+};
+
 export const TOPIC_TEMPERATURE_DEFAULTS: Record<TopicType, { value: number; description: string }> = {
   educational: { value: 0.3, description: "دقت بالا، ترجمه لفظی و دقیق اصطلاحات" },
   entertainment: { value: 0.7, description: "خلاقیت متوسط، ترجمه روان دیالوگ‌ها" },
   podcast: { value: 0.6, description: "متعادل، حفظ لحن گفتگومحور" },
   news: { value: 0.2, description: "دقت بسیار بالا، رسمی و بی‌طرفانه" },
   sports: { value: 0.5, description: "متعادل، حفظ هیجان و اصطلاحات" }
+};
+
+export const LANGUAGE_PROMPTS: Record<TargetLanguage, string> = {
+  fa: `You are a professional Persian translator. 
+  - Structure: Use natural Persian sentence structure (Subject-Object-Verb).
+  - Nuance: Ensure cultural relevance and natural flow. Avoid "translationese".
+  - Grammar: Use proper cases and conjunctions appropriate for the requested tone.`,
+  
+  en: `You are a professional English translator.
+  - Structure: Use standard English grammar (Subject-Verb-Object).
+  - Nuance: Ensure the text sounds native, clear, and concise. 
+  - Vocabulary: Choose precise words that convey the exact meaning of the source.`,
+  
+  ru: `You are a professional Russian translator.
+  - Structure: Pay close attention to cases (padezhi), gender, and aspect (perfective/imperfective).
+  - Nuance: The text must sound natural to a native Russian speaker, not like a machine translation.
+  - Style: Maintain the richness of the Russian language.`,
+  
+  zh: `You are a professional Chinese (Simplified) translator.
+  - Structure: Use idiomatic Chinese sentence structures.
+  - Nuance: Ensure 'Chengyu' (idioms) are used where appropriate to sound high-quality.
+  - Clarity: Avoid word-for-word translation; focus on meaning and context.`,
+  
+  de: `You are a professional German translator.
+  - Structure: Strictly adhere to German word order rules (Verb position).
+  - Nuance: Distinguish correctly between formal (Sie) and informal (Du) based on the context/tone.
+  - Vocabulary: Use precise compound nouns where applicable.`,
+  
+  es: `You are a professional Spanish translator.
+  - Structure: Ensure correct verb conjugations and gender/number agreement.
+  - Nuance: Make it sound natural for a general Spanish audience (Neutral Spanish unless specified otherwise).
+  - Flow: Use connectors to ensure smooth transitions between ideas.`
 };
 
 export const STYLE_TEMPLATES: Record<string, StyleTemplate> = {
@@ -82,6 +124,7 @@ export const STYLE_TEMPLATES: Record<string, StyleTemplate> = {
       primaryColor: '#FFFFE0', // Light Yellow
       secondaryColor: '#000000',
       backgroundColor: '#000000',
+      backgroundOpacity: 0, // Transparent box
       isBold: true,
       borderStyle: 'outline',
       outlineWidth: 2,
@@ -98,7 +141,8 @@ export const STYLE_TEMPLATES: Record<string, StyleTemplate> = {
       fontSize: 20,
       primaryColor: '#FFFFFF',
       secondaryColor: '#000000',
-      backgroundColor: '#000000', // Opaque Box
+      backgroundColor: '#000000',
+      backgroundOpacity: 75, // Semi-transparent
       isBold: false,
       borderStyle: 'box',
       outlineWidth: 0,
@@ -116,6 +160,7 @@ export const STYLE_TEMPLATES: Record<string, StyleTemplate> = {
       primaryColor: '#FFFFFF',
       secondaryColor: '#000000',
       backgroundColor: '#000000',
+      backgroundOpacity: 60,
       isBold: true,
       borderStyle: 'outline',
       outlineWidth: 2.5,
@@ -133,6 +178,7 @@ export const STYLE_TEMPLATES: Record<string, StyleTemplate> = {
       primaryColor: '#E0E0E0',
       secondaryColor: '#000000',
       backgroundColor: '#000000',
+      backgroundOpacity: 0,
       isBold: false,
       borderStyle: 'outline',
       outlineWidth: 1,

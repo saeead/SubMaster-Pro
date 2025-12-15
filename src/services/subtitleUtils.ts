@@ -46,17 +46,23 @@ export const msToAssTime = (ms: number): string => {
   return `${h}:${m}:${s}.${cs}`;
 };
 
-// Hex #RRGGBB to ASS &HBBGGRR
-export const hexToAssColor = (hex: string): string => {
-    if (!hex) return '&H00FFFFFF';
+// Hex #RRGGBB to ASS &HAABBGGRR
+// Opacity: 0-100 (100 = Opaque/Visible, 0 = Transparent/Invisible)
+export const hexToAssColor = (hex: string, opacity: number = 100): string => {
+    // ASS Alpha: 00 (Opaque) -> FF (Transparent).
+    // So: 100% opacity -> 00 alpha. 0% opacity -> FF alpha.
+    const alphaVal = Math.round(255 - (Math.max(0, Math.min(100, opacity)) / 100) * 255);
+    const alphaHex = alphaVal.toString(16).padStart(2, '0').toUpperCase();
+
+    if (!hex) return `&H${alphaHex}FFFFFF`;
     const clean = hex.replace('#', '');
     if (clean.length === 6) {
         const r = clean.substring(0, 2);
         const g = clean.substring(2, 4);
         const b = clean.substring(4, 6);
-        return `&H00${b}${g}${r}`; // &H00BBGGRR (Alpha 00 = Opaque)
+        return `&H${alphaHex}${b}${g}${r}`; // &HAABBGGRR
     }
-    return '&H00FFFFFF';
+    return `&H${alphaHex}FFFFFF`;
 };
 
 /**
@@ -459,17 +465,19 @@ export const stringifyVTT = (blocks: SubtitleBlock[], styles?: StyleConfig): str
   if (styles && styles.useStyles) {
     header += `STYLE\n::cue(.${styleClass}) {\n`;
     header += `  font-family: "${styles.fontFamily}";\n`;
-    // For VTT we approximate size or use a standard relative unit if provided number (e.g. 24 -> 150% rough guess or just use percent if we updated logic)
-    // Here we assume VTT style logic might want a string for compatibility, but our new StyleConfig has number for ASS.
-    // Let's assume standard 100% base and scale.
     const sizePct = styles.fontSize ? Math.round((styles.fontSize / 18) * 100) : 100;
     header += `  font-size: ${sizePct}%;\n`;
     header += `  color: ${styles.primaryColor};\n`;
     
-    // Convert hex to rgba for opacity if needed, ASS alpha is handled differently.
     // VTT Background color (Box)
     if (styles.borderStyle === 'box') {
-        header += `  background-color: ${styles.backgroundColor};\n`;
+        const hex = styles.backgroundColor;
+        const opacity = styles.backgroundOpacity ?? 100;
+        // Convert hex to rgb
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        header += `  background-color: rgba(${r}, ${g}, ${b}, ${opacity / 100});\n`;
     } else {
         header += `  background-color: transparent;\n`;
     }
@@ -506,7 +514,8 @@ export const stringifyASS = (blocks: SubtitleBlock[], styles?: StyleConfig): str
   const size = styles?.fontSize || 20;
   const primary = hexToAssColor(styles?.primaryColor || '#FFFFFF');
   const secondary = hexToAssColor(styles?.secondaryColor || '#000000'); // Outline/Shadow
-  const back = hexToAssColor(styles?.backgroundColor || '#000000'); // Box color
+  const opacity = styles?.backgroundOpacity !== undefined ? styles.backgroundOpacity : 100;
+  const back = hexToAssColor(styles?.backgroundColor || '#000000', opacity); // Box color with Opacity
   const bold = styles?.isBold ? -1 : 0;
   const borderStyle = styles?.borderStyle === 'box' ? 3 : 1;
   const outline = styles?.outlineWidth || 2;
