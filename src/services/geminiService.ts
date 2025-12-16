@@ -1,6 +1,5 @@
 
-
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage } from "../types";
 import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
 
@@ -17,18 +16,60 @@ const responseSchema: Schema = {
   }
 };
 
+// Subtitles often contain violence, swearing, or sensitive topics.
+// We must disable safety filters to prevent the API from blocking valid translations.
+const SAFETY_SETTINGS = [
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Robustly extracts error text from various error object structures including nested JSON
+ */
+const extractErrorDetails = (error: any): string => {
+    let msg = "";
+    if (!error) return "";
+    
+    if (typeof error === 'string') return error.toLowerCase();
+    
+    // Standard Error props
+    if (error.message) msg += " " + error.message;
+    if (error.statusText) msg += " " + error.statusText;
+    if (error.status) msg += " " + error.status;
+
+    // Check for nested Google API error structure (e.g. error.error.message)
+    if (error.error && typeof error.error === 'object') {
+        if (error.error.message) msg += " " + error.error.message;
+        if (error.error.code) msg += " " + error.error.code;
+        if (error.error.status) msg += " " + error.error.status;
+    }
+
+    // Sometimes the SDK wraps the error in a JSON string inside the message
+    // Try to stringify the whole object to catch hidden keys
+    try {
+        const jsonStr = JSON.stringify(error);
+        msg += " " + jsonStr;
+    } catch (e) {
+        // ignore circular structure errors
+    }
+    
+    return msg.toLowerCase();
+};
 
 /**
  * Transforms raw API errors into user-friendly Persian messages with actionable advice.
  */
 const getFriendlyErrorMessage = (error: any, modelName: string): string => {
-  const msg = (error.message || error.toString()).toLowerCase();
+  const msg = extractErrorDetails(error);
 
   // --- GEO-BLOCKING / SANCTIONS ---
   if (
     msg.includes('location is not supported') || 
-    msg.includes('region is not supported') ||
+    msg.includes('region is not supported') || 
     msg.includes('403 forbidden') ||
     msg.includes('preconditions check failed')
   ) {
@@ -54,14 +95,14 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
   }
 
   // --- SERVER ERRORS ---
-  if (msg.includes('500') || msg.includes('503') || msg.includes('internal') || msg.includes('unavailable')) {
-    return 'خطای سرور گوگل (503): سرویس موقتاً در دسترس نیست. لطفاً چند لحظه دیگر تلاش کنید.';
+  if (msg.includes('500') || msg.includes('503') || msg.includes('internal') || msg.includes('unavailable') || msg.includes('overloaded')) {
+    return 'خطای سرور گوگل (503): مدل هوش مصنوعی موقتاً شلوغ است (Overloaded). سیستم به طور خودکار صبر کرده و تلاش مجدد خواهد کرد.';
   }
   if (msg.includes('safety') || msg.includes('blocked')) {
-    return 'خطای محتوا: ترجمه توسط فیلترهای ایمنی گوگل مسدود شد.';
+    return 'خطای محتوا (Safety): ترجمه توسط فیلترهای ایمنی گوگل مسدود شد. (تنظیمات ایمنی در نسخه جدید غیرفعال شده‌اند، اگر این خطا را می‌بینید محتوا بسیار حساس است).';
   }
 
-  return `خطای ناشناخته: ${msg.substring(0, 150)}...`;
+  return `خطای سیستمی: ${msg.substring(0, 150)}...`;
 };
 
 /**
@@ -78,7 +119,7 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
      });
      return true;
   } catch (e: any) {
-     const errorMessage = (e.message || JSON.stringify(e)).toLowerCase();
+     const errorMessage = extractErrorDetails(e);
      const isRateLimit = errorMessage.includes("429") || errorMessage.includes("resource_exhausted");
 
      if (strictMode && isRateLimit) return false;
@@ -165,8 +206,11 @@ export const translateBatch = async (
   onKeyRateLimit?: (key: string) => void
 ): Promise<BatchResponse[]> => {
   let attempt = 0;
-  const { maxRetries, baseDelay } = APP_CONFIG.retryConfig;
+  let overloadRetries = 0; // Separate counter for 503 Overloaded
   
+  const { maxRetries, baseDelay, overloadWaitMs } = APP_CONFIG.retryConfig;
+  const MAX_OVERLOAD_RETRIES = 10; // Allow up to 10 long waits (10 * 30s = 5 minutes)
+
   let modelName = APP_CONFIG.geminiModels.standard;
   if (settings.model === 'professional') modelName = APP_CONFIG.geminiModels.professional;
   else if (settings.model === 'flash') modelName = APP_CONFIG.geminiModels.flash;
@@ -174,6 +218,9 @@ export const translateBatch = async (
 
   const keyManager = new APIKeyManager(settings.apiKeys);
   const totalAllowedAttempts = maxRetries + settings.apiKeys.length * 2;
+  
+  // Track the last error to show helpful message if all retries fail
+  let lastError: Error | null = null;
 
   while (attempt < totalAllowedAttempts) {
     let currentApiKey = '';
@@ -204,17 +251,24 @@ export const translateBatch = async (
           responseMimeType: "application/json",
           responseSchema: responseSchema,
           temperature: settings.temperature || 0.7,
+          safetySettings: SAFETY_SETTINGS, // DISABLE FILTERS
         },
       });
 
-      if (!response.text) throw new Error("Empty response from Gemini");
+      if (!response.text) {
+          // Check if response was blocked due to safety despite settings
+          if (response.candidates && response.candidates[0] && response.candidates[0].finishReason) {
+              throw new Error(`Model finished with reason: ${response.candidates[0].finishReason} (Likely Safety Block)`);
+          }
+          throw new Error("Empty response from Gemini");
+      }
 
       let parsedData: BatchResponse[];
       try {
         parsedData = JSON.parse(response.text) as BatchResponse[];
       } catch (e) {
         console.error("JSON Parse Error. Raw text:", response.text);
-        throw new Error("Failed to parse Gemini JSON response");
+        throw new Error("Failed to parse Gemini JSON response (Invalid JSON)");
       }
 
       // Basic validation
@@ -226,12 +280,39 @@ export const translateBatch = async (
       return parsedData;
 
     } catch (error: any) {
-      const errorMessage = (error.message || error.toString()).toLowerCase();
+      lastError = error;
+      const errorMessage = extractErrorDetails(error);
       
       // Critical Network/Geo Errors should NOT retry immediately, throw them to handle in UI
       if (errorMessage.includes('fetch failed') || errorMessage.includes('location is not supported')) {
           throw new Error(getFriendlyErrorMessage(error, modelName));
       }
+
+      // --- 503 OVERLOADED HANDLING (Smart Cool-down) ---
+      const isOverloaded = errorMessage.includes('overloaded') || 
+                           errorMessage.includes('503') || 
+                           errorMessage.includes('unavailable') || 
+                           errorMessage.includes('internal error') ||
+                           errorMessage.includes('bad gateway') ||
+                           errorMessage.includes('service unavailable');
+
+      if (isOverloaded) {
+          if (overloadRetries < MAX_OVERLOAD_RETRIES) {
+              console.warn(`Model Overloaded (503). Entering cool-down for ${overloadWaitMs/1000}s... (Attempt ${overloadRetries + 1}/${MAX_OVERLOAD_RETRIES})`);
+              overloadRetries++;
+              
+              // Wait for the long cool-down period
+              await delay(overloadWaitMs);
+              
+              // IMPORTANT: We do NOT increment the main 'attempt' counter.
+              // This effectively pauses the retry consumption while waiting for the server to recover.
+              continue; 
+          } else {
+               // If we exhausted overload retries, treat it as a hard failure or let standard retry logic handle it
+               console.error("Exhausted all Overload cool-down retries.");
+          }
+      }
+      // ------------------------------------------------
 
       const isRateLimit = errorMessage.includes("429") || errorMessage.includes("resource_exhausted");
       
@@ -253,8 +334,10 @@ export const translateBatch = async (
       }
     }
   }
-
-  throw new Error("Failed to process batch after multiple retries.");
+  
+  // Include specific details from the last error in the final exception
+  const specificReason = lastError ? extractErrorDetails(lastError) : "Unknown Error";
+  throw new Error(`Failed to process batch after multiple retries. Reason: ${specificReason}`);
 };
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
@@ -283,11 +366,12 @@ export const translateFreeText = async (text: string, settings: AppSettings, tar
                 config: {
                     systemInstruction: fullSystemInstruction,
                     temperature: settings.temperature || 0.7,
+                    safetySettings: SAFETY_SETTINGS, // DISABLE FILTERS
                 },
             });
             return response.text || '';
         } catch (error: any) {
-            const msg = (error.message || "").toLowerCase();
+            const msg = extractErrorDetails(error);
             
             // Fast fail for connection issues
             if (msg.includes('fetch failed') || msg.includes('location')) {

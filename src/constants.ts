@@ -2,11 +2,11 @@
 import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage } from "./types";
 
 export const APP_CONFIG = {
-  version: "2.0.0",
-  maxWordsPerBlock: 24, // Matched to prompt requirement
-  minWordsPerBlock: 1, // Kept at 1 to prevent breakage on short subtitles (e.g. "Hi")
-  maxFileSize: 100 * 1024 * 1024, // 100MB
-  maxFilesPerUpload: 10,
+  version: "2.1.0", // Bumped version for Rate Limit Fix
+  maxWordsPerBlock: 24, 
+  minWordsPerBlock: 1, 
+  maxFileSize: 100 * 1024 * 1024, 
+  maxFilesPerUpload: 5, // Reduced to prevent accidental parallel overload
   supportedFormats: ['srt', 'vtt', 'ass'],
   geminiModels: {
     standard: 'gemini-2.5-pro',
@@ -15,8 +15,9 @@ export const APP_CONFIG = {
     flash_lite: 'gemini-flash-lite-latest'
   },
   retryConfig: {
-    maxRetries: 3,
-    baseDelay: 2000,
+    maxRetries: 5, // Increased retries
+    baseDelay: 6000, // Increased base delay to 6s to allow full quota reset
+    overloadWaitMs: 30000, 
   }
 };
 
@@ -33,19 +34,23 @@ export const OPTIMIZATION_CONFIG = {
   },
   // Netflix Strict Mode
   NETFLIX: {
-    MAX_MERGE_CHARACTERS: 85,  // ~42 chars * 2 lines constraint
-    MIN_WORDS_PER_BLOCK: 5,    // Allow shorter blocks to maintain timing precision
-    MAX_WORDS_PER_BLOCK: 18,   // Restrict max words to prevent overflow
+    MAX_MERGE_CHARACTERS: 85,  
+    MIN_WORDS_PER_BLOCK: 5,    
+    MAX_WORDS_PER_BLOCK: 18,   
     MAX_MERGE_GAP_MS: 1000,
-    STANDARD_GAP_MS: 84,       // Minimum 2 frames gap (approx 84ms)
-    MS_PER_WORD: 300,          // Faster reading assumption, but constrained by CPS
+    STANDARD_GAP_MS: 84,       
+    MS_PER_WORD: 300,          
   }
 };
 
-export const BATCH_SIZE = 50;
-export const OVERLAP_SIZE = 2;
-export const DELAY_BETWEEN_BATCHES_MS = 1000;
-export const DELAY_BETWEEN_FILES_MS = 60000; // 1 Minute
+// --- CRITICAL RATE LIMIT SETTINGS ---
+// Google Gemini Free Tier Limit: ~15 Requests Per Minute (RPM)
+// Calculation: 60 seconds / 15 requests = 4 seconds delay minimum.
+// We set it to 4200ms to be safe.
+export const BATCH_SIZE = 20; // Reduced from 50 to prevent Token Limit (TPM) exhaustion
+export const OVERLAP_SIZE = 1;
+export const DELAY_BETWEEN_BATCHES_MS = 4200; // Increased to 4.2s to strictly stay under 15 RPM
+export const DELAY_BETWEEN_FILES_MS = 10000; // 10 Seconds cooldown between files
 
 export const TONE_OPTIONS: Record<ToneType, string> = {
   conversational: 'محاوره‌ای (Casual)',

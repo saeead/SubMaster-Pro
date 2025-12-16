@@ -797,6 +797,23 @@ const App: React.FC = () => {
                 }
                 // ------------------------------
 
+                // --- 503 OVERLOAD / UNAVAILABLE HANDLING (Resilience) ---
+                const isOverloaded = errorMessage.includes('overloaded') || 
+                                     errorMessage.includes('503') || 
+                                     errorMessage.includes('unavailable') ||
+                                     errorMessage.includes('service unavailable');
+
+                if (isOverloaded) {
+                     updateFileStatus(fileId, { 
+                         status: AppStatus.PAUSED, 
+                         progressMessage: 'توقف خودکار (سرور گوگل شلوغ است)' 
+                     });
+                     showToast('سرور گوگل موقتاً پاسخگو نیست (503 Overloaded). پروژه متوقف شد تا دیتای شما حفظ شود. لطفاً دقایقی دیگر ادامه دهید.', 'warning');
+                     isTranslatingRef.current = false; // Stop queue
+                     return;
+                }
+                // ----------------------------------------------------
+
                 // If paused during error, prioritize Pause status
                 if (!isTranslatingRef.current && isPausedRef.current) {
                      updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)' });
