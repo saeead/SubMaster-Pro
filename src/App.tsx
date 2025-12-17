@@ -48,7 +48,7 @@ const App: React.FC = () => {
     temperature: 0.3, 
     outputFormat: 'vtt', 
     outputStandard: 'normal',
-    model: 'flash',
+    model: 'standard', // Changed default to 'standard' (Gemini 3.0 Flash)
     customPrompt: '',
     apiKeys: [],
     enableTranslationMemory: true,

@@ -260,14 +260,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                  <div className="flex items-center gap-2">
                      <label className="text-sm text-white/70 block font-bold">انتخاب مدل پردازشی</label>
                      <HelpTooltip 
-                          text="توجه: مدل‌های Pro (مثل Gemini 3) معمولاً نیاز به کلید API متصل به حساب پرداخت (Billing) دارند. مدل‌های Flash (مثل 2.5 Flash) معمولاً در پلن رایگان نیز کار می‌کنند اما محدودیت بیشتری دارند." 
+                          text="مدل‌های Gemini 3 دارای قابلیت‌های ایجنتی و درک محیطی بالاتری هستند. مدل‌های 2.5 Pro برای استدلال‌های پیچیده ایده‌آل می‌باشند." 
                           position="bottom"
                      />
                  </div>
                  
                  <div className="grid grid-cols-1 gap-3">
                     
-                    {/* Standard */}
+                    {/* Standard (3.0 Flash) */}
                     <div 
                       onClick={() => updateSettings({ model: 'standard' })}
                       className={`
@@ -282,12 +282,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                             {settings.model === 'standard' && <div className="w-2 h-2 rounded-full bg-[#00f0ff]" />}
                         </div>
                         <div>
-                          <h3 className="text-white font-medium text-sm">پردازش استاندارد (Gemini 2.5 Pro)</h3>
-                          <p className="text-xs text-white/50 mt-1">تعادل عالی بین سرعت و دقت.</p>
+                          <h3 className="text-white font-medium text-sm">پیش‌فرض هوشمند (Gemini 3.0 Flash)</h3>
+                          <p className="text-xs text-white/50 mt-1">مدل پیش‌فرض برای ترجمه‌های سریع. قابلیت‌های ایجنتیک بالا در درک زمان‌بندی‌ها.</p>
                         </div>
                     </div>
 
-                    {/* Professional */}
+                    {/* Professional (3.0 Pro) */}
                     <div 
                       onClick={() => updateSettings({ model: 'professional' })}
                       className={`
@@ -302,12 +302,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                             {settings.model === 'professional' && <div className="w-2 h-2 rounded-full bg-[#ff00ea]" />}
                         </div>
                         <div>
-                          <h3 className="text-white font-medium text-sm">پردازش حرفه‌ای (Gemini 3 Pro)</h3>
-                          <p className="text-xs text-white/50 mt-1">دقت بالاتر برای متون تخصصی. (نیازمند اکانت Paid)</p>
+                          <h3 className="text-white font-medium text-sm">استدلال پیشرفته (Gemini 3.0 Pro)</h3>
+                          <p className="text-xs text-white/50 mt-1">بهترین گزینه برای بخش‌های دشوار و دیالوگ‌های پیچیده با استدلال (Reasoning) بالا.</p>
                         </div>
                     </div>
 
-                     {/* Flash */}
+                     {/* Flash (2.5 Flash) */}
                      <div 
                       onClick={() => updateSettings({ model: 'flash' })}
                       className={`
@@ -322,12 +322,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                             {settings.model === 'flash' && <div className="w-2 h-2 rounded-full bg-yellow-400" />}
                         </div>
                         <div>
-                          <h3 className="text-white font-medium text-sm">سریع (Gemini 2.5 Flash)</h3>
-                          <p className="text-xs text-white/50 mt-1">سرعت بالا و هزینه کمتر. مناسب برای متون طولانی.</p>
+                          <h3 className="text-white font-medium text-sm">پایدار و متعادل (Gemini 2.5 Flash)</h3>
+                          <p className="text-xs text-white/50 mt-1">مدل پایدار و متعادل برای پروژه‌های طولانی با هزینه بهینه.</p>
                         </div>
                     </div>
 
-                     {/* Flash Lite */}
+                     {/* Flash Lite (Economic) */}
                      <div 
                       onClick={() => updateSettings({ model: 'flash_lite' })}
                       className={`
@@ -342,8 +342,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                             {settings.model === 'flash_lite' && <div className="w-2 h-2 rounded-full bg-green-400" />}
                         </div>
                         <div>
-                          <h3 className="text-white font-medium text-sm">سبک و سریع (Gemini 2.5 Flash-Lite)</h3>
-                          <p className="text-xs text-white/50 mt-1">بهترین گزینه برای سرعت. دقت کمتر نسبت به مدل‌های Pro.</p>
+                          <h3 className="text-white font-medium text-sm">اقتصادی (Gemini Flash Lite)</h3>
+                          <p className="text-xs text-white/50 mt-1">گزینه‌ای اقتصادی برای زیرنویس‌های ساده و سریع با کمترین مصرف توکن.</p>
                         </div>
                     </div>
 
