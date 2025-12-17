@@ -1,8 +1,8 @@
 
-import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage } from "./types";
+import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage, OutputStandard } from "./types";
 
 export const APP_CONFIG = {
-  version: "2.4.0", // Quality Logic Update
+  version: "2.5.0", // Broadcast Standards Update
   maxWordsPerBlock: 24, 
   minWordsPerBlock: 1, 
   maxFileSize: 100 * 1024 * 1024, 
@@ -31,12 +31,28 @@ export const OPTIMIZATION_CONFIG = {
     MS_PER_WORD: 350,          
   },
   NETFLIX: {
-    MAX_MERGE_CHARACTERS: 85,  
+    MAX_MERGE_CHARACTERS: 84, // 42 * 2 lines 
     MIN_WORDS_PER_BLOCK: 5,    
     MAX_WORDS_PER_BLOCK: 18,   
     MAX_MERGE_GAP_MS: 1000,
-    STANDARD_GAP_MS: 84,       
+    STANDARD_GAP_MS: 84, // 2 frames at 24fps
     MS_PER_WORD: 300,          
+  },
+  BBC: {
+    MAX_MERGE_CHARACTERS: 74, // 37 * 2 lines
+    MIN_WORDS_PER_BLOCK: 4,
+    MAX_WORDS_PER_BLOCK: 15,
+    MAX_MERGE_GAP_MS: 800,
+    STANDARD_GAP_MS: 120, // 3 frames approx
+    MS_PER_WORD: 320,
+  },
+  BROADCAST: {
+    MAX_MERGE_CHARACTERS: 78, // 39 * 2 lines
+    MIN_WORDS_PER_BLOCK: 6,
+    MAX_WORDS_PER_BLOCK: 20,
+    MAX_MERGE_GAP_MS: 1200,
+    STANDARD_GAP_MS: 80,
+    MS_PER_WORD: 330,
   }
 };
 
@@ -95,11 +111,19 @@ const SYSTEM_PROMPTS = {
   }
 ]`,
 
-  netflix: `
---- استانداردهای NETFLIX ---
+  netflix: `--- استانداردهای NETFLIX ---
 1. خلاصه نویسی هوشمند برای رعایت محدودیت 42 کاراکتر در خط.
 2. حداکثر 2 خط در هر بلاک.
-3. اولویت با سرعت خواندن (CPS) است.`,
+3. سرعت خواندن (Reading Speed) نباید از 20 کاراکتر در ثانیه تجاوز کند.`,
+
+  bbc: `--- استانداردهای BBC ---
+1. محدودیت شدید کاراکتر: حداکثر 37 کاراکتر در هر خط.
+2. خوانایی حداکثری: سرعت خواندن نباید از 17 کاراکتر در ثانیه تجاوز کند.
+3. جملات را کوتاه‌تر و ساده‌تر کنید تا در زمان محدود قابل خواندن باشند.`,
+
+  broadcast: `--- استانداردهای BROADCAST ---
+1. استاندارد پخش تلویزیونی: حداکثر 39 کاراکتر در هر خط.
+2. تعادل بین دقت و سرعت خواندن (حداکثر 18 کاراکتر بر ثانیه).`,
 
   tones: {
     conversational: `--- پروتکل Tehrani Spoken Style (بسیار مهم) ---
@@ -131,11 +155,14 @@ export const getSystemInstruction = (
   tone: ToneType, 
   topic: TopicType, 
   customPrompt: string, 
-  outputStandard: 'normal' | 'netflix',
+  outputStandard: OutputStandard,
   glossary: GlossaryItem[] = []
 ) => {
   let prompt = SYSTEM_PROMPTS.base + '\n\n';
   if (outputStandard === 'netflix') prompt += SYSTEM_PROMPTS.netflix + '\n\n';
+  if (outputStandard === 'bbc') prompt += SYSTEM_PROMPTS.bbc + '\n\n';
+  if (outputStandard === 'broadcast') prompt += SYSTEM_PROMPTS.broadcast + '\n\n';
+
   if (SYSTEM_PROMPTS.tones[tone]) prompt += `${SYSTEM_PROMPTS.tones[tone]}\n\n`;
   if (SYSTEM_PROMPTS.topics[topic]) prompt += `${SYSTEM_PROMPTS.topics[topic]}\n\n`;
 

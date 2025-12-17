@@ -1,5 +1,4 @@
 
-
 export interface SubtitleBlock {
   id: number;
   startTime: string;
@@ -85,13 +84,14 @@ export type ToneType = 'conversational' | 'formal' | 'news' | 'movie' | 'podcast
 export type TopicType = 'educational' | 'entertainment' | 'podcast' | 'news' | 'sports';
 export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
+export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
 
 export interface AppSettings {
   tone: ToneType;
   topic: TopicType;
   temperature: number; // New field for Translation Quality
   outputFormat: 'srt' | 'vtt' | 'ass';
-  outputStandard: 'normal' | 'netflix';
+  outputStandard: OutputStandard;
   model: ModelType;
   customPrompt: string;
   apiKeys: UserAPIKey[];

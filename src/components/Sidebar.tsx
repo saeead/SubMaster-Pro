@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Settings, BookOpen, MessageSquareText, ShieldCheck, X } from 'lucide-react';
-import { AppSettings, ToneType, TopicType } from '../types';
+import { AppSettings, ToneType, TopicType, OutputStandard } from '../types';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 import { TemperatureControl } from './TemperatureControl';
 
@@ -95,11 +95,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
            </div>
         )}
 
+        {/* Standards Selection */}
         <div className="space-y-3 bg-[#0a0e27]/40 p-3 rounded-xl border border-white/5">
           <div className="flex items-center gap-2 mb-1"><ShieldCheck className="w-4 h-4 text-white/70" /><label className="text-xs text-white/70 font-bold uppercase">استاندارد خروجی</label></div>
           <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => updateSettings({ outputStandard: 'normal' })} className={`relative p-3 rounded-lg border text-xs font-bold transition-all ${settings.outputStandard === 'normal' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Normal</button>
-              <button onClick={() => updateSettings({ outputStandard: 'netflix' })} className={`relative p-3 rounded-lg border text-xs font-bold transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914]/10 border-[#E50914] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Netflix</button>
+              <button onClick={() => updateSettings({ outputStandard: 'normal' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'normal' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Normal</button>
+              <button onClick={() => updateSettings({ outputStandard: 'netflix' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914]/10 border-[#E50914] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Netflix</button>
+              <button onClick={() => updateSettings({ outputStandard: 'bbc' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'bbc' ? 'bg-orange-500/10 border-orange-500 text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>BBC</button>
+              <button onClick={() => updateSettings({ outputStandard: 'broadcast' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'broadcast' ? 'bg-blue-500/10 border-blue-500 text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Broadcast</button>
+          </div>
+          
+          <div className="text-[9px] text-white/40 px-2 py-1 bg-white/5 rounded border border-white/5">
+              {settings.outputStandard === 'netflix' && "۴۲ کاراکتر | ۲۰ CPS | ۲ فریم فاصله"}
+              {settings.outputStandard === 'bbc' && "۳۷ کاراکتر | ۱۷ CPS | خوانایی بالا"}
+              {settings.outputStandard === 'broadcast' && "۳۹ کاراکتر | ۱۸ CPS | تلویزیونی"}
+              {settings.outputStandard === 'normal' && "بدون محدودیت خاص"}
           </div>
         </div>
 

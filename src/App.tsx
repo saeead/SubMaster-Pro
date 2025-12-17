@@ -45,10 +45,10 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     tone: 'conversational',
     topic: 'educational',
-    temperature: 0.3, 
+    temperature: 0.35, 
     outputFormat: 'vtt', 
     outputStandard: 'normal',
-    model: 'standard', // Changed default to 'standard' (Gemini 3.0 Flash)
+    model: 'standard', 
     customPrompt: '',
     apiKeys: [],
     enableTranslationMemory: true,
@@ -59,7 +59,7 @@ const App: React.FC = () => {
   // Refs for processing
   const filesRef = useRef<SubtitleFile[]>([]);
   const isTranslatingRef = useRef<boolean>(false);
-  const isPausedRef = useRef<boolean>(false); // New Ref to track Pause vs Cancel
+  const isPausedRef = useRef<boolean>(false); 
   const settingsRef = useRef<AppSettings>(settings);
 
   useEffect(() => { filesRef.current = files; }, [files]);
@@ -548,11 +548,11 @@ const App: React.FC = () => {
     const file = files.find(f => f.id === activeFileId);
     if (!file) return;
 
-    const errors = validateNetflixStandards(file.blocks);
+    const errors = validateNetflixStandards(file.blocks, settings.outputStandard);
     setFiles(prev => prev.map(f => f.id === file.id ? { ...f, netflixErrors: errors } : f));
     
     if (errors.length === 0) {
-       showToast("هیچ خطایی مطابق استاندارد نتفلیکس یافت نشد.", 'success');
+       showToast("هیچ خطایی مطابق استاندارد انتخاب شده یافت نشد.", 'success');
     }
   };
 
@@ -565,8 +565,8 @@ const App: React.FC = () => {
     const groupId = crypto.randomUUID();
     const newHistory = file.modificationsMade ? file.modificationsMade.slice(0, file.historyPointer + 1) : [];
 
-    // Calculate fixes
-    const fixedBlocks = fixNetflixStandards(file.blocks);
+    // Calculate fixes based on current standard
+    const fixedBlocks = fixNetflixStandards(file.blocks, settings.outputStandard);
     
     // Determine which blocks actually changed to log them in history
     let changesCount = 0;
@@ -595,7 +595,7 @@ const App: React.FC = () => {
         }
     });
 
-    const remainingErrors = validateNetflixStandards(fixedBlocks);
+    const remainingErrors = validateNetflixStandards(fixedBlocks, settings.outputStandard);
 
     setFiles(prev => prev.map(f => f.id === file.id ? { 
         ...f, 
@@ -619,11 +619,7 @@ const App: React.FC = () => {
 
       const optimizedBlocks = optimizePersianStructure(file.blocks);
       
-      // Since optimization merges blocks (changing IDs and count), we reset history for safety or treat it as a massive change
-      // A better approach would be to clear redo stack and push a massive 'optimize' state, but matching IDs for undo is hard if IDs change.
-      // For now, we will reset errors and update blocks.
-
-      const newErrors = validateNetflixStandards(optimizedBlocks);
+      const newErrors = validateNetflixStandards(optimizedBlocks, settings.outputStandard);
 
       setFiles(prev => prev.map(f => f.id === activeFileId ? {
           ...f,
@@ -791,13 +787,11 @@ const App: React.FC = () => {
                          status: AppStatus.PAUSED, 
                          progressMessage: 'خطای اتصال (توقف)' 
                     });
-                    showToast(errorMessage, 'error'); // The message is already friendly from service
+                    showToast(errorMessage, 'error'); 
                     isTranslatingRef.current = false;
                     return;
                 }
-                // ------------------------------
 
-                // --- 503 OVERLOAD / UNAVAILABLE HANDLING (Resilience) ---
                 const isOverloaded = errorMessage.includes('overloaded') || 
                                      errorMessage.includes('503') || 
                                      errorMessage.includes('unavailable') ||
@@ -809,12 +803,10 @@ const App: React.FC = () => {
                          progressMessage: 'توقف خودکار (سرور گوگل شلوغ است)' 
                      });
                      showToast('سرور گوگل موقتاً پاسخگو نیست (503 Overloaded). پروژه متوقف شد تا دیتای شما حفظ شود. لطفاً دقایقی دیگر ادامه دهید.', 'warning');
-                     isTranslatingRef.current = false; // Stop queue
+                     isTranslatingRef.current = false; 
                      return;
                 }
-                // ----------------------------------------------------
 
-                // If paused during error, prioritize Pause status
                 if (!isTranslatingRef.current && isPausedRef.current) {
                      updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)' });
                      return;
@@ -848,14 +840,14 @@ const App: React.FC = () => {
 
      let finalBlocks = filesRef.current.find(f => f.id === fileId)?.blocks || [];
      
-     if (settingsRef.current.outputStandard === 'netflix') {
-         updateFileStatus(fileId, { progressMessage: 'بهینه‌سازی Netflix...' });
+     if (settingsRef.current.outputStandard !== 'normal') {
+         updateFileStatus(fileId, { progressMessage: 'بهینه‌سازی بر اساس استاندارد...' });
          await new Promise(r => setTimeout(r, 800));
-         finalBlocks = fixNetflixStandards(finalBlocks);
-         const errors = validateNetflixStandards(finalBlocks);
+         finalBlocks = fixNetflixStandards(finalBlocks, settingsRef.current.outputStandard);
+         const errors = validateNetflixStandards(finalBlocks, settingsRef.current.outputStandard);
          updateFileStatus(fileId, { blocks: finalBlocks, netflixErrors: errors });
      } else {
-         const errors = validateNetflixStandards(finalBlocks);
+         const errors = validateNetflixStandards(finalBlocks, settingsRef.current.outputStandard);
          updateFileStatus(fileId, { netflixErrors: errors });
      }
 
@@ -881,7 +873,6 @@ const App: React.FC = () => {
       return;
     }
     
-    // Reset rate limits if manual restart
     if (!hasAvailableKeys) {
         setSettings(prev => ({
             ...prev,
@@ -889,7 +880,6 @@ const App: React.FC = () => {
         }));
     }
 
-    // Determine pending files
     const pendingFiles = files.filter(f => 
         f.status === AppStatus.READY || 
         f.status === AppStatus.ERROR || 
@@ -901,35 +891,27 @@ const App: React.FC = () => {
         return;
     }
 
-    // --- UX IMPROVEMENT: IMMEDIATE FEEDBACK ---
-    // Instead of waiting silently for network check, update the first file's status immediately.
-    // This makes the UI feel responsive instantly.
     const firstFileId = pendingFiles[0].id;
     updateFileStatus(firstFileId, {
-        status: AppStatus.TRANSLATING, // Visually engages the UI (Progress bar glows)
+        status: AppStatus.TRANSLATING, 
         progressMessage: 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
     });
 
-    // --- CONNECTION DIAGNOSIS ---
-    // Perform the check while the UI already shows "Working" state
     const testKey = settings.apiKeys.find(k => k.isValid)?.key;
     if (testKey) {
         const diagnosisError = await diagnoseConnection(testKey);
         if (diagnosisError) {
-             // Revert status if check fails
              updateFileStatus(firstFileId, { 
                 status: AppStatus.PAUSED, 
                 progressMessage: 'خطای اتصال' 
              });
              showToast(diagnosisError, 'error');
-             // Optionally open settings if it's a key issue, but usually it's VPN
              return;
         }
     }
-    // ----------------------------
 
     isTranslatingRef.current = true;
-    isPausedRef.current = false; // Ensure not paused
+    isPausedRef.current = false; 
     setCompletionToast(false);
 
     let stoppedEarly = false;
@@ -947,7 +929,6 @@ const App: React.FC = () => {
                 await processFile(file.id);
             } catch (e: any) {
                 console.error(`Failed to process file ${file.name}`, e);
-                // processFile handles UI updates for error, but loop must decide to continue or break
                 if (!isTranslatingRef.current) {
                     stoppedEarly = true;
                     break;
@@ -973,19 +954,17 @@ const App: React.FC = () => {
 
   const pauseTranslation = () => {
     isTranslatingRef.current = false;
-    isPausedRef.current = true; // Signal that this is a Pause, not Cancel
+    isPausedRef.current = true; 
     
-    // Immediate UI feedback
     setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت' } : f));
     
-    // Auto-save on pause
     saveCurrentProjectState();
     showToast('پروژه متوقف و ذخیره شد.', 'warning');
   };
 
   const cancelTranslation = () => {
     isTranslatingRef.current = false;
-    isPausedRef.current = false; // Signal that this is a full Cancel
+    isPausedRef.current = false; 
     setFiles(prev => prev.map(f => 
         (f.status === AppStatus.TRANSLATING || f.status === AppStatus.PAUSED) 
         ? { ...f, status: AppStatus.CANCELLED, progressMessage: 'لغو شد' } 
@@ -996,7 +975,6 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-background text-text transition-colors duration-300">
       
-      {/* Sidebar - Passed isOpen state and close handler */}
       <Sidebar 
         settings={settings} 
         updateSettings={updateSettings} 
@@ -1008,8 +986,6 @@ const App: React.FC = () => {
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
-        
-        {/* Header - Passed toggle handler */}
         <Header 
             theme={settings.theme} 
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1028,7 +1004,6 @@ const App: React.FC = () => {
                              مترجم هوشمند با قابلیت تشخیص لحن و موضوع. فایل خود را آپلود کنید و از نتیجه حرفه‌ای لذت ببرید.
                         </p>
                     </div>
-                    
                     <FileUpload 
                         onLoad={handleFilesLoaded} 
                         onProjectLoad={handleProjectImport}
@@ -1036,141 +1011,45 @@ const App: React.FC = () => {
                         status={AppStatus.IDLE} 
                         outputStandard={settings.outputStandard} 
                     />
-
-                    {/* Resume Saved Projects Button */}
                     {savedProjects.length > 0 && (
                         <div className="flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2 mt-4">
-                            <button 
-                                onClick={handleResumeSession}
-                                className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-[#00f0ff]/50 transition-all text-sm text-text"
-                            >
+                            <button onClick={handleResumeSession} className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-[#00f0ff]/50 transition-all text-sm text-text">
                                 <History className="w-4 h-4 text-[#00f0ff]" />
                                 <span>بازیابی نشست قبلی ({savedProjects.length} فایل ذخیره شده)</span>
                             </button>
-                            <button 
-                                onClick={handleClearSavedSessions}
-                                className="text-[10px] text-text-muted/50 hover:text-red-400 transition-colors"
-                            >
-                                پاکسازی تاریخچه
-                            </button>
+                            <button onClick={handleClearSavedSessions} className="text-[10px] text-text-muted/50 hover:text-red-400 transition-colors">پاکسازی تاریخچه</button>
                         </div>
                     )}
                 </div>
             ) : (
                 <>
-                    {/* File Tabs */}
                     <div className="flex overflow-x-auto gap-2 mb-6 pb-2 custom-scrollbar">
                         {files.map(file => (
-                            <button
-                                key={file.id}
-                                onClick={() => setActiveFileId(file.id)}
-                                className={`
-                                    flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px] flex-shrink-0
-                                    ${activeFileId === file.id 
-                                        ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' 
-                                        : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'
-                                    }
-                                `}
-                            >
-                                <div className={`w-2 h-2 rounded-full ${
-                                    file.status === AppStatus.COMPLETED ? 'bg-green-500' :
-                                    file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' :
-                                    file.status === AppStatus.ERROR ? 'bg-red-500' :
-                                    file.status === AppStatus.PAUSED ? 'bg-orange-400' :
-                                    'bg-text/20'
-                                }`}></div>
+                            <button key={file.id} onClick={() => setActiveFileId(file.id)} className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px] flex-shrink-0 ${activeFileId === file.id ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'}`}>
+                                <div className={`w-2 h-2 rounded-full ${file.status === AppStatus.COMPLETED ? 'bg-green-500' : file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' : file.status === AppStatus.ERROR ? 'bg-red-500' : file.status === AppStatus.PAUSED ? 'bg-orange-400' : 'bg-text/20'}`}></div>
                                 <span className="truncate text-sm font-medium direction-ltr">{file.name}</span>
                                 {file.status === AppStatus.COMPLETED && <Check className="w-3 h-3 text-green-500 ml-auto" />}
                             </button>
                         ))}
                     </div>
-
-                    <StatsCard 
-                        activeFile={getActiveFile()}
-                        activeFileIndex={getActiveFileIndex()}
-                        totalFiles={files.length}
-                        onStart={startBatchTranslation}
-                        onPause={pauseTranslation}
-                        onCancel={cancelTranslation}
-                        onDownload={handleOpenExportModal} 
-                        onDownloadZip={handleDownloadZip}
-                        onNewProject={resetProject}
-                        onOpenTimingTools={() => setIsTimingModalOpen(true)}
-                        onFixErrors={handleFixNetflixErrors}
-                        onSave={handleManualSave}
-                        onExportBackup={handleExportProjectFile}
-                        onOptimizeStructure={handleOptimizePersianStructure}
-                    />
-
+                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
-                         <label className="text-sm font-bold text-white/70 flex items-center gap-2">
-                             <Wand2 className="w-4 h-4 text-[#ff00ea]" />
-                             پرامپت اختصاصی (Custom Prompt)
-                         </label>
-                         <textarea 
-                            value={settings.customPrompt}
-                            onChange={(e) => updateSettings({ customPrompt: e.target.value })}
-                            placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید... (مثلاً: همیشه واژه 'Galaxy' را به 'کهکشان' ترجمه کن)"
-                            className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all"
-                         />
+                         <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
+                         <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
                     </div>
-                    
-                    <SubtitleEditor 
-                        blocks={getActiveFile().blocks} 
-                        onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} 
-                        validationErrors={getActiveFile().netflixErrors}
-                        onFindReplace={handleFindReplace}
-                        hasMultipleFiles={files.length > 1}
-                        onCommitChange={handleCommitChange}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1}
-                        canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1}
-                    />
+                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} />
                 </>
             )}
         </main>
-        
         <footer className="w-full py-6 text-center text-text-muted text-xs border-t border-border mt-auto">
             <p className="font-montserrat">Designed and developed with ❤️ by Saeid Bagherian</p>
         </footer>
       </div>
-
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        updateSettings={updateSettings}
-      />
-
-      <TimingModal 
-        isOpen={isTimingModalOpen}
-        onClose={() => setIsTimingModalOpen(false)}
-        onApply={handleTimingAdjustment}
-        onNetflixCheck={handleNetflixCheck}
-        hasMultipleFiles={files.length > 1}
-      />
-
-      <ExportModal 
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        onConfirm={handleConfirmDownload}
-        defaultFormat={settings.outputFormat}
-      />
-
-      <GlossaryModal 
-        isOpen={isGlossaryModalOpen}
-        onClose={() => setIsGlossaryModalOpen(false)}
-        glossary={settings.glossary}
-        onUpdate={handleUpdateGlossary}
-      />
-      
-      <TextTranslatorModal 
-         isOpen={isTranslatorOpen}
-         onClose={() => setIsTranslatorOpen(false)}
-         settings={settings}
-      />
-
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} />
+      <TimingModal isOpen={isTimingModalOpen} onClose={() => setIsTimingModalOpen(false)} onApply={handleTimingAdjustment} onNetflixCheck={handleNetflixCheck} hasMultipleFiles={files.length > 1} />
+      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} onConfirm={handleConfirmDownload} defaultFormat={settings.outputFormat} />
+      <GlossaryModal isOpen={isGlossaryModalOpen} onClose={() => setIsGlossaryModalOpen(false)} glossary={settings.glossary} onUpdate={handleUpdateGlossary} />
+      <TextTranslatorModal isOpen={isTranslatorOpen} onClose={() => setIsTranslatorOpen(false)} settings={settings} />
        {files.some(f => f.status === AppStatus.TRANSLATING) && (
             <div className="fixed bottom-8 right-8 glass border border-primary/50 text-text px-6 py-4 rounded-2xl shadow-[0_0_30px_rgba(0,0,0,0.5)] flex items-center gap-4 z-50 animate-in slide-in-from-bottom-10">
                 <div className="relative">
@@ -1178,46 +1057,24 @@ const App: React.FC = () => {
                      <Loader2 className="w-6 h-6 animate-spin text-primary relative z-10" />
                 </div>
                 <div className="flex flex-col">
-                    <span className="text-sm font-bold">
-                        {getActiveFile().progressMessage || 'در حال پردازش...'}
-                    </span>
-                    <span className="text-xs text-text-muted">
-                        {activeFileId && getActiveFile()?.name}
-                    </span>
+                    <span className="text-sm font-bold">{getActiveFile().progressMessage || 'در حال پردازش...'}</span>
+                    <span className="text-xs text-text-muted">{activeFileId && getActiveFile()?.name}</span>
                 </div>
             </div>
         )}
-
-        {/* Global Toast System */}
-        {toast && (
-            <Toast 
-                message={toast.msg} 
-                type={toast.type} 
-                onClose={() => setToast(null)} 
-            />
-        )}
-        
-        {/* Completion Toast */}
+        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
         {completionToast && !files.some(f => f.status === AppStatus.PAUSED || f.status === AppStatus.ERROR) && (
              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-5 fade-in duration-300 w-full max-w-md px-4">
                 <div className="glass bg-background/95 border border-green-500/50 text-text p-4 rounded-2xl shadow-[0_0_30px_rgba(34,197,94,0.2)] flex items-start gap-4 backdrop-blur-xl">
-                    <div className="p-2 bg-green-500/20 rounded-full flex-shrink-0 mt-0.5">
-                    <Loader2 className="w-5 h-5 text-green-500" />
-                    </div>
+                    <div className="p-2 bg-green-500/20 rounded-full flex-shrink-0 mt-0.5"><Loader2 className="w-5 h-5 text-green-500" /></div>
                     <div className="flex-1 min-w-0">
                         <strong className="block text-sm font-bold text-green-500 mb-1">عملیات تکمیل شد</strong>
                         <p className="text-sm text-text-muted leading-relaxed">پردازش فایل‌ها با موفقیت به پایان رسید.</p>
                     </div>
-                    <button 
-                        onClick={() => setCompletionToast(false)} 
-                        className="p-1 hover:bg-surface rounded-full transition-colors -mr-1 text-text-muted hover:text-text"
-                    >
-                        <Loader2 className="w-4 h-4 rotate-45" />
-                    </button>
+                    <button onClick={() => setCompletionToast(false)} className="p-1 hover:bg-surface rounded-full transition-colors -mr-1 text-text-muted hover:text-text"><Loader2 className="w-4 h-4 rotate-45" /></button>
                 </div>
             </div>
         )}
-
     </div>
   );
 };
