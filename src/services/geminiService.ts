@@ -51,24 +51,44 @@ const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatib
   return activeService;
 };
 
-const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string): Promise<string> => {
+const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean): Promise<Response> => {
   const baseUrl = normalizeOpenAIBaseUrl(service.baseUrl, 'https://api.openai.com/v1');
+  if (useProxy) {
+    return fetch('/api/openai-compatible/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey: service.apiKey, body })
+    });
+  }
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (service.apiKey.trim()) headers.Authorization = `Bearer ${service.apiKey.trim()}`;
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  return fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      model: service.model.trim(),
-      messages: [
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature,
-      stream: false
-    })
+    body: JSON.stringify(body)
   });
+};
+
+const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string): Promise<string> => {
+  const body = {
+    model: service.model.trim(),
+    messages: [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature,
+    stream: false
+  };
+
+  let response: Response;
+  try {
+    response = await requestOpenAICompatibleChat(service, body, false);
+  } catch (error: any) {
+    const msg = extractErrorDetails(error);
+    if (!msg.includes('failed to fetch') && !msg.includes('network')) throw error;
+    response = await requestOpenAICompatibleChat(service, body, true);
+  }
 
   if (!response.ok) {
     const details = await response.text().catch(() => '');
@@ -141,7 +161,7 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
 const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Compatible'): string => {
   const msg = extractErrorDetails(error);
   if (msg.includes('failed to fetch') || msg.includes('fetch failed') || msg.includes('cors')) {
-    return `⚠️ اتصال به ${serviceName} برقرار نشد. اگر این سرویس از مرورگر CORS نمی‌دهد، باید از یک پروکسی/Backend یا endpoint دارای CORS استفاده شود.`;
+    return `⚠️ اتصال به ${serviceName} برقرار نشد. درخواست مستقیم مرورگر با CORS مسدود شد و پروکسی داخلی هم پاسخ نگرفت؛ اگر نسخه build/static را اجرا می‌کنید باید اپ را پشت Backend/Proxy اجرا کنید.`;
   }
   if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key')) {
     return `⛔ API Key سرویس ${serviceName} معتبر نیست یا دسترسی لازم را ندارد.`;

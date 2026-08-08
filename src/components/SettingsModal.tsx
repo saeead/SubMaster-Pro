@@ -311,7 +311,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   <div className="space-y-2">
                     <h3 className="text-sm text-green-400 font-bold">سرویس‌های OpenAI Compatible</h3>
                     <p className="text-xs text-white/60 leading-relaxed">
-                      هر سرویس باید endpoint سازگار با Chat Completions داشته باشد. بعد از ذخیره، سرویس در حافظه مرورگر نگهداری و برای ترجمه قابل انتخاب می‌شود.
+                      هر سرویس باید endpoint سازگار با Chat Completions داشته باشد. اگر CORS مرورگر اتصال مستقیم را مسدود کند، برنامه در حالت dev/preview از پروکسی داخلی Vite استفاده می‌کند.
                     </p>
                   </div>
 
