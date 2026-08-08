@@ -138,6 +138,23 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
   return `خطای سیستمی: ${msg.substring(0, 100)}...`;
 };
 
+const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Compatible'): string => {
+  const msg = extractErrorDetails(error);
+  if (msg.includes('failed to fetch') || msg.includes('fetch failed') || msg.includes('cors')) {
+    return `⚠️ اتصال به ${serviceName} برقرار نشد. اگر این سرویس از مرورگر CORS نمی‌دهد، باید از یک پروکسی/Backend یا endpoint دارای CORS استفاده شود.`;
+  }
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key')) {
+    return `⛔ API Key سرویس ${serviceName} معتبر نیست یا دسترسی لازم را ندارد.`;
+  }
+  if (msg.includes('404') || msg.includes('not found')) {
+    return `⚠️ مسیر Chat Completions برای ${serviceName} پیدا نشد. Base URL باید تا قبل از /chat/completions باشد، مثل https://example.com/api/v1`;
+  }
+  if (msg.includes('model')) {
+    return `⚠️ نام مدل برای ${serviceName} معتبر نیست یا توسط سرویس پشتیبانی نمی‌شود.`;
+  }
+  return `⚠️ اتصال به ${serviceName} برقرار نشد: ${msg.substring(0, 180)}`;
+};
+
 export const validateAPIConnection = async (apiKey: string, strictMode: boolean = false): Promise<boolean> => {
   if (!apiKey) return false;
   try {
@@ -160,11 +177,8 @@ export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings
         }
         if (settings?.aiProvider === 'openai_compatible') {
             const service = getActiveOpenAICompatibleService(settings);
-            const baseUrl = normalizeOpenAIBaseUrl(service.baseUrl, 'https://api.openai.com/v1');
-            const headers: Record<string, string> = {};
-            if (service.apiKey.trim()) headers.Authorization = `Bearer ${service.apiKey.trim()}`;
-            const response = await fetch(`${baseUrl}/models`, { headers });
-            if (!response.ok) throw new Error(`${service.name} ${response.status}: ${response.statusText}`);
+            if (!service.model.trim()) return '⚠️ نام مدل سرویس OpenAI Compatible وارد نشده است.';
+            await callOpenAICompatibleChat(service, settings.temperature, 'You are a connection tester.', 'Reply with only OK.');
             return null;
         }
         if (!apiKey) return 'هیچ کلید API معتبری یافت نشد.';
@@ -176,7 +190,9 @@ export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings
             return '⚠️ اتصال به LM Studio برقرار نشد. مطمئن شوید LM Studio روشن است، Local Server فعال شده و آدرس روی http://localhost:1234/v1 تنظیم است.';
         }
         if (settings?.aiProvider === 'openai_compatible') {
-            return '⚠️ اتصال به سرویس OpenAI Compatible برقرار نشد. Base URL، API Key و نام مدل را بررسی کنید.';
+            const serviceName = settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)?.name
+                || settings.openAICompatibleServices[0]?.name;
+            return getOpenAICompatibleFriendlyError(e, serviceName);
         }
         return getFriendlyErrorMessage(e, 'gemini-2.5-flash');
     }
@@ -277,8 +293,9 @@ Return JSON array matching the schema.`;
       if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
         throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
       }
-      if (settings.aiProvider === 'openai_compatible' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('openai') || errorMessage.includes('compatible'))) {
-        throw new Error('⚠️ اتصال به سرویس OpenAI Compatible برقرار نشد. Base URL، API Key و نام مدل را بررسی کنید.');
+      if (settings.aiProvider === 'openai_compatible' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('openai') || errorMessage.includes('compatible') || errorMessage.includes('401') || errorMessage.includes('404'))) {
+        const service = settings.openAICompatibleServices.find(item => item.id === settings.activeOpenAICompatibleServiceId) || settings.openAICompatibleServices[0];
+        throw new Error(getOpenAICompatibleFriendlyError(error, service?.name));
       }
       if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) throw new Error(getFriendlyErrorMessage(error, modelName));
       
