@@ -134,6 +134,78 @@ const callLmStudioChat = async (settings: AppSettings, systemInstruction: string
   return content;
 };
 
+
+const toMarkedSubtitleParagraph = (blocks: BatchRequest[]): string => (
+  blocks.map(block => `⟦${block.id}⟧ ${block.text.replace(/\s+/g, ' ').trim()}`).join('\n')
+);
+
+const buildContextualTranslationPrompt = (
+  targetBatch: BatchRequest[],
+  contextPre: BatchRequest[],
+  contextPost: BatchRequest[],
+  useParagraphMode: boolean
+): string => {
+  if (!useParagraphMode) {
+    let prompt = `--- CONTEXTUAL BATCHING PROTOCOL ---
+`;
+    prompt += `Analyze the following sequence as a SINGLE CONTINUOUS SCENARIO before translating.
+`;
+    if (contextPre.length > 0) prompt += `
+PAST CONTEXT (Reference only):
+${JSON.stringify(contextPre)}`;
+    prompt += `
+
+TARGET BATCH (Translate these):
+${JSON.stringify(targetBatch)}`;
+    if (contextPost.length > 0) prompt += `
+
+FUTURE CONTEXT (Study for flow):
+${JSON.stringify(contextPost)}`;
+    prompt += `
+
+Task: Translate TARGET BATCH into Persian.
+Ensure the flow matches the scenario. Use "Tehrani Spoken" rules if conversational.
+Return JSON array matching the schema.`;
+    return prompt;
+  }
+
+  let prompt = `--- HIGH QUALITY PARAGRAPH SUBTITLE TRANSLATION PROTOCOL ---
+`;
+  prompt += `You will receive subtitle blocks as one continuous marked paragraph. Read the whole passage first to understand topic, speaker intent, pronouns, references, and emotional flow.
+`;
+  prompt += `Each target block starts with a marker like ⟦123⟧. Keep the exact IDs in your final JSON so the app can place each translation back into its original timing.
+`;
+  if (contextPre.length > 0) {
+    prompt += `
+PAST CONTEXT (reference only; do not translate these IDs):
+${toMarkedSubtitleParagraph(contextPre)}
+`;
+  }
+  prompt += `
+TARGET MARKED PARAGRAPH (translate every marked target block):
+${toMarkedSubtitleParagraph(targetBatch)}
+`;
+  if (contextPost.length > 0) {
+    prompt += `
+FUTURE CONTEXT (reference only; do not translate these IDs):
+${toMarkedSubtitleParagraph(contextPost)}
+`;
+  }
+  prompt += `
+Translation quality requirements:
+`;
+  prompt += `- Translate meaning, tone, and intent, not word-by-word wording.
+`;
+  prompt += `- Produce fluent, natural, professional Persian with correct punctuation, spacing, and نیم‌فاصله where appropriate.
+`;
+  prompt += `- Preserve continuity across adjacent subtitle blocks; avoid isolated sentence fragments when a phrase continues from the previous/next block.
+`;
+  prompt += `- Keep each translatedText concise enough for subtitles while still sounding human and polished.
+`;
+  prompt += `- Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}]. Do not include markdown or explanations.`;
+  return prompt;
+};
+
 const extractErrorDetails = (error: any): string => {
     let msg = "";
     if (!error) return "";
@@ -266,17 +338,14 @@ export const translateBatch = async (
         currentApiKey = keyManager.getActiveKey();
       }
 
-      // --- CONTEXTUAL BATCHING PROMPT ---
-      let userPrompt = `--- CONTEXTUAL BATCHING PROTOCOL ---\n`;
-      userPrompt += `Analyze the following sequence as a SINGLE CONTINUOUS SCENARIO before translating.\n`;
-      
-      if (contextPre.length > 0) userPrompt += `\nPAST CONTEXT (Reference only):\n${JSON.stringify(contextPre)}`;
-      userPrompt += `\n\nTARGET BATCH (Translate these): \n${JSON.stringify(targetBatch)}`;
-      if (contextPost.length > 0) userPrompt += `\n\nFUTURE CONTEXT (Study for flow):\n${JSON.stringify(contextPost)}`;
-      
-      userPrompt += `\n\nTask: Translate TARGET BATCH into Persian. 
-Ensure the flow matches the scenario. Use "Tehrani Spoken" rules if conversational.
-Return JSON array matching the schema.`;
+      // Local/OpenAI-compatible models usually translate better when subtitle fragments are sent
+      // as one marked paragraph instead of isolated JSON rows.
+      const userPrompt = buildContextualTranslationPrompt(
+        targetBatch,
+        contextPre,
+        contextPost,
+        settings.aiProvider !== 'gemini'
+      );
 
       const systemInstruction = getSystemInstruction(
         settings.tone, 
