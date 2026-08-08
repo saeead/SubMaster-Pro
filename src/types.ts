@@ -83,9 +83,17 @@ export interface GlossaryItem {
 export type ToneType = 'conversational' | 'formal' | 'news' | 'movie' | 'podcast';
 export type TopicType = 'educational' | 'entertainment' | 'podcast' | 'news' | 'sports';
 export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
-export type AIProvider = 'gemini' | 'lm_studio';
+export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
+
+export interface OpenAICompatibleService {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
 
 export interface AppSettings {
   tone: ToneType;
@@ -97,6 +105,8 @@ export interface AppSettings {
   aiProvider: AIProvider;
   lmStudioBaseUrl: string;
   lmStudioModel: string;
+  openAICompatibleServices: OpenAICompatibleService[];
+  activeOpenAICompatibleServiceId?: string;
   customPrompt: string;
   apiKeys: UserAPIKey[];
   enableTranslationMemory: boolean;
