@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft, ExternalLink, HelpCircle } from 'lucide-react';
-import { AppSettings, UserAPIKey } from '../types';
-import { validateAPIConnection } from '../services/geminiService';
+import { AppSettings, OpenAICompatibleService, UserAPIKey } from '../types';
+import { diagnoseConnection, validateAPIConnection } from '../services/geminiService';
 import { getMemorySize, clearMemory } from '../services/translationMemory';
 import { HelpTooltip } from './HelpTooltip';
 import { ApiKeyHelpModal } from './ApiKeyHelpModal';
@@ -19,7 +19,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
+  const [isTestingLocalConnection, setIsTestingLocalConnection] = useState(false);
   const [memSize, setMemSize] = useState(getMemorySize());
+  const [serviceNameInput, setServiceNameInput] = useState('');
+  const [serviceBaseUrlInput, setServiceBaseUrlInput] = useState('');
+  const [serviceApiKeyInput, setServiceApiKeyInput] = useState('');
+  const [serviceModelInput, setServiceModelInput] = useState('');
+  const [openAIServiceMessage, setOpenAIServiceMessage] = useState<string | null>(null);
+  const [isTestingOpenAIService, setIsTestingOpenAIService] = useState(false);
   
   // State for Help Modal
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -30,6 +38,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
       setMemSize(getMemorySize());
     }
   }, [isOpen]);
+
+  const activeOpenAIService = settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)
+      || settings.openAICompatibleServices[0];
 
   if (!isOpen) return null;
 
@@ -102,10 +113,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   };
 
   const handleClearMemory = () => {
-      if (confirm('آیا از پاک کردن تمام حافظه ترجمه اطمینان دارید؟')) {
+      if (confirm('آیا از پاک کردن تمام جملات حافظه ترجمه و واژه‌نامه اختصاصی اطمینان دارید؟')) {
           clearMemory();
+          updateSettings({ glossary: [] });
           setMemSize(0);
       }
+  };
+
+  const handleTestLocalConnection = async () => {
+      setIsTestingLocalConnection(true);
+      setConnectionTestMessage(null);
+      const error = await diagnoseConnection(undefined, { ...settings, aiProvider: 'lm_studio' });
+      setConnectionTestMessage(error || '✅ اتصال به LM Studio برقرار است.');
+      setIsTestingLocalConnection(false);
+  };
+
+  const buildOpenAIServiceFromInputs = (): OpenAICompatibleService | null => {
+      const name = serviceNameInput.trim();
+      const baseUrl = serviceBaseUrlInput.trim();
+      const apiKey = serviceApiKeyInput.trim();
+      const model = serviceModelInput.trim();
+      if (!name || !baseUrl || !apiKey || !model) return null;
+      return { id: crypto.randomUUID(), name, baseUrl, apiKey, model };
+  };
+
+  const handleSaveOpenAIService = () => {
+      const service = buildOpenAIServiceFromInputs();
+      if (!service) {
+          setOpenAIServiceMessage('⚠️ نام سرویس، Base URL، API Key و نام مدل همگی الزامی هستند.');
+          return;
+      }
+      updateSettings({
+          openAICompatibleServices: [...settings.openAICompatibleServices, service],
+          activeOpenAICompatibleServiceId: service.id,
+          aiProvider: 'openai_compatible'
+      });
+      setServiceNameInput('');
+      setServiceBaseUrlInput('');
+      setServiceApiKeyInput('');
+      setServiceModelInput('');
+      setOpenAIServiceMessage('✅ سرویس ترجمه ذخیره شد و به‌عنوان سرویس فعال انتخاب شد.');
+  };
+
+  const handleRemoveOpenAIService = (serviceId: string) => {
+      const remainingServices = settings.openAICompatibleServices.filter(service => service.id !== serviceId);
+      updateSettings({
+          openAICompatibleServices: remainingServices,
+          activeOpenAICompatibleServiceId: remainingServices[0]?.id
+      });
+  };
+
+  const handleTestOpenAIService = async (service?: OpenAICompatibleService) => {
+      const serviceToTest = service || buildOpenAIServiceFromInputs();
+      if (!serviceToTest) {
+          setOpenAIServiceMessage('⚠️ برای تست اتصال، نام سرویس، Base URL، API Key و نام مدل را وارد کنید.');
+          return;
+      }
+      setIsTestingOpenAIService(true);
+      setOpenAIServiceMessage(null);
+      const error = await diagnoseConnection(undefined, {
+          ...settings,
+          aiProvider: 'openai_compatible',
+          openAICompatibleServices: [serviceToTest],
+          activeOpenAICompatibleServiceId: serviceToTest.id
+      });
+      setOpenAIServiceMessage(error || `✅ اتصال به ${serviceToTest.name} برقرار است.`);
+      setIsTestingOpenAIService(false);
   };
 
   return (
@@ -144,7 +217,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       <div className="flex flex-col">
                           <span className="text-white font-medium text-sm">استفاده از حافظه ترجمه</span>
                           <span className="text-xs text-white/50 mt-1">
-                              ذخیره و استفاده مجدد از جملات تکراری برای افزایش سرعت و کاهش هزینه. ({memSize} جمله ذخیره شده)
+                              ذخیره و استفاده مجدد از جملات تکراری برای افزایش سرعت و کاهش هزینه.
+                          </span>
+                          <span className="text-[11px] text-white/40 mt-2">
+                              {memSize} جمله در حافظه ترجمه و {settings.glossary.length} واژه در واژه‌نامه ذخیره شده است.
                           </span>
                       </div>
                       <div className={`transition-colors ${settings.enableTranslationMemory ? 'text-[#00f0ff]' : 'text-white/30'}`}>
@@ -152,16 +228,178 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       </div>
                   </div>
                   
-                  {settings.enableTranslationMemory && memSize > 0 && (
+                  {(memSize > 0 || settings.glossary.length > 0) && (
                       <button 
                           onClick={handleClearMemory}
                           className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-2 py-1 rounded hover:bg-red-500/10 transition-colors"
                       >
                           <Trash2 className="w-3 h-3" />
-                          پاکسازی حافظه
+                          ریست حافظه و واژه‌نامه
                       </button>
                   )}
               </div>
+
+              {/* AI Provider */}
+              <div className="space-y-4">
+                <h3 className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
+                  <Cpu className="w-4 h-4" />
+                  انتخاب ارائه‌دهنده هوش مصنوعی
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => updateSettings({ aiProvider: 'gemini' })}
+                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'gemini' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                  >
+                    <span className="block text-sm font-bold">Gemini</span>
+                    <span className="block text-xs mt-1">ترجمه ابری با کلید API گوگل</span>
+                  </button>
+                  <button
+                    onClick={() => updateSettings({ aiProvider: 'lm_studio' })}
+                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'lm_studio' ? 'bg-[#ff00ea]/10 border-[#ff00ea] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                  >
+                    <span className="block text-sm font-bold">LM Studio</span>
+                    <span className="block text-xs mt-1">مدل محلی بدون API Key</span>
+                  </button>
+                  <button
+                    onClick={() => updateSettings({ aiProvider: 'openai_compatible' })}
+                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'openai_compatible' ? 'bg-green-400/10 border-green-400 text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                  >
+                    <span className="block text-sm font-bold">OpenAI Compatible</span>
+                    <span className="block text-xs mt-1">Chat Completions با Base URL و API Key</span>
+                  </button>
+                </div>
+
+                {settings.aiProvider === 'lm_studio' && (
+                  <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-3">
+                    <p className="text-xs text-white/60 leading-relaxed">
+                      در LM Studio بخش Local Server را روشن کنید. پیش‌فرض برنامه با آدرس OpenAI-compatible یعنی http://localhost:1234/v1 کار می‌کند.
+                    </p>
+                    <label className="block text-xs text-white/50">آدرس سرور LM Studio</label>
+                    <input
+                      value={settings.lmStudioBaseUrl}
+                      onChange={(e) => updateSettings({ lmStudioBaseUrl: e.target.value })}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none font-mono"
+                      placeholder="http://localhost:1234/v1"
+                    />
+                    <label className="block text-xs text-white/50">نام مدل بارگذاری‌شده</label>
+                    <input
+                      value={settings.lmStudioModel}
+                      onChange={(e) => updateSettings({ lmStudioModel: e.target.value })}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none font-mono"
+                      placeholder="local-model"
+                    />
+                    <button
+                      onClick={handleTestLocalConnection}
+                      disabled={isTestingLocalConnection}
+                      className="w-full bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-[#ff00ea] border border-[#ff00ea]/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isTestingLocalConnection ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                      <span>{isTestingLocalConnection ? 'در حال تست اتصال...' : 'تست اتصال به مدل محلی'}</span>
+                    </button>
+                    {connectionTestMessage && (
+                      <p className={`text-xs flex items-center gap-1 p-2 rounded border ${connectionTestMessage.startsWith('✅') ? 'text-green-400 bg-green-500/5 border-green-500/10' : 'text-red-400 bg-red-500/5 border-red-500/10'}`}>
+                        {connectionTestMessage}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {settings.aiProvider === 'openai_compatible' && (
+                <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm text-green-400 font-bold">سرویس‌های OpenAI Compatible</h3>
+                    <p className="text-xs text-white/60 leading-relaxed">
+                      هر سرویس باید endpoint سازگار با Chat Completions داشته باشد. می‌توانید Base URL مثل https://example.com/v1 یا URL کامل .../chat/completions را وارد کنید.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    <input
+                      value={serviceNameInput}
+                      onChange={(e) => { setServiceNameInput(e.target.value); setOpenAIServiceMessage(null); }}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-green-400 focus:outline-none"
+                      placeholder="نام سرویس، مثلا OpenRouter یا Local Proxy"
+                    />
+                    <input
+                      value={serviceBaseUrlInput}
+                      onChange={(e) => { setServiceBaseUrlInput(e.target.value); setOpenAIServiceMessage(null); }}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-green-400 focus:outline-none font-mono"
+                      placeholder="Base URL یا URL کامل chat/completions"
+                    />
+                    <input
+                      value={serviceApiKeyInput}
+                      onChange={(e) => { setServiceApiKeyInput(e.target.value); setOpenAIServiceMessage(null); }}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-green-400 focus:outline-none font-mono"
+                      placeholder="API Key"
+                      type="password"
+                    />
+                    <input
+                      value={serviceModelInput}
+                      onChange={(e) => { setServiceModelInput(e.target.value); setOpenAIServiceMessage(null); }}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-green-400 focus:outline-none font-mono"
+                      placeholder="نام مدل، مثلا gpt-4o-mini یا qwen/qwen3-30b"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleTestOpenAIService()}
+                      disabled={isTestingOpenAIService}
+                      className="bg-green-400/10 hover:bg-green-400/20 text-green-400 border border-green-400/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isTestingOpenAIService ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                      <span>{isTestingOpenAIService ? 'در حال تست...' : 'تست اتصال'}</span>
+                    </button>
+                    <button
+                      onClick={handleSaveOpenAIService}
+                      className="bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      ذخیره سرویس ترجمه
+                    </button>
+                  </div>
+
+                  {openAIServiceMessage && (
+                    <p className={`text-xs flex items-center gap-1 p-2 rounded border ${openAIServiceMessage.startsWith('✅') ? 'text-green-400 bg-green-500/5 border-green-500/10' : 'text-red-400 bg-red-500/5 border-red-500/10'}`}>
+                      {openAIServiceMessage}
+                    </p>
+                  )}
+
+                  {settings.openAICompatibleServices.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-white/50">سرویس‌های ذخیره‌شده:</p>
+                      {settings.openAICompatibleServices.map(service => (
+                        <div key={service.id} className={`p-3 rounded-lg border flex items-center justify-between gap-3 ${activeOpenAIService?.id === service.id ? 'bg-green-400/10 border-green-400/40' : 'bg-[#0a0e27] border-white/10'}`}>
+                          <button
+                            onClick={() => updateSettings({ activeOpenAICompatibleServiceId: service.id, aiProvider: 'openai_compatible' })}
+                            className="flex-1 text-right min-w-0"
+                          >
+                            <span className="block text-sm text-white truncate">{service.name}</span>
+                            <span className="block text-[10px] text-white/40 truncate direction-ltr">{service.baseUrl} • {service.model}</span>
+                          </button>
+                          <button
+                            onClick={() => handleTestOpenAIService(service)}
+                            disabled={isTestingOpenAIService}
+                            className="text-green-400 hover:text-green-300 p-1 disabled:opacity-50"
+                            title="تست اتصال"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleRemoveOpenAIService(service.id)}
+                            className="text-white/30 hover:text-red-400 p-1"
+                            title="حذف سرویس"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* API Key Management */}
               <div className="space-y-4">
@@ -253,6 +491,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Custom Prompt */}
+              <div className="space-y-3">
+                <label className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4" />
+                  پرامپت اختصاصی کاربر
+                </label>
+                <textarea
+                  value={settings.customPrompt}
+                  onChange={(e) => updateSettings({ customPrompt: e.target.value })}
+                  placeholder="مثلاً: اسامی شخصیت‌ها را ترجمه نکن، اصطلاحات فنی را انگلیسی نگه دار، یا لحن طنز را بیشتر کن..."
+                  className="w-full bg-[#0a0e27]/50 text-sm text-white placeholder-white/30 focus:outline-none resize-y min-h-[110px] rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all custom-scrollbar"
+                />
+                <p className="text-[11px] text-white/40 leading-relaxed">
+                  این متن به دستور سیستم ترجمه اضافه می‌شود و برای Gemini و LM Studio اعمال خواهد شد.
+                </p>
               </div>
 
               {/* Model Selection */}

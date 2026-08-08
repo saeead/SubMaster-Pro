@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Schema, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage } from "../types";
+import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService } from "../types";
 import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
 
 const responseSchema: Schema = {
@@ -23,6 +23,188 @@ const SAFETY_SETTINGS = [
 ];
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const normalizeOpenAIBaseUrl = (baseUrl: string, fallback = 'http://localhost:1234/v1'): string => {
+  const trimmed = (baseUrl || fallback).trim().replace(/\/+$/, '');
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+};
+
+const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
+  const trimmed = (baseUrl || 'https://api.openai.com/v1').trim().replace(/\/+$/, '');
+  if (trimmed.endsWith('/chat/completions')) return trimmed;
+  return `${normalizeOpenAIBaseUrl(trimmed, 'https://api.openai.com/v1')}/chat/completions`;
+};
+
+const normalizeLmStudioBaseUrl = (baseUrl: string): string => normalizeOpenAIBaseUrl(baseUrl);
+
+const extractJsonArray = (text: string): string => {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('```')) {
+    const withoutFence = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+    if (withoutFence.startsWith('[')) return withoutFence;
+  }
+  const start = trimmed.indexOf('[');
+  const end = trimmed.lastIndexOf(']');
+  if (start !== -1 && end !== -1 && end > start) return trimmed.slice(start, end + 1);
+  return trimmed;
+};
+
+
+const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatibleService => {
+  const activeService = settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)
+    || settings.openAICompatibleServices[0];
+  if (!activeService) throw new Error('هیچ سرویس OpenAI Compatible ذخیره نشده است.');
+  return activeService;
+};
+
+const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean): Promise<Response> => {
+  const endpointUrl = resolveOpenAIChatCompletionsUrl(service.baseUrl);
+  if (useProxy) {
+    return fetch('/api/openai-compatible/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpointUrl, apiKey: service.apiKey, body })
+    });
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (service.apiKey.trim()) headers.Authorization = `Bearer ${service.apiKey.trim()}`;
+  return fetch(endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+};
+
+const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string): Promise<string> => {
+  const body = {
+    model: service.model.trim(),
+    messages: [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature,
+    stream: false
+  };
+
+  let response: Response;
+  try {
+    response = await requestOpenAICompatibleChat(service, body, false);
+  } catch (error: any) {
+    const msg = extractErrorDetails(error);
+    if (!msg.includes('failed to fetch') && !msg.includes('network')) throw error;
+    response = await requestOpenAICompatibleChat(service, body, true);
+  }
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(`${service.name} ${response.status}: ${details || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error(`Empty response from ${service.name}`);
+  return content;
+};
+
+const callLmStudioChat = async (settings: AppSettings, systemInstruction: string, userPrompt: string): Promise<string> => {
+  const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: settings.lmStudioModel || 'local-model',
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: settings.temperature,
+      stream: false
+    })
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(`LM Studio ${response.status}: ${details || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Empty response from LM Studio');
+  return content;
+};
+
+
+const toMarkedSubtitleParagraph = (blocks: BatchRequest[]): string => (
+  blocks.map(block => `⟦${block.id}⟧ ${block.text.replace(/\s+/g, ' ').trim()}`).join('\n')
+);
+
+const buildContextualTranslationPrompt = (
+  targetBatch: BatchRequest[],
+  contextPre: BatchRequest[],
+  contextPost: BatchRequest[],
+  useParagraphMode: boolean
+): string => {
+  if (!useParagraphMode) {
+    let prompt = `--- CONTEXTUAL BATCHING PROTOCOL ---
+`;
+    prompt += `Analyze the following sequence as a SINGLE CONTINUOUS SCENARIO before translating.
+`;
+    if (contextPre.length > 0) prompt += `
+PAST CONTEXT (Reference only):
+${JSON.stringify(contextPre)}`;
+    prompt += `
+
+TARGET BATCH (Translate these):
+${JSON.stringify(targetBatch)}`;
+    if (contextPost.length > 0) prompt += `
+
+FUTURE CONTEXT (Study for flow):
+${JSON.stringify(contextPost)}`;
+    prompt += `
+
+Task: Translate TARGET BATCH into Persian.
+Ensure the flow matches the scenario. Use "Tehrani Spoken" rules if conversational.
+Return JSON array matching the schema.`;
+    return prompt;
+  }
+
+  let prompt = `--- HIGH QUALITY PARAGRAPH SUBTITLE TRANSLATION PROTOCOL ---
+`;
+  prompt += `You will receive subtitle blocks as one continuous marked paragraph. Read the whole passage first to understand topic, speaker intent, pronouns, references, and emotional flow.
+`;
+  prompt += `Each target block starts with a marker like ⟦123⟧. Keep the exact IDs in your final JSON so the app can place each translation back into its original timing.
+`;
+  if (contextPre.length > 0) {
+    prompt += `
+PAST CONTEXT (reference only; do not translate these IDs):
+${toMarkedSubtitleParagraph(contextPre)}
+`;
+  }
+  prompt += `
+TARGET MARKED PARAGRAPH (translate every marked target block):
+${toMarkedSubtitleParagraph(targetBatch)}
+`;
+  if (contextPost.length > 0) {
+    prompt += `
+FUTURE CONTEXT (reference only; do not translate these IDs):
+${toMarkedSubtitleParagraph(contextPost)}
+`;
+  }
+  prompt += `
+Translation quality requirements:
+`;
+  prompt += `- Translate meaning, tone, and intent, not word-by-word wording.
+`;
+  prompt += `- Produce fluent, natural, professional Persian with correct punctuation, spacing, and نیم‌فاصله where appropriate.
+`;
+  prompt += `- Preserve continuity across adjacent subtitle blocks; avoid isolated sentence fragments when a phrase continues from the previous/next block.
+`;
+  prompt += `- Keep each translatedText concise enough for subtitles while still sounding human and polished.
+`;
+  prompt += `- Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}]. Do not include markdown or explanations.`;
+  return prompt;
+};
 
 const extractErrorDetails = (error: any): string => {
     let msg = "";
@@ -54,6 +236,23 @@ const getFriendlyErrorMessage = (error: any, modelName: string): string => {
   return `خطای سیستمی: ${msg.substring(0, 100)}...`;
 };
 
+const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Compatible'): string => {
+  const msg = extractErrorDetails(error);
+  if (msg.includes('failed to fetch') || msg.includes('fetch failed') || msg.includes('cors')) {
+    return `⚠️ اتصال به ${serviceName} برقرار نشد. درخواست مستقیم مرورگر با CORS مسدود شد و پروکسی داخلی هم پاسخ نگرفت؛ اگر نسخه build/static را اجرا می‌کنید باید اپ را پشت Backend/Proxy اجرا کنید.`;
+  }
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key')) {
+    return `⛔ API Key سرویس ${serviceName} معتبر نیست یا دسترسی لازم را ندارد.`;
+  }
+  if (msg.includes('404') || msg.includes('not found')) {
+    return `⚠️ مسیر Chat Completions برای ${serviceName} پیدا نشد (404). اگر سرویس مسیر متفاوتی دارد، URL کامل chat/completions را در فیلد Base URL وارد کنید.`;
+  }
+  if (msg.includes('model')) {
+    return `⚠️ نام مدل برای ${serviceName} معتبر نیست یا توسط سرویس پشتیبانی نمی‌شود.`;
+  }
+  return `⚠️ اتصال به ${serviceName} برقرار نشد: ${msg.substring(0, 180)}`;
+};
+
 export const validateAPIConnection = async (apiKey: string, strictMode: boolean = false): Promise<boolean> => {
   if (!apiKey) return false;
   try {
@@ -66,12 +265,33 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
   }
 };
 
-export const diagnoseConnection = async (apiKey: string): Promise<string | null> => {
+export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings): Promise<string | null> => {
     try {
+        if (settings?.aiProvider === 'lm_studio') {
+            const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
+            const response = await fetch(`${baseUrl}/models`);
+            if (!response.ok) throw new Error(`LM Studio ${response.status}: ${response.statusText}`);
+            return null;
+        }
+        if (settings?.aiProvider === 'openai_compatible') {
+            const service = getActiveOpenAICompatibleService(settings);
+            if (!service.model.trim()) return '⚠️ نام مدل سرویس OpenAI Compatible وارد نشده است.';
+            await callOpenAICompatibleChat(service, settings.temperature, 'You are a connection tester.', 'Reply with only OK.');
+            return null;
+        }
+        if (!apiKey) return 'هیچ کلید API معتبری یافت نشد.';
         const ai = new GoogleGenAI({ apiKey: apiKey });
         await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' });
         return null; 
     } catch (e: any) {
+        if (settings?.aiProvider === 'lm_studio') {
+            return '⚠️ اتصال به LM Studio برقرار نشد. مطمئن شوید LM Studio روشن است، Local Server فعال شده و آدرس روی http://localhost:1234/v1 تنظیم است.';
+        }
+        if (settings?.aiProvider === 'openai_compatible') {
+            const serviceName = settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)?.name
+                || settings.openAICompatibleServices[0]?.name;
+            return getOpenAICompatibleFriendlyError(e, serviceName);
+        }
         return getFriendlyErrorMessage(e, 'gemini-2.5-flash');
     }
 };
@@ -114,20 +334,18 @@ export const translateBatch = async (
   while (attempt < totalAllowedAttempts) {
     let currentApiKey = '';
     try {
-      currentApiKey = keyManager.getActiveKey();
-      const ai = new GoogleGenAI({ apiKey: currentApiKey });
+      if (settings.aiProvider === 'gemini') {
+        currentApiKey = keyManager.getActiveKey();
+      }
 
-      // --- CONTEXTUAL BATCHING PROMPT ---
-      let userPrompt = `--- CONTEXTUAL BATCHING PROTOCOL ---\n`;
-      userPrompt += `Analyze the following sequence as a SINGLE CONTINUOUS SCENARIO before translating.\n`;
-      
-      if (contextPre.length > 0) userPrompt += `\nPAST CONTEXT (Reference only):\n${JSON.stringify(contextPre)}`;
-      userPrompt += `\n\nTARGET BATCH (Translate these): \n${JSON.stringify(targetBatch)}`;
-      if (contextPost.length > 0) userPrompt += `\n\nFUTURE CONTEXT (Study for flow):\n${JSON.stringify(contextPost)}`;
-      
-      userPrompt += `\n\nTask: Translate TARGET BATCH into Persian. 
-Ensure the flow matches the scenario. Use "Tehrani Spoken" rules if conversational.
-Return JSON array matching the schema.`;
+      // Local/OpenAI-compatible models usually translate better when subtitle fragments are sent
+      // as one marked paragraph instead of isolated JSON rows.
+      const userPrompt = buildContextualTranslationPrompt(
+        targetBatch,
+        contextPre,
+        contextPost,
+        settings.aiProvider !== 'gemini'
+      );
 
       const systemInstruction = getSystemInstruction(
         settings.tone, 
@@ -137,6 +355,18 @@ Return JSON array matching the schema.`;
         settings.glossary
       );
 
+      if (settings.aiProvider === 'lm_studio') {
+        const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        return JSON.parse(extractJsonArray(text)) as BatchResponse[];
+      }
+
+      if (settings.aiProvider === 'openai_compatible') {
+        const service = getActiveOpenAICompatibleService(settings);
+        const text = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        return JSON.parse(extractJsonArray(text)) as BatchResponse[];
+      }
+
+      const ai = new GoogleGenAI({ apiKey: currentApiKey });
       const response = await ai.models.generateContent({
         model: modelName,
         contents: userPrompt,
@@ -155,6 +385,13 @@ Return JSON array matching the schema.`;
 
     } catch (error: any) {
       const errorMessage = extractErrorDetails(error);
+      if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
+        throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
+      }
+      if (settings.aiProvider === 'openai_compatible' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('openai') || errorMessage.includes('compatible') || errorMessage.includes('401') || errorMessage.includes('404'))) {
+        const service = settings.openAICompatibleServices.find(item => item.id === settings.activeOpenAICompatibleServiceId) || settings.openAICompatibleServices[0];
+        throw new Error(getOpenAICompatibleFriendlyError(error, service?.name));
+      }
       if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) throw new Error(getFriendlyErrorMessage(error, modelName));
       
       const isOverloaded = errorMessage.includes('503') || errorMessage.includes('overloaded') || errorMessage.includes('unavailable');
@@ -180,6 +417,13 @@ Return JSON array matching the schema.`;
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';
+    if (settings.aiProvider === 'lm_studio') {
+        return callLmStudioChat(settings, LANGUAGE_PROMPTS[targetLang], `${text}\n\nReturn only the translated text.`);
+    }
+    if (settings.aiProvider === 'openai_compatible') {
+        const service = getActiveOpenAICompatibleService(settings);
+        return callOpenAICompatibleChat(service, settings.temperature, LANGUAGE_PROMPTS[targetLang], `${text}\n\nReturn only the translated text.`);
+    }
     const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
     const response = await ai.models.generateContent({
         model: APP_CONFIG.geminiModels.standard,
