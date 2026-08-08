@@ -24,8 +24,8 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
   const handleTranslate = async () => {
     if (!inputText.trim()) return;
     
-    // Check keys
-    if (settings.apiKeys.length === 0 || !settings.apiKeys.some(k => k.isValid && !k.isRateLimited)) {
+    // Check keys for Gemini; LM Studio uses the local OpenAI-compatible server instead.
+    if (settings.aiProvider === 'gemini' && (settings.apiKeys.length === 0 || !settings.apiKeys.some(k => k.isValid && !k.isRateLimited))) {
         setError("لطفا ابتدا یک کلید API معتبر در تنظیمات وارد کنید.");
         return;
     }
