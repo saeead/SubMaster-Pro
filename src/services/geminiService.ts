@@ -29,6 +29,12 @@ const normalizeOpenAIBaseUrl = (baseUrl: string, fallback = 'http://localhost:12
   return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 };
 
+const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
+  const trimmed = (baseUrl || 'https://api.openai.com/v1').trim().replace(/\/+$/, '');
+  if (trimmed.endsWith('/chat/completions')) return trimmed;
+  return `${normalizeOpenAIBaseUrl(trimmed, 'https://api.openai.com/v1')}/chat/completions`;
+};
+
 const normalizeLmStudioBaseUrl = (baseUrl: string): string => normalizeOpenAIBaseUrl(baseUrl);
 
 const extractJsonArray = (text: string): string => {
@@ -52,18 +58,18 @@ const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatib
 };
 
 const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean): Promise<Response> => {
-  const baseUrl = normalizeOpenAIBaseUrl(service.baseUrl, 'https://api.openai.com/v1');
+  const endpointUrl = resolveOpenAIChatCompletionsUrl(service.baseUrl);
   if (useProxy) {
     return fetch('/api/openai-compatible/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl, apiKey: service.apiKey, body })
+      body: JSON.stringify({ endpointUrl, apiKey: service.apiKey, body })
     });
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (service.apiKey.trim()) headers.Authorization = `Bearer ${service.apiKey.trim()}`;
-  return fetch(`${baseUrl}/chat/completions`, {
+  return fetch(endpointUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify(body)
@@ -167,7 +173,7 @@ const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Comp
     return `⛔ API Key سرویس ${serviceName} معتبر نیست یا دسترسی لازم را ندارد.`;
   }
   if (msg.includes('404') || msg.includes('not found')) {
-    return `⚠️ مسیر Chat Completions برای ${serviceName} پیدا نشد. Base URL باید تا قبل از /chat/completions باشد، مثل https://example.com/api/v1`;
+    return `⚠️ مسیر Chat Completions برای ${serviceName} پیدا نشد (404). اگر سرویس مسیر متفاوتی دارد، URL کامل chat/completions را در فیلد Base URL وارد کنید.`;
   }
   if (msg.includes('model')) {
     return `⚠️ نام مدل برای ${serviceName} معتبر نیست یا توسط سرویس پشتیبانی نمی‌شود.`;

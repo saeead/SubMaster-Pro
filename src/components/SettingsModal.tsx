@@ -311,7 +311,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   <div className="space-y-2">
                     <h3 className="text-sm text-green-400 font-bold">سرویس‌های OpenAI Compatible</h3>
                     <p className="text-xs text-white/60 leading-relaxed">
-                      هر سرویس باید endpoint سازگار با Chat Completions داشته باشد. اگر CORS مرورگر اتصال مستقیم را مسدود کند، برنامه در حالت dev/preview از پروکسی داخلی Vite استفاده می‌کند.
+                      هر سرویس باید endpoint سازگار با Chat Completions داشته باشد. می‌توانید Base URL مثل https://example.com/v1 یا URL کامل .../chat/completions را وارد کنید.
                     </p>
                   </div>
 
@@ -326,7 +326,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       value={serviceBaseUrlInput}
                       onChange={(e) => { setServiceBaseUrlInput(e.target.value); setOpenAIServiceMessage(null); }}
                       className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-green-400 focus:outline-none font-mono"
-                      placeholder="Base URL مثل https://api.openai.com/v1"
+                      placeholder="Base URL یا URL کامل chat/completions"
                     />
                     <input
                       value={serviceApiKeyInput}

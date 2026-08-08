@@ -20,18 +20,19 @@ const openAICompatibleProxy = (): Plugin => {
 
     try {
       const rawBody = await readRequestBody(req);
-      const { baseUrl, apiKey, body } = JSON.parse(rawBody || '{}') as {
+      const { baseUrl, endpointUrl, apiKey, body } = JSON.parse(rawBody || '{}') as {
         baseUrl?: string;
+        endpointUrl?: string;
         apiKey?: string;
         body?: unknown;
       };
-      const normalizedBaseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
-      if (!normalizedBaseUrl) throw new Error('Missing baseUrl');
+      const targetUrl = (endpointUrl || (baseUrl ? `${baseUrl.trim().replace(/\/+$/, '')}/chat/completions` : '')).trim();
+      if (!targetUrl) throw new Error('Missing endpointUrl');
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey?.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
 
-      const upstreamResponse = await fetch(`${normalizedBaseUrl}/chat/completions`, {
+      const upstreamResponse = await fetch(targetUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(body)
