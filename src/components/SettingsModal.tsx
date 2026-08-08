@@ -163,6 +163,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   )}
               </div>
 
+              {/* AI Provider */}
+              <div className="space-y-4">
+                <h3 className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
+                  <Cpu className="w-4 h-4" />
+                  انتخاب ارائه‌دهنده هوش مصنوعی
+                </h3>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => updateSettings({ aiProvider: 'gemini' })}
+                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'gemini' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                  >
+                    <span className="block text-sm font-bold">Gemini</span>
+                    <span className="block text-xs mt-1">ترجمه ابری با کلید API گوگل</span>
+                  </button>
+                  <button
+                    onClick={() => updateSettings({ aiProvider: 'lm_studio' })}
+                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'lm_studio' ? 'bg-[#ff00ea]/10 border-[#ff00ea] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                  >
+                    <span className="block text-sm font-bold">LM Studio</span>
+                    <span className="block text-xs mt-1">ترجمه با مدل محلی روی سیستم کاربر</span>
+                  </button>
+                </div>
+
+                {settings.aiProvider === 'lm_studio' && (
+                  <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-3">
+                    <p className="text-xs text-white/60 leading-relaxed">
+                      در LM Studio بخش Local Server را روشن کنید. پیش‌فرض برنامه با آدرس OpenAI-compatible یعنی http://localhost:1234/v1 کار می‌کند.
+                    </p>
+                    <label className="block text-xs text-white/50">آدرس سرور LM Studio</label>
+                    <input
+                      value={settings.lmStudioBaseUrl}
+                      onChange={(e) => updateSettings({ lmStudioBaseUrl: e.target.value })}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none font-mono"
+                      placeholder="http://localhost:1234/v1"
+                    />
+                    <label className="block text-xs text-white/50">نام مدل بارگذاری‌شده</label>
+                    <input
+                      value={settings.lmStudioModel}
+                      onChange={(e) => updateSettings({ lmStudioModel: e.target.value })}
+                      className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none font-mono"
+                      placeholder="local-model"
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* API Key Management */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

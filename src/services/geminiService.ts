@@ -24,6 +24,50 @@ const SAFETY_SETTINGS = [
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const normalizeLmStudioBaseUrl = (baseUrl: string): string => {
+  const trimmed = (baseUrl || 'http://localhost:1234/v1').trim().replace(/\/+$/, '');
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+};
+
+const extractJsonArray = (text: string): string => {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('```')) {
+    const withoutFence = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+    if (withoutFence.startsWith('[')) return withoutFence;
+  }
+  const start = trimmed.indexOf('[');
+  const end = trimmed.lastIndexOf(']');
+  if (start !== -1 && end !== -1 && end > start) return trimmed.slice(start, end + 1);
+  return trimmed;
+};
+
+const callLmStudioChat = async (settings: AppSettings, systemInstruction: string, userPrompt: string): Promise<string> => {
+  const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: settings.lmStudioModel || 'local-model',
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: settings.temperature,
+      stream: false
+    })
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(`LM Studio ${response.status}: ${details || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Empty response from LM Studio');
+  return content;
+};
+
 const extractErrorDetails = (error: any): string => {
     let msg = "";
     if (!error) return "";
@@ -66,12 +110,22 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
   }
 };
 
-export const diagnoseConnection = async (apiKey: string): Promise<string | null> => {
+export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings): Promise<string | null> => {
     try {
+        if (settings?.aiProvider === 'lm_studio') {
+            const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
+            const response = await fetch(`${baseUrl}/models`);
+            if (!response.ok) throw new Error(`LM Studio ${response.status}: ${response.statusText}`);
+            return null;
+        }
+        if (!apiKey) return 'هیچ کلید API معتبری یافت نشد.';
         const ai = new GoogleGenAI({ apiKey: apiKey });
         await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' });
         return null; 
     } catch (e: any) {
+        if (settings?.aiProvider === 'lm_studio') {
+            return '⚠️ اتصال به LM Studio برقرار نشد. مطمئن شوید LM Studio روشن است، Local Server فعال شده و آدرس روی http://localhost:1234/v1 تنظیم است.';
+        }
         return getFriendlyErrorMessage(e, 'gemini-2.5-flash');
     }
 };
@@ -114,8 +168,9 @@ export const translateBatch = async (
   while (attempt < totalAllowedAttempts) {
     let currentApiKey = '';
     try {
-      currentApiKey = keyManager.getActiveKey();
-      const ai = new GoogleGenAI({ apiKey: currentApiKey });
+      if (settings.aiProvider !== 'lm_studio') {
+        currentApiKey = keyManager.getActiveKey();
+      }
 
       // --- CONTEXTUAL BATCHING PROMPT ---
       let userPrompt = `--- CONTEXTUAL BATCHING PROTOCOL ---\n`;
@@ -137,6 +192,12 @@ Return JSON array matching the schema.`;
         settings.glossary
       );
 
+      if (settings.aiProvider === 'lm_studio') {
+        const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        return JSON.parse(extractJsonArray(text)) as BatchResponse[];
+      }
+
+      const ai = new GoogleGenAI({ apiKey: currentApiKey });
       const response = await ai.models.generateContent({
         model: modelName,
         contents: userPrompt,
@@ -155,6 +216,9 @@ Return JSON array matching the schema.`;
 
     } catch (error: any) {
       const errorMessage = extractErrorDetails(error);
+      if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
+        throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
+      }
       if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) throw new Error(getFriendlyErrorMessage(error, modelName));
       
       const isOverloaded = errorMessage.includes('503') || errorMessage.includes('overloaded') || errorMessage.includes('unavailable');
@@ -180,6 +244,9 @@ Return JSON array matching the schema.`;
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';
+    if (settings.aiProvider === 'lm_studio') {
+        return callLmStudioChat(settings, LANGUAGE_PROMPTS[targetLang], `${text}\n\nReturn only the translated text.`);
+    }
     const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
     const response = await ai.models.generateContent({
         model: APP_CONFIG.geminiModels.standard,

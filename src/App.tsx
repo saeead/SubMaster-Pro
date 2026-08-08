@@ -49,6 +49,9 @@ const App: React.FC = () => {
     outputFormat: 'vtt', 
     outputStandard: 'normal',
     model: 'standard', 
+    aiProvider: 'gemini',
+    lmStudioBaseUrl: 'http://localhost:1234/v1',
+    lmStudioModel: 'local-model',
     customPrompt: '',
     apiKeys: [],
     enableTranslationMemory: true,
@@ -87,6 +90,9 @@ const App: React.FC = () => {
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         if (!parsed.glossary) parsed.glossary = [];
+        if (!parsed.aiProvider) parsed.aiProvider = 'gemini';
+        if (!parsed.lmStudioBaseUrl) parsed.lmStudioBaseUrl = 'http://localhost:1234/v1';
+        if (!parsed.lmStudioModel) parsed.lmStudioModel = 'local-model';
         if (parsed.temperature === undefined) parsed.temperature = 0.7; 
         if (!parsed.theme) parsed.theme = 'dark';
         setSettings(prev => ({ ...prev, ...parsed }));
@@ -865,15 +871,16 @@ const App: React.FC = () => {
   };
 
   const startBatchTranslation = async () => {
+    const isLocalProvider = settings.aiProvider === 'lm_studio';
     const hasAvailableKeys = settings.apiKeys.some(k => k.isValid && !k.isRateLimited);
     
-    if (settings.apiKeys.length === 0) {
+    if (!isLocalProvider && settings.apiKeys.length === 0) {
       showToast("هیچ کلید API تعریف نشده است.", 'error');
       setIsSettingsOpen(true);
       return;
     }
     
-    if (!hasAvailableKeys) {
+    if (!isLocalProvider && !hasAvailableKeys) {
         setSettings(prev => ({
             ...prev,
             apiKeys: prev.apiKeys.map(k => ({...k, isRateLimited: false}))
@@ -894,12 +901,12 @@ const App: React.FC = () => {
     const firstFileId = pendingFiles[0].id;
     updateFileStatus(firstFileId, {
         status: AppStatus.TRANSLATING, 
-        progressMessage: 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
+        progressMessage: isLocalProvider ? 'در حال بررسی اتصال به LM Studio...' : 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
     });
 
-    const testKey = settings.apiKeys.find(k => k.isValid)?.key;
-    if (testKey) {
-        const diagnosisError = await diagnoseConnection(testKey);
+    const testKey = isLocalProvider ? undefined : settings.apiKeys.find(k => k.isValid)?.key;
+    if (isLocalProvider || testKey) {
+        const diagnosisError = await diagnoseConnection(testKey, settings);
         if (diagnosisError) {
              updateFileStatus(firstFileId, { 
                 status: AppStatus.PAUSED, 
