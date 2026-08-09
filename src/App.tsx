@@ -13,7 +13,7 @@ import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification } from './types';
-import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
+import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
@@ -435,17 +435,21 @@ const App: React.FC = () => {
       if (!file) return;
 
       const selectedSet = new Set(blockIds);
-      const selectedBlocks = file.blocks.filter(block => selectedSet.has(block.id));
-      if (selectedBlocks.length === 0) return;
+      const selectedIndexes = file.blocks
+          .map((block, index) => selectedSet.has(block.id) ? index : -1)
+          .filter(index => index !== -1);
+      if (selectedIndexes.length === 0) return;
 
-      const firstSelectedIndex = file.blocks.findIndex(block => selectedSet.has(block.id));
-      const lastSelectedIndex = file.blocks.length - 1 - [...file.blocks].reverse().findIndex(block => selectedSet.has(block.id));
-      const contextPre = file.blocks
-          .slice(Math.max(0, firstSelectedIndex - 4), firstSelectedIndex)
-          .map(block => ({ id: block.id, text: `${block.originalText} (Persian: ${block.translatedText || 'N/A'})` }));
-      const contextPost = file.blocks
-          .slice(lastSelectedIndex + 1, Math.min(file.blocks.length, lastSelectedIndex + 5))
-          .map(block => ({ id: block.id, text: block.originalText }));
+      const segments = selectedIndexes.reduce<number[][]>((acc, index) => {
+          const lastSegment = acc[acc.length - 1];
+          if (!lastSegment || index !== lastSegment[lastSegment.length - 1] + 1) {
+              acc.push([index]);
+          } else {
+              lastSegment.push(index);
+          }
+          return acc;
+      }, []);
+      const selectedBlocks = selectedIndexes.map(index => file.blocks[index]);
 
       const onKeyRateLimit = (failedKey: string) => {
           showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
@@ -459,13 +463,34 @@ const App: React.FC = () => {
       showToast(`${selectedBlocks.length} بلوک برای ترجمه دوباره ارسال شد.`, 'warning');
 
       try {
-          const results = await retranslateSelectedBlocks(
-              selectedBlocks.map(block => ({ id: block.id, text: block.originalText })),
-              contextPre,
-              contextPost,
-              settingsRef.current,
-              onKeyRateLimit
-          );
+          const segmentResults = [];
+          for (const segment of segments) {
+              const segmentStart = segment[0];
+              const segmentEnd = segment[segment.length - 1] + 1;
+              const { contextStart, contextEnd } = getSmartContextWindow(file.blocks, segmentStart, segmentEnd, 6);
+              const contextPre = file.blocks
+                  .slice(contextStart, segmentStart)
+                  .map(block => ({ id: block.id, text: `${block.originalText} (Persian: ${block.translatedText || 'N/A'})` }));
+              const contextPost = file.blocks
+                  .slice(segmentEnd, contextEnd)
+                  .map(block => ({ id: block.id, text: block.originalText }));
+              const targetSegment = file.blocks.slice(segmentStart, segmentEnd);
+
+              const translatedSegment = await retranslateSelectedBlocks(
+                  targetSegment.map(block => ({
+                      id: block.id,
+                      text: block.originalText,
+                      previousTranslatedText: block.translatedText || '',
+                      problemHint: 'user-selected for retranslation'
+                  })),
+                  contextPre,
+                  contextPost,
+                  settingsRef.current,
+                  onKeyRateLimit
+              );
+              segmentResults.push(translatedSegment);
+          }
+          const results = segmentResults.flat();
           const resultMap = new Map(results.map(result => [result.id, formatPersianSubtitle(result.translatedText)]));
           const groupId = crypto.randomUUID();
 

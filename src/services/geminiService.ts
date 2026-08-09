@@ -156,6 +156,37 @@ Review requirements:
 Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}].`;
 };
 
+const toSelectedRetranslationItems = (blocks: BatchRequest[]): string => (
+  blocks.map(block => `⟦id=${block.id}⟧
+Original: ${block.text.replace(/\s+/g, ' ').trim()}
+Previous Persian: ${block.previousTranslatedText?.trim() || 'N/A'}
+Problem hint: ${block.problemHint || 'user-selected for retranslation'}`).join('\n\n')
+);
+
+const buildSelectedRetranslationPrompt = (
+  targetBatch: BatchRequest[],
+  contextPre: BatchRequest[],
+  contextPost: BatchRequest[]
+): string => `--- SELECTED SUBTITLE RETRANSLATION PROTOCOL ---
+These subtitle blocks were already translated, but the user rejected their quality and selected them for retranslation.
+
+PAST CONTEXT (reference only; do not return these IDs):
+${contextPre.length ? toMarkedSubtitleParagraph(contextPre) : 'N/A'}
+
+TARGET BLOCKS TO RETRANSLATE:
+${toSelectedRetranslationItems(targetBatch)}
+
+FUTURE CONTEXT (reference only; do not return these IDs):
+${contextPost.length ? toMarkedSubtitleParagraph(contextPost) : 'N/A'}
+
+Retranslation goals:
+- Use Previous Persian only as a reference; freely improve it when it is incomplete, awkward, inconsistent, too literal, or machine-like.
+- Preserve meaning, speaker intent, tone, and continuity with surrounding subtitles.
+- Return ONLY the target IDs listed above, every target ID exactly once.
+- Keep the result concise and subtitle-friendly: max 2 lines, no markdown, no explanations, no raw markers.
+
+Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}].`;
+
 
 const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatibleService => {
   const activeService = settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)
@@ -573,14 +604,85 @@ export const retranslateSelectedBlocks = async (
   contextPost: BatchRequest[],
   settings: AppSettings,
   onKeyRateLimit?: (key: string) => void
-): Promise<BatchResponse[]> => translateBatch(
-  targetBatch,
-  contextPre,
-  contextPost,
-  settings,
-  onKeyRateLimit,
-  true
-);
+): Promise<BatchResponse[]> => {
+  let attempt = 0;
+  const { maxRetries, baseDelay, overloadWaitMs } = APP_CONFIG.retryConfig;
+  const targetIds = targetBatch.map(block => block.id);
+  const userPrompt = buildSelectedRetranslationPrompt(targetBatch, contextPre, contextPost);
+  const systemInstruction = getSystemInstruction(
+    settings.tone,
+    settings.topic,
+    settings.customPrompt,
+    settings.outputStandard,
+    settings.glossary
+  );
+
+  let modelName = APP_CONFIG.geminiModels.standard;
+  if (settings.model === 'professional') modelName = APP_CONFIG.geminiModels.professional;
+  else if (settings.model === 'flash') modelName = APP_CONFIG.geminiModels.flash;
+  else if (settings.model === 'flash_lite') modelName = APP_CONFIG.geminiModels.flash_lite;
+
+  const keyManager = new APIKeyManager(settings.apiKeys);
+  const totalAllowedAttempts = maxRetries + settings.apiKeys.length * 2;
+
+  while (attempt < totalAllowedAttempts) {
+    let currentApiKey = '';
+    try {
+      if (settings.aiProvider === 'lm_studio') {
+        const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        return validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
+      }
+
+      if (settings.aiProvider === 'openai_compatible') {
+        const service = getActiveOpenAICompatibleService(settings);
+        const text = await callOpenAICompatibleChat(service, Math.max(0.2, settings.temperature - 0.1), systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        return validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
+      }
+
+      currentApiKey = keyManager.getActiveKey();
+      const ai = new GoogleGenAI({ apiKey: currentApiKey });
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: userPrompt,
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema,
+          temperature: Math.max(0.2, settings.temperature - 0.1),
+          safetySettings: SAFETY_SETTINGS,
+        },
+      });
+
+      if (!response.text) throw new Error("Empty selected retranslation response from Gemini");
+      return validateBatchResponse(targetIds, JSON.parse(response.text));
+    } catch (error: any) {
+      const errorMessage = extractErrorDetails(error);
+      if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
+        throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
+      }
+      if (settings.aiProvider === 'openai_compatible' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('openai') || errorMessage.includes('compatible') || errorMessage.includes('401') || errorMessage.includes('404'))) {
+        const service = settings.openAICompatibleServices.find(item => item.id === settings.activeOpenAICompatibleServiceId) || settings.openAICompatibleServices[0];
+        throw new Error(getOpenAICompatibleFriendlyError(error, service?.name));
+      }
+      if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) throw new Error(getFriendlyErrorMessage(error, modelName));
+      if (errorMessage.includes('503') || errorMessage.includes('overloaded') || errorMessage.includes('unavailable')) {
+        await delay(overloadWaitMs);
+        continue;
+      }
+      if (errorMessage.includes("429")) {
+        keyManager.markCurrentAsRateLimited();
+        if (onKeyRateLimit && currentApiKey) onKeyRateLimit(currentApiKey);
+        if (!keyManager.hasAvailableKeys()) throw new Error("429 Quota Exhausted");
+        await delay(1000);
+      } else {
+        attempt++;
+        await delay(baseDelay * Math.pow(1.5, attempt));
+      }
+    }
+  }
+
+  throw new Error("Selected retranslation failed after retries.");
+};
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';

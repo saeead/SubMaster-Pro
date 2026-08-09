@@ -60,6 +60,8 @@ export interface TranslationStats {
 export interface BatchRequest {
   id: number;
   text: string;
+  previousTranslatedText?: string;
+  problemHint?: string;
 }
 
 export interface BatchResponse {
