@@ -66,6 +66,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const validationErrors = activeFile.netflixErrors || [];
   const hasErrors = validationErrors.length > 0;
   const hasTranslation = translatedCount > 0;
+  const canDownloadOutput = isCompleted || ((isPaused || isCancelled || isError) && hasTranslation);
 
   // Tools should be available if we have blocks loaded, regardless of translation status (mostly)
   const showTools = blocks.length > 0 && !isProcessing;
@@ -256,13 +257,13 @@ export const StatsCard: React.FC<StatsCardProps> = ({
              )}
 
              {/* Download Output */}
-             {isCompleted && (
+             {canDownloadOutput && (
                  <button 
                     onClick={onDownload}
                     className="w-full md:w-1/3 bg-[#ff00ea]/10 text-[#ff00ea] border border-[#ff00ea] hover:bg-[#ff00ea]/20 shadow-[0_0_15px_rgba(255,0,234,0.2)] font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 animate-in zoom-in"
                   >
                     <Download className="w-5 h-5" />
-                    دانلود فایل
+                    {isCompleted ? 'دانلود فایل' : 'خروجی فایل فعلی'}
                   </button>
              )}
              
