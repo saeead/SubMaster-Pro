@@ -246,27 +246,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   انتخاب ارائه‌دهنده هوش مصنوعی
                 </h3>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   <button
                     onClick={() => updateSettings({ aiProvider: 'gemini' })}
-                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'gemini' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                    className={`p-4 rounded-xl border text-right transition-all min-h-[86px] whitespace-normal ${settings.aiProvider === 'gemini' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
                   >
                     <span className="block text-sm font-bold">Gemini</span>
-                    <span className="block text-xs mt-1">ترجمه ابری با کلید API گوگل</span>
+                    <span className="block text-xs mt-1 leading-5 text-white/70">ترجمه ابری با کلید API گوگل</span>
                   </button>
                   <button
                     onClick={() => updateSettings({ aiProvider: 'lm_studio' })}
-                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'lm_studio' ? 'bg-[#ff00ea]/10 border-[#ff00ea] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                    className={`p-4 rounded-xl border text-right transition-all min-h-[86px] whitespace-normal ${settings.aiProvider === 'lm_studio' ? 'bg-[#ff00ea]/10 border-[#ff00ea] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
                   >
                     <span className="block text-sm font-bold">LM Studio</span>
-                    <span className="block text-xs mt-1">مدل محلی بدون API Key</span>
+                    <span className="block text-xs mt-1 leading-5 text-white/70">مدل محلی بدون API Key</span>
                   </button>
                   <button
                     onClick={() => updateSettings({ aiProvider: 'openai_compatible' })}
-                    className={`p-4 rounded-xl border text-right transition-all ${settings.aiProvider === 'openai_compatible' ? 'bg-green-400/10 border-green-400 text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
+                    className={`p-4 rounded-xl border text-right transition-all min-h-[86px] whitespace-normal ${settings.aiProvider === 'openai_compatible' ? 'bg-green-400/10 border-green-400 text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
                   >
                     <span className="block text-sm font-bold">OpenAI Compatible</span>
-                    <span className="block text-xs mt-1">Chat Completions با Base URL و API Key</span>
+                    <span className="block text-xs mt-1 leading-5 text-white/70">Chat Completions با Base URL و API Key</span>
                   </button>
                 </div>
 

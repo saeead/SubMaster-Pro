@@ -18,7 +18,7 @@ import { translateBatch, diagnoseConnection } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, Check, Wand2, History } from 'lucide-react';
+import { Loader2, Check, Wand2, History, ArrowUp } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -40,6 +40,7 @@ const App: React.FC = () => {
   const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   
   const [completionToast, setCompletionToast] = useState<boolean>(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   // Settings State
   const [settings, setSettings] = useState<AppSettings>({
@@ -66,9 +67,21 @@ const App: React.FC = () => {
   const isTranslatingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false); 
   const settingsRef = useRef<AppSettings>(settings);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+
+  const handleMainScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    setShowScrollTop(container.scrollTop > 320);
+  };
+
+  const scrollToTop = () => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Apply Theme
   useEffect(() => {
@@ -995,7 +1008,7 @@ const App: React.FC = () => {
         onOpenTextTranslator={() => { setIsTranslatorOpen(true); setIsSidebarOpen(false); }}
       />
 
-      <div className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
+      <div ref={scrollContainerRef} onScroll={handleMainScroll} className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
         <Header 
             theme={settings.theme} 
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1054,6 +1067,17 @@ const App: React.FC = () => {
         <footer className="w-full py-6 text-center text-text-muted text-xs border-t border-border mt-auto">
             <p className="font-montserrat">Designed and developed with ❤️ by Saeid Bagherian</p>
         </footer>
+        {showScrollTop && (
+            <button
+                type="button"
+                onClick={scrollToTop}
+                className="fixed bottom-6 left-6 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-primary/40 bg-background/80 text-primary shadow-[0_0_25px_rgba(0,240,255,0.25)] backdrop-blur-xl transition-all hover:-translate-y-1 hover:bg-primary/10 hover:text-text focus:outline-none focus:ring-2 focus:ring-primary/60"
+                aria-label="اسکرول به بالای صفحه"
+                title="رفتن به بالای صفحه"
+            >
+                <ArrowUp className="h-5 w-5" />
+            </button>
+        )}
       </div>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} />
       <TimingModal isOpen={isTimingModalOpen} onClose={() => setIsTimingModalOpen(false)} onApply={handleTimingAdjustment} onNetflixCheck={handleNetflixCheck} hasMultipleFiles={files.length > 1} />
