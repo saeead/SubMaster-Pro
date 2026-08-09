@@ -14,11 +14,11 @@ import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
-import { translateBatch, diagnoseConnection } from './services/geminiService';
+import { translateBatch, diagnoseConnection, retranslateSelectedBlocks } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, Check, Wand2, History } from 'lucide-react';
+import { Loader2, Check, Wand2, History, ArrowUp } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -40,6 +40,8 @@ const App: React.FC = () => {
   const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   
   const [completionToast, setCompletionToast] = useState<boolean>(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isRetranslatingSelection, setIsRetranslatingSelection] = useState(false);
 
   // Settings State
   const [settings, setSettings] = useState<AppSettings>({
@@ -66,9 +68,21 @@ const App: React.FC = () => {
   const isTranslatingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false); 
   const settingsRef = useRef<AppSettings>(settings);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+
+  const handleMainScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    setShowScrollTop(container.scrollTop > 320);
+  };
+
+  const scrollToTop = () => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Apply Theme
   useEffect(() => {
@@ -414,6 +428,83 @@ const App: React.FC = () => {
       }));
       showToast('Undo performed', 'success');
   }, [activeFileId]);
+
+  const handleRetranslateSelectedBlocks = async (blockIds: number[]) => {
+      if (!activeFileId || blockIds.length === 0 || isRetranslatingSelection) return;
+      const file = filesRef.current.find(f => f.id === activeFileId);
+      if (!file) return;
+
+      const selectedSet = new Set(blockIds);
+      const selectedBlocks = file.blocks.filter(block => selectedSet.has(block.id));
+      if (selectedBlocks.length === 0) return;
+
+      const firstSelectedIndex = file.blocks.findIndex(block => selectedSet.has(block.id));
+      const lastSelectedIndex = file.blocks.length - 1 - [...file.blocks].reverse().findIndex(block => selectedSet.has(block.id));
+      const contextPre = file.blocks
+          .slice(Math.max(0, firstSelectedIndex - 4), firstSelectedIndex)
+          .map(block => ({ id: block.id, text: `${block.originalText} (Persian: ${block.translatedText || 'N/A'})` }));
+      const contextPost = file.blocks
+          .slice(lastSelectedIndex + 1, Math.min(file.blocks.length, lastSelectedIndex + 5))
+          .map(block => ({ id: block.id, text: block.originalText }));
+
+      const onKeyRateLimit = (failedKey: string) => {
+          showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
+          setSettings(prev => ({
+              ...prev,
+              apiKeys: prev.apiKeys.map(k => k.key === failedKey ? { ...k, isRateLimited: true } : k)
+          }));
+      };
+
+      setIsRetranslatingSelection(true);
+      showToast(`${selectedBlocks.length} بلوک برای ترجمه دوباره ارسال شد.`, 'warning');
+
+      try {
+          const results = await retranslateSelectedBlocks(
+              selectedBlocks.map(block => ({ id: block.id, text: block.originalText })),
+              contextPre,
+              contextPost,
+              settingsRef.current,
+              onKeyRateLimit
+          );
+          const resultMap = new Map(results.map(result => [result.id, formatPersianSubtitle(result.translatedText)]));
+          const groupId = crypto.randomUUID();
+
+          setFiles(prev => prev.map(currentFile => {
+              if (currentFile.id !== activeFileId) return currentFile;
+              const newHistory = currentFile.modificationsMade ? currentFile.modificationsMade.slice(0, currentFile.historyPointer + 1) : [];
+              const newBlocks = currentFile.blocks.map(block => {
+                  const translatedText = resultMap.get(block.id);
+                  if (!translatedText) return block;
+                  newHistory.push({
+                      blockId: block.id,
+                      oldState: { translatedText: block.translatedText },
+                      newState: { translatedText },
+                      groupId,
+                      timestamp: new Date().toISOString()
+                  });
+                  if (settingsRef.current.enableTranslationMemory) {
+                      addToMemory(block.originalText, translatedText);
+                  }
+                  return { ...block, translatedText };
+              });
+
+              return {
+                  ...currentFile,
+                  blocks: newBlocks,
+                  processedCount: newBlocks.filter(block => !!block.translatedText).length,
+                  modificationsMade: newHistory,
+                  historyPointer: newHistory.length - 1
+              };
+          }));
+
+          showToast('ترجمه دوباره بلوک‌های انتخاب‌شده با موفقیت جایگذاری شد.', 'success');
+      } catch (error: any) {
+          console.error('Retranslation error:', error);
+          showToast(error.message || 'ترجمه دوباره بلوک‌های انتخاب‌شده ناموفق بود.', 'error');
+      } finally {
+          setIsRetranslatingSelection(false);
+      }
+  };
 
   const handleRedo = useCallback(() => {
       if (!activeFileId) return;
@@ -995,7 +1086,7 @@ const App: React.FC = () => {
         onOpenTextTranslator={() => { setIsTranslatorOpen(true); setIsSidebarOpen(false); }}
       />
 
-      <div className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
+      <div ref={scrollContainerRef} onScroll={handleMainScroll} className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
         <Header 
             theme={settings.theme} 
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1047,13 +1138,24 @@ const App: React.FC = () => {
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
                     </div>
-                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} />
+                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} onRetranslateSelected={handleRetranslateSelectedBlocks} isRetranslatingSelection={isRetranslatingSelection} />
                 </>
             )}
         </main>
         <footer className="w-full py-6 text-center text-text-muted text-xs border-t border-border mt-auto">
             <p className="font-montserrat">Designed and developed with ❤️ by Saeid Bagherian</p>
         </footer>
+        {showScrollTop && (
+            <button
+                type="button"
+                onClick={scrollToTop}
+                className="fixed bottom-6 left-6 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-primary/40 bg-background/80 text-primary shadow-[0_0_25px_rgba(0,240,255,0.25)] backdrop-blur-xl transition-all hover:-translate-y-1 hover:bg-primary/10 hover:text-text focus:outline-none focus:ring-2 focus:ring-primary/60"
+                aria-label="اسکرول به بالای صفحه"
+                title="رفتن به بالای صفحه"
+            >
+                <ArrowUp className="h-5 w-5" />
+            </button>
+        )}
       </div>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} />
       <TimingModal isOpen={isTimingModalOpen} onClose={() => setIsTimingModalOpen(false)} onApply={handleTimingAdjustment} onNetflixCheck={handleNetflixCheck} hasMultipleFiles={files.length > 1} />

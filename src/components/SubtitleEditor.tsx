@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { SubtitleBlock, NetflixError } from '../types';
-import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers, Undo, Redo } from 'lucide-react';
+import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers, Undo, Redo, CheckSquare, Square, Languages, X, Loader2 } from 'lucide-react';
 
 interface SubtitleEditorProps {
   blocks: SubtitleBlock[];
@@ -16,6 +16,8 @@ interface SubtitleEditorProps {
   canUndo: boolean;
   canRedo: boolean;
   onCommitChange: (id: number, oldText: string, newText: string) => void;
+  onRetranslateSelected: (ids: number[]) => Promise<void> | void;
+  isRetranslatingSelection?: boolean;
 }
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ 
@@ -28,11 +30,40 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   onRedo,
   canUndo,
   canRedo,
-  onCommitChange
+  onCommitChange,
+  onRetranslateSelected,
+  isRetranslatingSelection = false
 }) => {
   const [findTerm, setFindTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
   const [scope, setScope] = useState<'current' | 'all'>('current');
+  const [selectedBlockIds, setSelectedBlockIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    const availableIds = new Set(blocks.map(block => block.id));
+    setSelectedBlockIds(prev => prev.filter(id => availableIds.has(id)));
+  }, [blocks]);
+
+  const selectedCount = selectedBlockIds.length;
+  const selectedSet = new Set(selectedBlockIds);
+
+  const toggleBlockSelection = (id: number) => {
+    setSelectedBlockIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
+
+  const selectAllBlocks = () => {
+    setSelectedBlockIds(blocks.map(block => block.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedBlockIds([]);
+  };
+
+  const handleRetranslateSelection = async () => {
+    if (selectedBlockIds.length === 0) return;
+    await onRetranslateSelected(selectedBlockIds);
+    clearSelection();
+  };
   
   const getErrorForBlock = (id: number) => {
     return validationErrors.find(e => e.blockId === id);
@@ -157,8 +188,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             <div 
               key={block.id} 
               className={`
-                group relative glass rounded-2xl p-6 transition-all duration-300
-                ${hasError 
+                group relative glass rounded-2xl p-6 pr-16 transition-all duration-300
+                ${selectedSet.has(block.id)
+                  ? 'border-[#ff00ea] bg-[#ff00ea]/10 shadow-[0_0_22px_rgba(255,0,234,0.16)]'
+                  : hasError 
                   ? 'border-[#E50914] bg-[#E50914]/5' 
                   : block.translatedText 
                       ? 'border-[#00f0ff]/30 hover:border-[#00f0ff]/50' 
@@ -166,6 +199,17 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 }
               `}
             >
+              <button
+                type="button"
+                onClick={() => toggleBlockSelection(block.id)}
+                className={`absolute right-5 top-6 z-20 rounded-lg p-1.5 transition-all ${selectedSet.has(block.id) ? 'bg-[#ff00ea]/20 text-[#ff00ea]' : 'bg-[#0a0e27]/80 text-white/40 hover:text-[#ff00ea] hover:bg-[#ff00ea]/10'}`}
+                aria-pressed={selectedSet.has(block.id)}
+                aria-label={`انتخاب بلوک ${block.index}`}
+                title="انتخاب برای ترجمه دوباره"
+              >
+                {selectedSet.has(block.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+              </button>
+
               {/* Error Message */}
               {hasError && (
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#E50914] text-white text-[10px] py-1 px-3 rounded-full flex items-center gap-1 shadow-lg z-10 whitespace-nowrap">
@@ -232,6 +276,44 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
           );
         })}
       </div>
+
+      {selectedCount > 0 && (
+        <div className="fixed bottom-8 left-1/2 z-[65] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in">
+          <div className="glass flex flex-col gap-3 rounded-2xl border border-[#ff00ea]/30 bg-background/95 p-3 shadow-[0_0_30px_rgba(255,0,234,0.18)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-center text-sm font-bold text-text sm:text-right">
+              {selectedCount} بلوک انتخاب شده است
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={selectAllBlocks}
+                disabled={selectedCount === blocks.length || isRetranslatingSelection}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                انتخاب همه
+              </button>
+              <button
+                type="button"
+                onClick={handleRetranslateSelection}
+                disabled={isRetranslatingSelection}
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-4 py-2 text-xs font-bold text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isRetranslatingSelection ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
+                ترجمه دوباره
+              </button>
+              <button
+                type="button"
+                onClick={clearSelection}
+                disabled={isRetranslatingSelection}
+                className="flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+                لغو
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

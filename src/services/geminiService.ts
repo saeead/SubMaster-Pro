@@ -317,7 +317,8 @@ export const translateBatch = async (
   contextPre: BatchRequest[],
   contextPost: BatchRequest[],
   settings: AppSettings,
-  onKeyRateLimit?: (key: string) => void
+  onKeyRateLimit?: (key: string) => void,
+  forceParagraphMode: boolean = false
 ): Promise<BatchResponse[]> => {
   let attempt = 0;
   let overloadRetries = 0; 
@@ -344,7 +345,7 @@ export const translateBatch = async (
         targetBatch,
         contextPre,
         contextPost,
-        settings.aiProvider !== 'gemini'
+        forceParagraphMode || settings.aiProvider !== 'gemini'
       );
 
       const systemInstruction = getSystemInstruction(
@@ -414,6 +415,22 @@ export const translateBatch = async (
   }
   throw new Error("Batch processing failed after retries.");
 };
+
+
+export const retranslateSelectedBlocks = async (
+  targetBatch: BatchRequest[],
+  contextPre: BatchRequest[],
+  contextPost: BatchRequest[],
+  settings: AppSettings,
+  onKeyRateLimit?: (key: string) => void
+): Promise<BatchResponse[]> => translateBatch(
+  targetBatch,
+  contextPre,
+  contextPost,
+  settings,
+  onKeyRateLimit,
+  true
+);
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';

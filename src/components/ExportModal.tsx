@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { Download, X, Palette, Type, LayoutTemplate, Layout, CheckCircle, Save, RefreshCw } from 'lucide-react';
+import { Download, X, Palette, Type, LayoutTemplate, Layout, CheckCircle, Save, RefreshCw, FileText } from 'lucide-react';
 import { StyleConfig, StyleTemplate } from '../types';
 import { STYLE_TEMPLATES } from '../constants';
 
