@@ -13,7 +13,7 @@ import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
-import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
+import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
@@ -50,6 +50,7 @@ const App: React.FC = () => {
     temperature: 0.35, 
     outputFormat: 'vtt', 
     outputStandard: 'normal',
+    translationMethod: 'default',
     model: 'standard', 
     aiProvider: 'gemini',
     lmStudioBaseUrl: 'http://localhost:1234/v1',
@@ -104,6 +105,7 @@ const App: React.FC = () => {
         const parsed = JSON.parse(savedSettings);
         if (!parsed.apiKeys) parsed.apiKeys = [];
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
+        if (!parsed.translationMethod) parsed.translationMethod = 'default';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         if (!parsed.glossary) parsed.glossary = [];
         if (!parsed.aiProvider) parsed.aiProvider = 'gemini';
@@ -808,7 +810,8 @@ const App: React.FC = () => {
      updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progressMessage: 'در حال تقسیم‌بندی...', diagnostic: null });
      const startTime = Date.now();
 
-     const chunks = smartChunking(file.blocks, BATCH_SIZE);
+     const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, BATCH_SIZE);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
@@ -886,7 +889,7 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit);
+                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod);
 
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
@@ -1181,7 +1184,7 @@ const App: React.FC = () => {
                             </button>
                         ))}
                     </div>
-                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
+                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
