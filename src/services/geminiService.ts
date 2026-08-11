@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Schema, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService } from "../types";
+import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService, TranslationDiagnostic } from "../types";
 import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
 
 const responseSchema: Schema = {
@@ -259,6 +259,8 @@ Review requirements:
 - Remove markdown, explanations, labels, notes, or extra commentary.
 - Avoid unwanted English words unless they are names, brands, or necessary technical terms.
 - Preserve the exact IDs and return every reviewed ID exactly once.
+- Do not merge neighboring source cues into one translation and do not duplicate the same translation across adjacent IDs.
+- Each translatedText must contain only the meaning of its own sourceText, even when context explains the sentence flow.
 
 Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}].`;
 };
@@ -418,7 +420,7 @@ Return JSON array matching the schema.`;
 `;
   prompt += `You will receive subtitle blocks as one continuous marked paragraph. Read the whole passage first to understand topic, speaker intent, pronouns, references, and emotional flow.
 `;
-  prompt += `Each target block starts with a marker like ⟦123⟧. Keep the exact IDs in your final JSON so the app can place each translation back into its original timing.
+  prompt += `Each target block starts with a marker like ⟦123⟧. Treat every marker as a HARD subtitle cue boundary. Keep the exact IDs in your final JSON so the app can place each translation back into its original timing.
 `;
   if (contextPre.length > 0) {
     prompt += `
@@ -443,7 +445,11 @@ Translation quality requirements:
 `;
   prompt += `- Produce fluent, natural, professional Persian with correct punctuation, spacing, and نیم‌فاصله where appropriate.
 `;
-  prompt += `- Preserve continuity across adjacent subtitle blocks; avoid isolated sentence fragments when a phrase continues from the previous/next block.
+  prompt += `- Preserve continuity across adjacent subtitle blocks, but NEVER move words, meaning, or summary from one marker into another marker's translatedText.
+`;
+  prompt += `- Each JSON item must translate ONLY the source text that appears after that item's own marker; do not combine two cues into one translatedText and do not duplicate one translatedText across adjacent IDs.
+`;
+  prompt += `- If a sentence continues across markers, keep the Persian translation split across the same markers as short subtitle fragments; do not complete the whole sentence in the first block.
 `;
   prompt += `- Keep each translatedText concise enough for subtitles while still sounding human and polished.
 `;
@@ -502,6 +508,94 @@ const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Comp
     return `⚠️ نام مدل برای ${serviceName} معتبر نیست یا توسط سرویس پشتیبانی نمی‌شود.`;
   }
   return `⚠️ اتصال به ${serviceName} برقرار نشد: ${msg.substring(0, 180)}`;
+};
+
+export const getTranslationDiagnostic = (error: any, settings: AppSettings, context?: string): TranslationDiagnostic => {
+  const msg = extractErrorDetails(error);
+  const providerName = settings.aiProvider === 'lm_studio'
+    ? 'LM Studio'
+    : settings.aiProvider === 'openai_compatible'
+      ? (settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)?.name || 'OpenAI Compatible')
+      : 'Gemini';
+
+  const details = [
+    context,
+    error?.message || (typeof error === 'string' ? error : ''),
+  ].filter(Boolean).join(' | ');
+
+  if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('پایان اعتبار')) {
+    return {
+      code: 'quota_exhausted',
+      severity: 'error',
+      title: 'اعتبار یا سهمیه API تمام شده',
+      cause: `سرویس ${providerName} درخواست را به دلیل محدودیت مصرف، quota یا rate limit رد کرده است.`,
+      recovery: 'یک API Key جدید اضافه کنید، کلیدهای rate-limited را ریست کنید، مدل سبک‌تر انتخاب کنید یا چند دقیقه بعد ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('fetch failed') || msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors')) {
+    return {
+      code: 'connection_failed',
+      severity: 'error',
+      title: `ارتباط با ${providerName} قطع است`,
+      cause: settings.aiProvider === 'lm_studio'
+        ? 'مرورگر نتوانست به سرور لوکال LM Studio وصل شود؛ معمولاً Local Server خاموش است، URL اشتباه است یا CORS اجازه نمی‌دهد.'
+        : 'درخواست شبکه ناموفق بوده؛ ممکن است VPN/Proxy، اینترنت، DNS، CORS یا backend proxy مشکل داشته باشد.',
+      recovery: settings.aiProvider === 'lm_studio'
+        ? 'LM Studio را باز کنید، Local Server را روشن کنید، مدل را load کنید و آدرس را با /v1 بررسی کنید.'
+        : 'اتصال اینترنت/VPN/Proxy و آدرس سرویس را بررسی کنید و سپس ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('503') || msg.includes('overloaded') || msg.includes('unavailable') || msg.includes('service unavailable')) {
+    return {
+      code: 'model_overloaded',
+      severity: 'warning',
+      title: 'مدل موقتاً شلوغ یا در دسترس نیست',
+      cause: `سرویس ${providerName} با خطای ازدحام یا عدم دسترسی موقت پاسخ داده است.`,
+      recovery: 'پروژه متوقف شده تا داده‌ها حفظ شوند. چند دقیقه صبر کنید، مدل سبک‌تر انتخاب کنید یا ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('invalid model') || msg.includes('model') || msg.includes('404') || msg.includes('not found')) {
+    return {
+      code: 'model_or_endpoint_invalid',
+      severity: 'error',
+      title: 'مدل یا endpoint معتبر نیست',
+      cause: `نام مدل، مسیر chat/completions یا Base URL برای ${providerName} درست نیست یا توسط سرویس پشتیبانی نمی‌شود.`,
+      recovery: 'نام مدل را دقیقاً مطابق سرویس وارد کنید، Base URL را بررسی کنید و تست اتصال را دوباره اجرا کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('invalid model response') || msg.includes('json') || msg.includes('empty response') || msg.includes('missing ids')) {
+    return {
+      code: 'invalid_model_output',
+      severity: 'warning',
+      title: 'خروجی مدل قابل استفاده نبود',
+      cause: 'مدل JSON معتبر، IDهای کامل یا متن ترجمه قابل قبول برنگردانده است.',
+      recovery: 'دمای مدل را کمتر کنید، مدل قوی‌تر انتخاب کنید، batch size را کاهش دهید یا دوباره تلاش کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  return {
+    code: 'translation_unknown_error',
+    severity: 'error',
+    title: 'خطای نامشخص در ترجمه',
+    cause: `در مسیر ارتباط یا پردازش پاسخ ${providerName} خطایی رخ داده که در دسته‌بندی‌های شناخته‌شده قرار نگرفت.`,
+    recovery: 'جزئیات فنی را بررسی کنید، تنظیمات مدل/API را تست کنید و اگر تکرار شد فایل یا بلوک مشکل‌دار را جداگانه ترجمه کنید.',
+    technicalDetails: details || msg,
+    timestamp: new Date().toISOString()
+  };
 };
 
 export const validateAPIConnection = async (apiKey: string, strictMode: boolean = false): Promise<boolean> => {

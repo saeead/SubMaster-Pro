@@ -1,7 +1,7 @@
 
 
 import React from 'react';
-import { SubtitleFile, AppStatus, NetflixError } from '../types';
+import { SubtitleFile, AppStatus, NetflixError, TranslationMethod } from '../types';
 import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive, Save, FileJson, Sparkles } from 'lucide-react';
 import { HelpTooltip } from './HelpTooltip';
 
@@ -9,6 +9,8 @@ interface StatsCardProps {
   activeFile: SubtitleFile;
   activeFileIndex: number;
   totalFiles: number;
+  translationMethod: TranslationMethod;
+  onTranslationMethodChange: (method: TranslationMethod) => void;
   onStart: () => void;
   onPause: () => void;
   onCancel: () => void;
@@ -26,6 +28,8 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   activeFile,
   activeFileIndex,
   totalFiles,
+  translationMethod,
+  onTranslationMethodChange,
   onStart, 
   onPause, 
   onCancel,
@@ -65,6 +69,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const isError = status === AppStatus.ERROR;
   const validationErrors = activeFile.netflixErrors || [];
   const hasErrors = validationErrors.length > 0;
+  const diagnostic = activeFile.diagnostic;
   const hasTranslation = translatedCount > 0;
   const canDownloadOutput = isCompleted || ((isPaused || isCancelled || isError) && hasTranslation);
 
@@ -198,6 +203,71 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                 </div>
             </div>
         </div>
+
+        {!isProcessing && (isReady || isPaused || isError) && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                        <h4 className="text-sm font-bold text-white">روش ترجمه</h4>
+                        <p className="text-xs text-white/50 mt-1">قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-full md:min-w-[420px]" role="radiogroup" aria-label="روش ترجمه">
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={translationMethod === 'default'}
+                            onClick={() => onTranslationMethodChange('default')}
+                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'default' ? 'border-[#00f0ff] bg-[#00f0ff]/10 text-white shadow-[0_0_15px_rgba(0,240,255,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                        >
+                            <span className="block text-sm font-bold">متد پیش‌فرض</span>
+                            <span className="block text-[11px] mt-1">ارسال بلوک‌های JSON با قوانین قبلی نرم‌افزار</span>
+                        </button>
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={translationMethod === 'paragraph'}
+                            onClick={() => onTranslationMethodChange('paragraph')}
+                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'paragraph' ? 'border-[#ff00ea] bg-[#ff00ea]/10 text-white shadow-[0_0_15px_rgba(255,0,234,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                        >
+                            <span className="block text-sm font-bold">متد پاراگراف</span>
+                            <span className="block text-[11px] mt-1">متن یک‌پارچه با نشانگر ID و بازگردانی به زمان‌بندی اصلی</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {diagnostic && (
+            <div className={`rounded-2xl border p-4 ${
+                diagnostic.severity === 'error'
+                    ? 'bg-red-500/10 border-red-500/30'
+                    : diagnostic.severity === 'warning'
+                        ? 'bg-yellow-500/10 border-yellow-500/30'
+                        : 'bg-blue-500/10 border-blue-500/30'
+            }`}>
+                <div className="flex items-start gap-3">
+                    <XCircle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
+                        diagnostic.severity === 'error' ? 'text-red-400' : diagnostic.severity === 'warning' ? 'text-yellow-400' : 'text-blue-400'
+                    }`} />
+                    <div className="space-y-2 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <strong className="text-white">{diagnostic.title}</strong>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 dir-ltr">{diagnostic.code}</span>
+                        </div>
+                        <p className="text-white/75 leading-relaxed"><span className="text-white/90 font-bold">علت احتمالی:</span> {diagnostic.cause}</p>
+                        <p className="text-white/75 leading-relaxed"><span className="text-white/90 font-bold">راه‌حل پیشنهادی:</span> {diagnostic.recovery}</p>
+                        {diagnostic.technicalDetails && (
+                            <details className="text-white/55">
+                                <summary className="cursor-pointer hover:text-white transition-colors">جزئیات فنی</summary>
+                                <pre className="mt-2 max-h-28 overflow-auto rounded-lg bg-black/30 p-3 text-[11px] whitespace-pre-wrap dir-ltr text-left">
+                                    {diagnostic.technicalDetails}
+                                </pre>
+                            </details>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Action Buttons - Centered and 1/3 Width on Desktop */}
         <div className="flex flex-col md:flex-row items-center justify-center gap-4">

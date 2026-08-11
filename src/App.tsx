@@ -12,9 +12,9 @@ import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification } from './types';
-import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
-import { translateBatch, diagnoseConnection, retranslateSelectedBlocks } from './services/geminiService';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
+import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
+import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
@@ -50,6 +50,7 @@ const App: React.FC = () => {
     temperature: 0.35, 
     outputFormat: 'vtt', 
     outputStandard: 'normal',
+    translationMethod: 'default',
     model: 'standard', 
     aiProvider: 'gemini',
     lmStudioBaseUrl: 'http://localhost:1234/v1',
@@ -104,6 +105,7 @@ const App: React.FC = () => {
         const parsed = JSON.parse(savedSettings);
         if (!parsed.apiKeys) parsed.apiKeys = [];
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
+        if (!parsed.translationMethod) parsed.translationMethod = 'default';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         if (!parsed.glossary) parsed.glossary = [];
         if (!parsed.aiProvider) parsed.aiProvider = 'gemini';
@@ -234,6 +236,10 @@ const App: React.FC = () => {
     setToast({ msg, type });
   };
 
+  const showDiagnosticToast = (diagnostic: TranslationDiagnostic) => {
+    showToast(`${diagnostic.title}: ${diagnostic.recovery}`, diagnostic.severity === 'info' ? 'success' : diagnostic.severity);
+  };
+
   // --- FILE MANAGEMENT ---
 
   const handleFilesLoaded = (loadedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[]) => {
@@ -246,6 +252,7 @@ const App: React.FC = () => {
       blocks: f.blocks,
       status: AppStatus.READY,
       progress: 0,
+      diagnostic: null,
       processedCount: 0,
       netflixErrors: [],
       // Initialize History
@@ -886,10 +893,11 @@ const App: React.FC = () => {
      const file = filesRef.current.find(f => f.id === fileId);
      if (!file) return;
 
-     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progressMessage: 'در حال تقسیم‌بندی...' });
+     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progressMessage: 'در حال تقسیم‌بندی...', diagnostic: null });
      const startTime = Date.now();
 
-     const chunks = smartChunking(file.blocks, BATCH_SIZE);
+     const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, BATCH_SIZE);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
@@ -935,11 +943,13 @@ const App: React.FC = () => {
         }
 
         const chunk = chunks[i];
-        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks}...` });
-
         const preContextBlocks = chunk.blocks.slice(0, chunk.targetStartIndex);
         const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
         const postContextBlocks = chunk.blocks.slice(chunk.targetEndIndex);
+        const blockRangeMessage = targetBlocks.length > 0
+            ? `بلوک‌های ${targetBlocks[0].index} تا ${targetBlocks[targetBlocks.length - 1].index}`
+            : 'بدون بلوک هدف';
+        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks} (${blockRangeMessage})...`, diagnostic: null });
 
         let cachedCount = 0;
         if (settingsRef.current.enableTranslationMemory) {
@@ -965,7 +975,7 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit);
+                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod);
 
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
@@ -989,6 +999,11 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
+                const diagnostic = getTranslationDiagnostic(
+                    err,
+                    settingsRef.current,
+                    `File: ${file.name}, chunk ${i + 1}/${totalChunks}`
+                );
                 
                 const errorMessage = (err.message || err.toString() || "").toLowerCase();
                 
@@ -996,9 +1011,10 @@ const App: React.FC = () => {
                 if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) {
                     updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
-                         progressMessage: 'خطای اتصال (توقف)' 
+                         progressMessage: 'خطای اتصال (توقف)',
+                         diagnostic
                     });
-                    showToast(errorMessage, 'error'); 
+                    showDiagnosticToast(diagnostic);
                     isTranslatingRef.current = false;
                     return;
                 }
@@ -1011,9 +1027,10 @@ const App: React.FC = () => {
                 if (isOverloaded) {
                      updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
-                         progressMessage: 'توقف خودکار (سرور گوگل شلوغ است)' 
+                         progressMessage: 'توقف خودکار (سرور/مدل شلوغ است)',
+                         diagnostic
                      });
-                     showToast('سرور گوگل موقتاً پاسخگو نیست (503 Overloaded). پروژه متوقف شد تا دیتای شما حفظ شود. لطفاً دقایقی دیگر ادامه دهید.', 'warning');
+                     showDiagnosticToast(diagnostic);
                      isTranslatingRef.current = false; 
                      return;
                 }
@@ -1032,14 +1049,16 @@ const App: React.FC = () => {
                 if (isQuotaError) {
                      updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
-                         progressMessage: 'توقف: پایان اعتبار کلیدها' 
+                         progressMessage: 'توقف: پایان اعتبار یا سهمیه',
+                         diagnostic
                      });
-                     showToast('اعتبار تمام کلیدها به پایان رسید. لطفاً کلید جدید اضافه کنید و دکمه "ادامه ترجمه" را بزنید.', 'error');
+                     showDiagnosticToast(diagnostic);
                      isTranslatingRef.current = false; 
                      return; 
                 }
 
-                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه' });
+                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه', diagnostic });
+                showDiagnosticToast(diagnostic);
                 throw err;
             }
         }
@@ -1071,6 +1090,7 @@ const App: React.FC = () => {
          status: AppStatus.COMPLETED, 
          progress: 100, 
          progressMessage: 'تکمیل شد',
+         diagnostic: null,
          processingDuration: durationStr
      });
   };
@@ -1113,11 +1133,17 @@ const App: React.FC = () => {
     if (isLocalProvider || testKey) {
         const diagnosisError = await diagnoseConnection(testKey, settings);
         if (diagnosisError) {
+             const diagnostic = getTranslationDiagnostic(
+                new Error(diagnosisError),
+                settings,
+                'Pre-flight connection diagnosis before translation start'
+             );
              updateFileStatus(firstFileId, { 
                 status: AppStatus.PAUSED, 
-                progressMessage: 'خطای اتصال' 
+                progressMessage: 'خطای اتصال',
+                diagnostic
              });
-             showToast(diagnosisError, 'error');
+             showDiagnosticToast(diagnostic);
              return;
         }
     }
@@ -1244,7 +1270,7 @@ const App: React.FC = () => {
                             </button>
                         ))}
                     </div>
-                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
+                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />

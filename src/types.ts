@@ -41,6 +41,7 @@ export interface SubtitleFile {
   status: AppStatus;
   progress: number;
   progressMessage?: string;
+  diagnostic?: TranslationDiagnostic | null;
   processingDuration?: string | null;
   netflixErrors?: NetflixError[];
   processedCount: number;
@@ -69,6 +70,18 @@ export interface BatchResponse {
   translatedText: string;
 }
 
+export type DiagnosticSeverity = 'info' | 'warning' | 'error';
+
+export interface TranslationDiagnostic {
+  code: string;
+  severity: DiagnosticSeverity;
+  title: string;
+  cause: string;
+  recovery: string;
+  technicalDetails?: string;
+  timestamp: string;
+}
+
 export interface UserAPIKey {
   key: string;
   isValid: boolean;
@@ -88,6 +101,7 @@ export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
 export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
+export type TranslationMethod = 'default' | 'paragraph';
 
 export interface OpenAICompatibleService {
   id: string;
@@ -103,6 +117,7 @@ export interface AppSettings {
   temperature: number; // New field for Translation Quality
   outputFormat: 'srt' | 'vtt' | 'ass';
   outputStandard: OutputStandard;
+  translationMethod: TranslationMethod;
   model: ModelType;
   aiProvider: AIProvider;
   lmStudioBaseUrl: string;
