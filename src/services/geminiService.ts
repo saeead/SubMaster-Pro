@@ -699,7 +699,8 @@ export const translateBatch = async (
         settings.topic, 
         settings.customPrompt, 
         settings.outputStandard,
-        settings.glossary
+        settings.glossary,
+        settings.doNotTranslateTerms
       );
 
       if (settings.aiProvider === 'lm_studio') {
@@ -815,7 +816,8 @@ export const retranslateSelectedBlocks = async (
     settings.topic,
     settings.customPrompt,
     settings.outputStandard,
-    settings.glossary
+    settings.glossary,
+    settings.doNotTranslateTerms
   );
 
   let modelName = APP_CONFIG.geminiModels.standard;

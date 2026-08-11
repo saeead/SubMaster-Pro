@@ -61,6 +61,7 @@ const App: React.FC = () => {
     apiKeys: [],
     enableTranslationMemory: true,
     glossary: [],
+    doNotTranslateTerms: '',
     theme: 'dark'
   });
 
@@ -108,6 +109,7 @@ const App: React.FC = () => {
         if (!parsed.translationMethod) parsed.translationMethod = 'default';
         if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
         if (!parsed.glossary) parsed.glossary = [];
+        if (!parsed.doNotTranslateTerms) parsed.doNotTranslateTerms = '';
         if (!parsed.aiProvider) parsed.aiProvider = 'gemini';
         if (!parsed.lmStudioBaseUrl) parsed.lmStudioBaseUrl = 'http://localhost:1234/v1';
         if (!parsed.lmStudioModel) parsed.lmStudioModel = 'local-model';
@@ -1242,7 +1244,7 @@ const App: React.FC = () => {
                              مترجم هوشمند با قابلیت تشخیص لحن و موضوع. فایل خود را آپلود کنید و از نتیجه حرفه‌ای لذت ببرید.
                         </p>
                     </div>
-                    <FileUpload 
+                    <FileUpload
                         onLoad={handleFilesLoaded} 
                         onProjectLoad={handleProjectImport}
                         onError={handleFileError} 
@@ -1262,6 +1264,14 @@ const App: React.FC = () => {
             ) : (
                 <>
                     <div className="flex overflow-x-auto gap-2 mb-6 pb-2 custom-scrollbar">
+                        <FileUpload
+                            onLoad={handleFilesLoaded}
+                            onProjectLoad={handleProjectImport}
+                            onError={handleFileError}
+                            status={AppStatus.IDLE}
+                            outputStandard={settings.outputStandard}
+                            variant="compact"
+                        />
                         {files.map(file => (
                             <button key={file.id} onClick={() => setActiveFileId(file.id)} className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px] flex-shrink-0 ${activeFileId === file.id ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'}`}>
                                 <div className={`w-2 h-2 rounded-full ${file.status === AppStatus.COMPLETED ? 'bg-green-500' : file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' : file.status === AppStatus.ERROR ? 'bg-red-500' : file.status === AppStatus.PAUSED ? 'bg-orange-400' : 'bg-text/20'}`}></div>

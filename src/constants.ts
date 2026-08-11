@@ -158,7 +158,8 @@ export const getSystemInstruction = (
   topic: TopicType, 
   customPrompt: string, 
   outputStandard: OutputStandard,
-  glossary: GlossaryItem[] = []
+  glossary: GlossaryItem[] = [],
+  doNotTranslateTerms: string = ''
 ) => {
   let prompt = SYSTEM_PROMPTS.base + '\n\n';
   if (outputStandard === 'netflix') prompt += SYSTEM_PROMPTS.netflix + '\n\n';
@@ -170,6 +171,11 @@ export const getSystemInstruction = (
 
   if (glossary.length > 0) {
     prompt += `--- واژه‌نامه اختصاصی ---\n${glossary.map(item => `- ${item.term} -> ${item.translation}`).join('\n')}\n\n`;
+  }
+
+  const protectedTerms = doNotTranslateTerms.split(',').map(term => term.trim()).filter(Boolean);
+  if (protectedTerms.length > 0) {
+    prompt += `--- کلمات استثنا / غیرقابل ترجمه ---\nاین کلمات را دقیقاً با همین املا نگه دار و ترجمه، بومی‌سازی یا آوانویسی نکن: ${protectedTerms.join(', ')}\n\n`;
   }
 
   if (customPrompt) prompt += `--- دستورالعمل سفارشی ---\n${customPrompt}\n\n`;

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Settings, BookOpen, MessageSquareText, ShieldCheck, X } from 'lucide-react';
+import { Ban, Settings, BookOpen, MessageSquareText, ShieldCheck, X } from 'lucide-react';
 import { AppSettings, ToneType, TopicType, OutputStandard } from '../types';
 import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 import { TemperatureControl } from './TemperatureControl';
@@ -84,6 +84,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </div>
           </div>
+        </div>
+
+
+        <div className="space-y-3 rounded-xl border border-[#00f0ff]/15 bg-[#00f0ff]/5 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor="do-not-translate-terms" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#00f0ff]">
+              <Ban className="h-4 w-4" />
+              استثناعات ترجمه
+            </label>
+            {settings.doNotTranslateTerms.trim() && (
+              <span className="rounded-full bg-[#00f0ff]/15 px-2 py-0.5 text-[10px] font-bold text-[#00f0ff]">
+                {settings.doNotTranslateTerms.split(',').map(term => term.trim()).filter(Boolean).length} مورد
+              </span>
+            )}
+          </div>
+          <textarea
+            id="do-not-translate-terms"
+            value={settings.doNotTranslateTerms}
+            onChange={(e) => updateSettings({ doNotTranslateTerms: e.target.value })}
+            placeholder="مثلاً: React, API, SubMaster"
+            className="min-h-24 w-full resize-y rounded-xl border border-white/10 bg-[#0a0e27]/60 p-3 text-sm leading-6 text-white placeholder:text-white/35 transition-all focus:border-[#00f0ff]/60 focus:outline-none"
+            dir="auto"
+          />
+          <p className="text-[10px] leading-5 text-white/45">
+            کلمات را با ویرگول انگلیسی (,) جدا کنید تا مدل آن‌ها را عیناً حفظ کند و ترجمه نکند.
+          </p>
         </div>
 
         {settings.topic === 'educational' && (

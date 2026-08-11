@@ -128,6 +128,7 @@ export interface AppSettings {
   apiKeys: UserAPIKey[];
   enableTranslationMemory: boolean;
   glossary: GlossaryItem[];
+  doNotTranslateTerms: string;
   theme: 'dark' | 'light';
 }
 
