@@ -12,9 +12,9 @@ import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification } from './types';
+import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure } from './services/subtitleUtils';
-import { translateBatch, diagnoseConnection, retranslateSelectedBlocks } from './services/geminiService';
+import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
@@ -234,6 +234,10 @@ const App: React.FC = () => {
     setToast({ msg, type });
   };
 
+  const showDiagnosticToast = (diagnostic: TranslationDiagnostic) => {
+    showToast(`${diagnostic.title}: ${diagnostic.recovery}`, diagnostic.severity === 'info' ? 'success' : diagnostic.severity);
+  };
+
   // --- FILE MANAGEMENT ---
 
   const handleFilesLoaded = (loadedFiles: { blocks: SubtitleBlock[], filename: string, type: 'SRT' | 'VTT' | 'ASS', size: number }[]) => {
@@ -246,6 +250,7 @@ const App: React.FC = () => {
       blocks: f.blocks,
       status: AppStatus.READY,
       progress: 0,
+      diagnostic: null,
       processedCount: 0,
       netflixErrors: [],
       // Initialize History
@@ -800,7 +805,7 @@ const App: React.FC = () => {
      const file = filesRef.current.find(f => f.id === fileId);
      if (!file) return;
 
-     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progressMessage: 'در حال تقسیم‌بندی...' });
+     updateFileStatus(fileId, { status: AppStatus.TRANSLATING, progressMessage: 'در حال تقسیم‌بندی...', diagnostic: null });
      const startTime = Date.now();
 
      const chunks = smartChunking(file.blocks, BATCH_SIZE);
@@ -849,11 +854,13 @@ const App: React.FC = () => {
         }
 
         const chunk = chunks[i];
-        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks}...` });
-
         const preContextBlocks = chunk.blocks.slice(0, chunk.targetStartIndex);
         const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
         const postContextBlocks = chunk.blocks.slice(chunk.targetEndIndex);
+        const blockRangeMessage = targetBlocks.length > 0
+            ? `بلوک‌های ${targetBlocks[0].index} تا ${targetBlocks[targetBlocks.length - 1].index}`
+            : 'بدون بلوک هدف';
+        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks} (${blockRangeMessage})...`, diagnostic: null });
 
         let cachedCount = 0;
         if (settingsRef.current.enableTranslationMemory) {
@@ -903,6 +910,11 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
+                const diagnostic = getTranslationDiagnostic(
+                    err,
+                    settingsRef.current,
+                    `File: ${file.name}, chunk ${i + 1}/${totalChunks}`
+                );
                 
                 const errorMessage = (err.message || err.toString() || "").toLowerCase();
                 
@@ -910,9 +922,10 @@ const App: React.FC = () => {
                 if (errorMessage.includes('fetch failed') || errorMessage.includes('location')) {
                     updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
-                         progressMessage: 'خطای اتصال (توقف)' 
+                         progressMessage: 'خطای اتصال (توقف)',
+                         diagnostic
                     });
-                    showToast(errorMessage, 'error'); 
+                    showDiagnosticToast(diagnostic);
                     isTranslatingRef.current = false;
                     return;
                 }
@@ -925,9 +938,10 @@ const App: React.FC = () => {
                 if (isOverloaded) {
                      updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
-                         progressMessage: 'توقف خودکار (سرور گوگل شلوغ است)' 
+                         progressMessage: 'توقف خودکار (سرور/مدل شلوغ است)',
+                         diagnostic
                      });
-                     showToast('سرور گوگل موقتاً پاسخگو نیست (503 Overloaded). پروژه متوقف شد تا دیتای شما حفظ شود. لطفاً دقایقی دیگر ادامه دهید.', 'warning');
+                     showDiagnosticToast(diagnostic);
                      isTranslatingRef.current = false; 
                      return;
                 }
@@ -946,14 +960,16 @@ const App: React.FC = () => {
                 if (isQuotaError) {
                      updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
-                         progressMessage: 'توقف: پایان اعتبار کلیدها' 
+                         progressMessage: 'توقف: پایان اعتبار یا سهمیه',
+                         diagnostic
                      });
-                     showToast('اعتبار تمام کلیدها به پایان رسید. لطفاً کلید جدید اضافه کنید و دکمه "ادامه ترجمه" را بزنید.', 'error');
+                     showDiagnosticToast(diagnostic);
                      isTranslatingRef.current = false; 
                      return; 
                 }
 
-                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه' });
+                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه', diagnostic });
+                showDiagnosticToast(diagnostic);
                 throw err;
             }
         }
@@ -985,6 +1001,7 @@ const App: React.FC = () => {
          status: AppStatus.COMPLETED, 
          progress: 100, 
          progressMessage: 'تکمیل شد',
+         diagnostic: null,
          processingDuration: durationStr
      });
   };
@@ -1027,11 +1044,17 @@ const App: React.FC = () => {
     if (isLocalProvider || testKey) {
         const diagnosisError = await diagnoseConnection(testKey, settings);
         if (diagnosisError) {
+             const diagnostic = getTranslationDiagnostic(
+                new Error(diagnosisError),
+                settings,
+                'Pre-flight connection diagnosis before translation start'
+             );
              updateFileStatus(firstFileId, { 
                 status: AppStatus.PAUSED, 
-                progressMessage: 'خطای اتصال' 
+                progressMessage: 'خطای اتصال',
+                diagnostic
              });
-             showToast(diagnosisError, 'error');
+             showDiagnosticToast(diagnostic);
              return;
         }
     }

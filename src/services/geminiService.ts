@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Schema, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService } from "../types";
+import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService, TranslationDiagnostic } from "../types";
 import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
 
 const responseSchema: Schema = {
@@ -51,21 +51,7 @@ const extractJsonArray = (text: string): string => {
 
 const RAW_MARKER_PATTERN = /⟦\d+⟧/;
 const MARKDOWN_OR_EXPLANATION_PATTERN = /(```|^#+\s|^\s*[-*]\s|ترجمه(?:\s*:| زیر)|translation\s*:|note\s*:|explanation\s*:)/im;
-const ENGLISH_TOKEN_PATTERN = /[A-Za-z][A-Za-z0-9_.+#/-]{2,}/g;
-const COMMON_TECHNICAL_TERMS = new Set([
-  'api', 'apis', 'app', 'apps', 'backend', 'cache', 'cli', 'cloud', 'code', 'container',
-  'css', 'database', 'db', 'debug', 'deployment', 'docker', 'frontend', 'framework',
-  'github', 'html', 'http', 'https', 'javascript', 'json', 'kubernetes', 'linux',
-  'localstorage', 'model', 'models', 'node', 'npm', 'openai', 'plugin', 'proxy',
-  'python', 'react', 'server', 'service', 'typescript', 'ui', 'url', 'vite', 'vpn'
-]);
-
-type QualityIssueSeverity = 'critical' | 'local' | 'none';
-
-interface QualityAssessment {
-  severity: QualityIssueSeverity;
-  reasons: string[];
-}
+const UNWANTED_ENGLISH_PATTERN = /[A-Za-z]{4,}/;
 
 const validateBatchResponse = (targetIds: number[], response: unknown): BatchResponse[] => {
   if (!Array.isArray(response)) {
@@ -119,114 +105,21 @@ const validateBatchResponse = (targetIds: number[], response: unknown): BatchRes
 
 const countReadableChars = (text: string): number => text.replace(/[\r\n]+/g, '').length;
 
-const normalizeEnglishToken = (token: string): string => token.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
-
-const extractEnglishTokens = (text: string): Set<string> => {
-  const tokens = new Set<string>();
-  for (const match of text.matchAll(ENGLISH_TOKEN_PATTERN)) {
-    const normalized = normalizeEnglishToken(match[0]);
-    if (normalized) tokens.add(normalized);
-  }
-  return tokens;
-};
-
-const hasUnwantedEnglish = (translatedText: string, source?: BatchRequest, settings?: AppSettings): boolean => {
-  const translatedTokens = extractEnglishTokens(translatedText);
-  if (translatedTokens.size === 0) return false;
-
-  const sourceTokens = source ? extractEnglishTokens(source.text) : new Set<string>();
-  const glossaryTerms = new Set(
-    (settings?.glossary || [])
-      .flatMap(item => Array.from(extractEnglishTokens(`${item.term} ${item.translation}`)))
-      .map(normalizeEnglishToken)
-  );
-
-  const unexpectedTokens = Array.from(translatedTokens).filter(token => (
-    !sourceTokens.has(token) &&
-    !glossaryTerms.has(token) &&
-    !COMMON_TECHNICAL_TERMS.has(token)
-  ));
-
-  if (unexpectedTokens.length === 0) return false;
-
-  const latinCharCount = (translatedText.match(/[A-Za-z]/g) || []).length;
-  const readableChars = Math.max(1, countReadableChars(translatedText));
-  return unexpectedTokens.length >= 2 || latinCharCount / readableChars > 0.35;
-};
-
-const normalizeSubtitleLinesLocally = (text: string): string => {
-  const clean = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!clean) return '';
-  if (clean.length <= 42) return clean;
-
-  const words = clean.split(' ');
-  const targetLength = clean.length / 2;
-  let bestIndex = Math.max(1, Math.floor(words.length / 2));
-  let currentLength = 0;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (let i = 1; i < words.length; i++) {
-    currentLength += words[i - 1].length + 1;
-    const punctuationBonus = /[،,:؛;.!؟?]$/.test(words[i - 1]) ? -8 : 0;
-    const balancePenalty = Math.abs(currentLength - targetLength);
-    const lineOverflowPenalty = Math.max(0, currentLength - 42) * 2;
-    const score = balancePenalty + lineOverflowPenalty + punctuationBonus;
-    if (score < bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-
-  return `${words.slice(0, bestIndex).join(' ')}\n${words.slice(bestIndex).join(' ')}`.trim();
-};
-
-const locallyNormalizeDraft = (draft: BatchResponse[]): BatchResponse[] => (
-  draft.map(item => ({ ...item, translatedText: normalizeSubtitleLinesLocally(item.translatedText) || item.translatedText.trim() }))
-);
-
-const assessTranslationQuality = (result: BatchResponse, source?: BatchRequest, settings?: AppSettings): QualityAssessment => {
+const hasQualityIssue = (result: BatchResponse, source?: BatchRequest): boolean => {
   const text = result.translatedText.trim();
-  const lines = text.split('\n');
-  const maxLineLength = Math.max(...lines.map(line => line.length));
+  const maxLineLength = Math.max(...text.split('\n').map(line => line.length));
   const sourceLength = source ? countReadableChars(source.text) : 0;
-  const reasons: string[] = [];
 
-  if (text === '') reasons.push('empty translation');
-  if (RAW_MARKER_PATTERN.test(text)) reasons.push('raw subtitle marker');
-  if (MARKDOWN_OR_EXPLANATION_PATTERN.test(text)) reasons.push('markdown/explanation');
-  if (hasUnwantedEnglish(text, source, settings)) reasons.push('unwanted English');
-  if (sourceLength > 0 && text.length > Math.max(sourceLength * 2.8, sourceLength + 90)) reasons.push('suspiciously long translation');
-
-  if (reasons.length > 0) {
-    return { severity: 'critical', reasons };
-  }
-
-  const localReasons: string[] = [];
-  if (maxLineLength > 42) localReasons.push('line too long');
-  if (lines.length > 2) localReasons.push('too many lines');
-
-  return localReasons.length > 0
-    ? { severity: 'local', reasons: localReasons }
-    : { severity: 'none', reasons: [] };
+  return (
+    text === '' ||
+    RAW_MARKER_PATTERN.test(text) ||
+    MARKDOWN_OR_EXPLANATION_PATTERN.test(text) ||
+    UNWANTED_ENGLISH_PATTERN.test(text) ||
+    maxLineLength > 42 ||
+    text.split('\n').length > 2 ||
+    (sourceLength > 0 && text.length > sourceLength * 2.3)
+  );
 };
-
-const getCriticalReviewTargets = (
-  targetBatch: BatchRequest[],
-  draft: BatchResponse[],
-  settings: AppSettings,
-  forceParagraphMode: boolean
-): BatchRequest[] => {
-  if (forceParagraphMode) return targetBatch;
-  return targetBatch.filter(block => {
-    const result = draft.find(item => item.id === block.id);
-    if (!result) return true;
-    return assessTranslationQuality(result, block, settings).severity === 'critical';
-  });
-};
-
-const mergeReviewedTranslations = (draft: BatchResponse[], reviewed: BatchResponse[]): BatchResponse[] => (
-  locallyNormalizeDraft(draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item))
-);
 
 const buildReviewPrompt = (
   targetBatch: BatchRequest[],
@@ -504,6 +397,94 @@ const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Comp
   return `⚠️ اتصال به ${serviceName} برقرار نشد: ${msg.substring(0, 180)}`;
 };
 
+export const getTranslationDiagnostic = (error: any, settings: AppSettings, context?: string): TranslationDiagnostic => {
+  const msg = extractErrorDetails(error);
+  const providerName = settings.aiProvider === 'lm_studio'
+    ? 'LM Studio'
+    : settings.aiProvider === 'openai_compatible'
+      ? (settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)?.name || 'OpenAI Compatible')
+      : 'Gemini';
+
+  const details = [
+    context,
+    error?.message || (typeof error === 'string' ? error : ''),
+  ].filter(Boolean).join(' | ');
+
+  if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('پایان اعتبار')) {
+    return {
+      code: 'quota_exhausted',
+      severity: 'error',
+      title: 'اعتبار یا سهمیه API تمام شده',
+      cause: `سرویس ${providerName} درخواست را به دلیل محدودیت مصرف، quota یا rate limit رد کرده است.`,
+      recovery: 'یک API Key جدید اضافه کنید، کلیدهای rate-limited را ریست کنید، مدل سبک‌تر انتخاب کنید یا چند دقیقه بعد ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('fetch failed') || msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors')) {
+    return {
+      code: 'connection_failed',
+      severity: 'error',
+      title: `ارتباط با ${providerName} قطع است`,
+      cause: settings.aiProvider === 'lm_studio'
+        ? 'مرورگر نتوانست به سرور لوکال LM Studio وصل شود؛ معمولاً Local Server خاموش است، URL اشتباه است یا CORS اجازه نمی‌دهد.'
+        : 'درخواست شبکه ناموفق بوده؛ ممکن است VPN/Proxy، اینترنت، DNS، CORS یا backend proxy مشکل داشته باشد.',
+      recovery: settings.aiProvider === 'lm_studio'
+        ? 'LM Studio را باز کنید، Local Server را روشن کنید، مدل را load کنید و آدرس را با /v1 بررسی کنید.'
+        : 'اتصال اینترنت/VPN/Proxy و آدرس سرویس را بررسی کنید و سپس ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('503') || msg.includes('overloaded') || msg.includes('unavailable') || msg.includes('service unavailable')) {
+    return {
+      code: 'model_overloaded',
+      severity: 'warning',
+      title: 'مدل موقتاً شلوغ یا در دسترس نیست',
+      cause: `سرویس ${providerName} با خطای ازدحام یا عدم دسترسی موقت پاسخ داده است.`,
+      recovery: 'پروژه متوقف شده تا داده‌ها حفظ شوند. چند دقیقه صبر کنید، مدل سبک‌تر انتخاب کنید یا ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('invalid model') || msg.includes('model') || msg.includes('404') || msg.includes('not found')) {
+    return {
+      code: 'model_or_endpoint_invalid',
+      severity: 'error',
+      title: 'مدل یا endpoint معتبر نیست',
+      cause: `نام مدل، مسیر chat/completions یا Base URL برای ${providerName} درست نیست یا توسط سرویس پشتیبانی نمی‌شود.`,
+      recovery: 'نام مدل را دقیقاً مطابق سرویس وارد کنید، Base URL را بررسی کنید و تست اتصال را دوباره اجرا کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('invalid model response') || msg.includes('json') || msg.includes('empty response') || msg.includes('missing ids')) {
+    return {
+      code: 'invalid_model_output',
+      severity: 'warning',
+      title: 'خروجی مدل قابل استفاده نبود',
+      cause: 'مدل JSON معتبر، IDهای کامل یا متن ترجمه قابل قبول برنگردانده است.',
+      recovery: 'دمای مدل را کمتر کنید، مدل قوی‌تر انتخاب کنید، batch size را کاهش دهید یا دوباره تلاش کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  return {
+    code: 'translation_unknown_error',
+    severity: 'error',
+    title: 'خطای نامشخص در ترجمه',
+    cause: `در مسیر ارتباط یا پردازش پاسخ ${providerName} خطایی رخ داده که در دسته‌بندی‌های شناخته‌شده قرار نگرفت.`,
+    recovery: 'جزئیات فنی را بررسی کنید، تنظیمات مدل/API را تست کنید و اگر تکرار شد فایل یا بلوک مشکل‌دار را جداگانه ترجمه کنید.',
+    technicalDetails: details || msg,
+    timestamp: new Date().toISOString()
+  };
+};
+
 export const validateAPIConnection = async (apiKey: string, strictMode: boolean = false): Promise<boolean> => {
   if (!apiKey) return false;
   try {
@@ -610,25 +591,29 @@ export const translateBatch = async (
 
       if (settings.aiProvider === 'lm_studio') {
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
-        const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
-        const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
+        const draft = validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
+        const reviewTargets = forceParagraphMode
+          ? targetBatch
+          : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
         if (reviewTargets.length === 0) return draft;
-        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
+        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre, contextPost);
         const reviewedText = await callLmStudioChat(settings, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        return mergeReviewedTranslations(draft, reviewed);
+        return draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
       }
 
       if (settings.aiProvider === 'openai_compatible') {
         const service = getActiveOpenAICompatibleService(settings);
         const text = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
-        const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
-        const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
+        const draft = validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
+        const reviewTargets = forceParagraphMode
+          ? targetBatch
+          : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
         if (reviewTargets.length === 0) return draft;
-        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
+        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre, contextPost);
         const reviewedText = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        return mergeReviewedTranslations(draft, reviewed);
+        return draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
       }
 
       const ai = new GoogleGenAI({ apiKey: currentApiKey });
@@ -646,15 +631,17 @@ export const translateBatch = async (
 
       if (!response.text) throw new Error("Empty response from Gemini");
 
-      const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(response.text)));
-      const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
+      const draft = validateBatchResponse(targetIds, JSON.parse(response.text));
+      const reviewTargets = forceParagraphMode
+        ? targetBatch
+        : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
       if (reviewTargets.length === 0) return draft;
 
       const reviewPrompt = buildReviewPrompt(
         reviewTargets,
         draft.filter(item => reviewTargets.some(block => block.id === item.id)),
-        contextPre.slice(-2),
-        contextPost.slice(0, 2)
+        contextPre,
+        contextPost
       );
       const reviewResponse = await ai.models.generateContent({
         model: modelName,
@@ -670,7 +657,7 @@ export const translateBatch = async (
 
       if (!reviewResponse.text) throw new Error("Empty review response from Gemini");
       const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(reviewResponse.text));
-      return mergeReviewedTranslations(draft, reviewed);
+      return draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
 
     } catch (error: any) {
       const errorMessage = extractErrorDetails(error);
