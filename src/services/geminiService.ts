@@ -52,6 +52,59 @@ const extractJsonArray = (text: string): string => {
 const RAW_MARKER_PATTERN = /⟦\d+⟧/;
 const MARKDOWN_OR_EXPLANATION_PATTERN = /(```|^#+\s|^\s*[-*]\s|ترجمه(?:\s*:| زیر)|translation\s*:|note\s*:|explanation\s*:)/im;
 const UNWANTED_ENGLISH_PATTERN = /[A-Za-z]{4,}/;
+const PERSIAN_WORD_PATTERN = /[\u0600-\u06FF]+/g;
+
+const normalizeForSegmentationCheck = (text: string): string => (
+  text
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[ي]/g, 'ی')
+    .replace(/[ك]/g, 'ک')
+    .replace(/\s+/g, ' ')
+    .trim()
+);
+
+const getPersianWordSet = (text: string): Set<string> => {
+  const words = normalizeForSegmentationCheck(text).match(PERSIAN_WORD_PATTERN) || [];
+  return new Set(words.filter(word => word.length > 2));
+};
+
+const jaccardSimilarity = (left: string, right: string): number => {
+  const leftWords = getPersianWordSet(left);
+  const rightWords = getPersianWordSet(right);
+  if (leftWords.size === 0 || rightWords.size === 0) return 0;
+  let intersection = 0;
+  leftWords.forEach(word => { if (rightWords.has(word)) intersection++; });
+  const union = leftWords.size + rightWords.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+};
+
+const validateParagraphSegmentation = (targetBatch: BatchRequest[], results: BatchResponse[]): BatchResponse[] => {
+  const errors: string[] = [];
+  const byId = new Map(results.map(item => [item.id, item]));
+
+  targetBatch.forEach((source, index) => {
+    const current = byId.get(source.id);
+    if (!current) return;
+
+    const sourceLength = countReadableChars(source.text);
+    const translatedLength = countReadableChars(current.translatedText);
+    const maxAllowedLength = Math.max(70, Math.round(sourceLength * 1.75));
+    if (sourceLength > 0 && translatedLength > maxAllowedLength) {
+      errors.push(`id ${source.id} is too long for its source cue (${translatedLength}/${maxAllowedLength})`);
+    }
+
+    const previous = index > 0 ? byId.get(targetBatch[index - 1].id) : undefined;
+    if (previous && jaccardSimilarity(previous.translatedText, current.translatedText) > 0.72) {
+      errors.push(`ids ${targetBatch[index - 1].id} and ${source.id} look duplicated or merged`);
+    }
+  });
+
+  if (errors.length > 0) {
+    throw new Error(`Paragraph segmentation failed: ${errors.slice(0, 5).join('; ')}`);
+  }
+
+  return results;
+};
 
 const validateBatchResponse = (targetIds: number[], response: unknown): BatchResponse[] => {
   if (!Array.isArray(response)) {
@@ -152,6 +205,8 @@ Review requirements:
 - Remove markdown, explanations, labels, notes, or extra commentary.
 - Avoid unwanted English words unless they are names, brands, or necessary technical terms.
 - Preserve the exact IDs and return every reviewed ID exactly once.
+- Do not merge neighboring source cues into one translation and do not duplicate the same translation across adjacent IDs.
+- Each translatedText must contain only the meaning of its own sourceText, even when context explains the sentence flow.
 
 Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}].`;
 };
@@ -311,7 +366,7 @@ Return JSON array matching the schema.`;
 `;
   prompt += `You will receive subtitle blocks as one continuous marked paragraph. Read the whole passage first to understand topic, speaker intent, pronouns, references, and emotional flow.
 `;
-  prompt += `Each target block starts with a marker like ⟦123⟧. Keep the exact IDs in your final JSON so the app can place each translation back into its original timing.
+  prompt += `Each target block starts with a marker like ⟦123⟧. Treat every marker as a HARD subtitle cue boundary. Keep the exact IDs in your final JSON so the app can place each translation back into its original timing.
 `;
   if (contextPre.length > 0) {
     prompt += `
@@ -336,7 +391,11 @@ Translation quality requirements:
 `;
   prompt += `- Produce fluent, natural, professional Persian with correct punctuation, spacing, and نیم‌فاصله where appropriate.
 `;
-  prompt += `- Preserve continuity across adjacent subtitle blocks; avoid isolated sentence fragments when a phrase continues from the previous/next block.
+  prompt += `- Preserve continuity across adjacent subtitle blocks, but NEVER move words, meaning, or summary from one marker into another marker's translatedText.
+`;
+  prompt += `- Each JSON item must translate ONLY the source text that appears after that item's own marker; do not combine two cues into one translatedText and do not duplicate one translatedText across adjacent IDs.
+`;
+  prompt += `- If a sentence continues across markers, keep the Persian translation split across the same markers as short subtitle fragments; do not complete the whole sentence in the first block.
 `;
   prompt += `- Keep each translatedText concise enough for subtitles while still sounding human and polished.
 `;
@@ -595,11 +654,12 @@ export const translateBatch = async (
         const reviewTargets = forceParagraphMode
           ? targetBatch
           : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
-        if (reviewTargets.length === 0) return draft;
+        if (reviewTargets.length === 0) return forceParagraphMode ? validateParagraphSegmentation(targetBatch, draft) : draft;
         const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre, contextPost);
         const reviewedText = await callLmStudioChat(settings, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        return draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
+        const mergedResults = draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
+        return forceParagraphMode ? validateParagraphSegmentation(targetBatch, mergedResults) : mergedResults;
       }
 
       if (settings.aiProvider === 'openai_compatible') {
@@ -609,11 +669,12 @@ export const translateBatch = async (
         const reviewTargets = forceParagraphMode
           ? targetBatch
           : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
-        if (reviewTargets.length === 0) return draft;
+        if (reviewTargets.length === 0) return forceParagraphMode ? validateParagraphSegmentation(targetBatch, draft) : draft;
         const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre, contextPost);
         const reviewedText = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        return draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
+        const mergedResults = draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
+        return forceParagraphMode ? validateParagraphSegmentation(targetBatch, mergedResults) : mergedResults;
       }
 
       const ai = new GoogleGenAI({ apiKey: currentApiKey });
@@ -635,7 +696,7 @@ export const translateBatch = async (
       const reviewTargets = forceParagraphMode
         ? targetBatch
         : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
-      if (reviewTargets.length === 0) return draft;
+      if (reviewTargets.length === 0) return forceParagraphMode ? validateParagraphSegmentation(targetBatch, draft) : draft;
 
       const reviewPrompt = buildReviewPrompt(
         reviewTargets,
@@ -657,7 +718,8 @@ export const translateBatch = async (
 
       if (!reviewResponse.text) throw new Error("Empty review response from Gemini");
       const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(reviewResponse.text));
-      return draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
+      const mergedResults = draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
+      return forceParagraphMode ? validateParagraphSegmentation(targetBatch, mergedResults) : mergedResults;
 
     } catch (error: any) {
       const errorMessage = extractErrorDetails(error);

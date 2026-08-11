@@ -1,7 +1,7 @@
 
 
 import React from 'react';
-import { SubtitleFile, AppStatus, NetflixError } from '../types';
+import { SubtitleFile, AppStatus, NetflixError, TranslationMethod } from '../types';
 import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive, Save, FileJson, Sparkles } from 'lucide-react';
 import { HelpTooltip } from './HelpTooltip';
 
@@ -9,6 +9,8 @@ interface StatsCardProps {
   activeFile: SubtitleFile;
   activeFileIndex: number;
   totalFiles: number;
+  translationMethod: TranslationMethod;
+  onTranslationMethodChange: (method: TranslationMethod) => void;
   onStart: () => void;
   onPause: () => void;
   onCancel: () => void;
@@ -26,6 +28,8 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   activeFile,
   activeFileIndex,
   totalFiles,
+  translationMethod,
+  onTranslationMethodChange,
   onStart, 
   onPause, 
   onCancel,
@@ -199,6 +203,39 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                 </div>
             </div>
         </div>
+
+        {!isProcessing && (isReady || isPaused || isError) && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                        <h4 className="text-sm font-bold text-white">روش ترجمه</h4>
+                        <p className="text-xs text-white/50 mt-1">قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-full md:min-w-[420px]" role="radiogroup" aria-label="روش ترجمه">
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={translationMethod === 'default'}
+                            onClick={() => onTranslationMethodChange('default')}
+                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'default' ? 'border-[#00f0ff] bg-[#00f0ff]/10 text-white shadow-[0_0_15px_rgba(0,240,255,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                        >
+                            <span className="block text-sm font-bold">متد پیش‌فرض</span>
+                            <span className="block text-[11px] mt-1">ارسال بلوک‌های JSON با قوانین قبلی نرم‌افزار</span>
+                        </button>
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={translationMethod === 'paragraph'}
+                            onClick={() => onTranslationMethodChange('paragraph')}
+                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'paragraph' ? 'border-[#ff00ea] bg-[#ff00ea]/10 text-white shadow-[0_0_15px_rgba(255,0,234,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                        >
+                            <span className="block text-sm font-bold">متد پاراگراف</span>
+                            <span className="block text-[11px] mt-1">متن یک‌پارچه با نشانگر ID و بازگردانی به زمان‌بندی اصلی</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {diagnostic && (
             <div className={`rounded-2xl border p-4 ${
