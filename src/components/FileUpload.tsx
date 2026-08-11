@@ -1,9 +1,9 @@
 
 
 import React, { useRef, useState } from 'react';
-import { Upload, AlertCircle, Copy, FileJson } from 'lucide-react';
+import { Plus, Upload, Copy, FileJson } from 'lucide-react';
 import { parseSRT, parseVTT, parseASS, optimizeSubtitleBlocks } from '../services/subtitleUtils';
-import { SubtitleBlock, AppStatus } from '../types';
+import { SubtitleBlock, AppStatus, OutputStandard } from '../types';
 import { APP_CONFIG } from '../constants';
 import { ProjectState } from '../services/projectStateManager';
 import { HelpTooltip } from './HelpTooltip';
@@ -13,10 +13,11 @@ interface FileUploadProps {
   onProjectLoad: (projectState: ProjectState) => void;
   status: AppStatus;
   onError: (msg: string) => void;
-  outputStandard: 'normal' | 'netflix';
+  outputStandard: OutputStandard;
+  variant?: 'full' | 'compact';
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, onProjectLoad, status, onError, outputStandard }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, onProjectLoad, status, onError, outputStandard, variant = 'full' }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -138,6 +139,28 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onLoad, onProjectLoad, s
   };
 
   if (status !== AppStatus.IDLE) return null;
+
+  if (variant === 'compact') {
+    return (
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="flex min-w-[150px] flex-shrink-0 items-center justify-center gap-2 rounded-xl border border-dashed border-primary/50 bg-primary/10 px-4 py-3 text-sm font-bold text-primary transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-primary/20 hover:shadow-[0_0_18px_rgba(0,240,255,0.18)]"
+        title="افزودن فایل جدید"
+      >
+        <input
+          type="file"
+          ref={inputRef}
+          onChange={handleChange}
+          className="hidden"
+          accept=".srt,.vtt,.ass,.ssa,.json"
+          multiple
+        />
+        <Plus className="h-5 w-5" />
+        <span>افزودن فایل</span>
+      </button>
+    );
+  }
 
   return (
     <div className="w-full animate-in fade-in slide-in-from-bottom-8 duration-500">

@@ -314,73 +314,74 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       </div>
 
       {selectedCount > 0 && (
-        <div className="fixed bottom-8 left-1/2 z-[65] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in">
+        <div className="fixed bottom-8 left-1/2 z-[65] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in">
           <div className="glass flex flex-col gap-3 rounded-2xl border border-[#ff00ea]/30 bg-background/95 p-3 shadow-[0_0_30px_rgba(255,0,234,0.18)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
             <div className="text-center text-sm font-bold text-text sm:text-right">
               {selectedCount} بلوک انتخاب شده است
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
               <button
                 type="button"
                 onClick={selectAllBlocks}
                 disabled={selectedCount === blocks.length || isRetranslatingSelection}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                انتخاب همه
+                <CheckSquare className="h-4 w-4" />
+                <span>همه</span>
               </button>
               <button
                 type="button"
                 onClick={selectBlocksBelow}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ChevronsDown className="h-4 w-4" />
-                انتخاب پایینی‌ها
+                <span>انتخاب پایینی‌ها</span>
               </button>
               <button
                 type="button"
                 onClick={selectBlocksAbove}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ChevronsUp className="h-4 w-4" />
-                انتخاب بالایی‌ها
+                <span>انتخاب بالایی‌ها</span>
               </button>
               <button
                 type="button"
                 onClick={handleAutoFixSelection}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-[#E50914]/30 bg-[#E50914]/10 px-3 py-2 text-xs font-bold text-red-200 transition-all hover:bg-[#E50914]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-[#E50914]/30 bg-[#E50914]/10 px-2 py-2 text-[10px] font-bold leading-tight text-red-200 transition-all hover:bg-[#E50914]/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Wand2 className="h-4 w-4" />
-                اصلاح خودکار
+                <span>اصلاح خودکار</span>
               </button>
               <button
                 type="button"
                 onClick={handleRetranslateSelection}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-3 py-2 text-xs font-bold text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-2 py-2 text-[10px] font-bold leading-tight text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isRetranslatingSelection ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
-                ترجمه دوباره
+                <span>ترجمه دوباره</span>
               </button>
               <button
                 type="button"
                 onClick={handleDeleteSelection}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-red-500/20 bg-red-500/10 px-2 py-2 text-[10px] font-bold leading-tight text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
-                حذف
+                <span>حذف</span>
               </button>
               <button
                 type="button"
                 onClick={clearSelection}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/60 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/60 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
-                لغو
+                <span>لغو</span>
               </button>
             </div>
           </div>
