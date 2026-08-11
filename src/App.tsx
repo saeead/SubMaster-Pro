@@ -737,6 +737,92 @@ const App: React.FC = () => {
     }
   };
 
+
+  const handleAutoFixSelectedBlocks = (blockIds: number[]) => {
+      if (!activeFileId || blockIds.length === 0) return;
+      const file = files.find(f => f.id === activeFileId);
+      if (!file) return;
+
+      const selectedIds = new Set(blockIds);
+      const fixedBlocks = fixNetflixStandards(file.blocks, settings.outputStandard);
+      const fixedById = new Map(fixedBlocks.map(block => [block.id, block]));
+      const groupId = crypto.randomUUID();
+      const newHistory = file.modificationsMade ? file.modificationsMade.slice(0, file.historyPointer + 1) : [];
+      let changesCount = 0;
+
+      const updatedBlocks = file.blocks.map(block => {
+          if (!selectedIds.has(block.id)) return block;
+          const fixedBlock = fixedById.get(block.id);
+          if (!fixedBlock) return block;
+
+          const textChanged = block.translatedText !== fixedBlock.translatedText;
+          const endTimeChanged = block.endTime !== fixedBlock.endTime;
+          if (textChanged || endTimeChanged) {
+              changesCount++;
+              newHistory.push({
+                  blockId: block.id,
+                  oldState: {
+                      translatedText: block.translatedText,
+                      endTime: block.endTime
+                  },
+                  newState: {
+                      translatedText: fixedBlock.translatedText,
+                      endTime: fixedBlock.endTime
+                  },
+                  groupId,
+                  timestamp: new Date().toISOString()
+              });
+          }
+
+          return {
+              ...block,
+              translatedText: fixedBlock.translatedText,
+              endTime: fixedBlock.endTime
+          };
+      });
+
+      const remainingErrors = validateNetflixStandards(updatedBlocks, settings.outputStandard);
+      setFiles(prev => prev.map(f => f.id === activeFileId ? {
+          ...f,
+          blocks: updatedBlocks,
+          netflixErrors: remainingErrors,
+          modificationsMade: newHistory,
+          historyPointer: newHistory.length - 1
+      } : f));
+
+      showToast(
+          changesCount > 0
+              ? `اصلاح خودکار روی ${changesCount} بلوک انتخاب‌شده اعمال شد.`
+              : 'برای بلوک‌های انتخاب‌شده اصلاحی لازم نبود.',
+          changesCount > 0 ? 'success' : 'warning'
+      );
+  };
+
+  const handleDeleteSelectedBlocks = (blockIds: number[]) => {
+      if (!activeFileId || blockIds.length === 0) return;
+      const file = files.find(f => f.id === activeFileId);
+      if (!file) return;
+
+      const selectedIds = new Set(blockIds);
+      const deletedCount = file.blocks.filter(block => selectedIds.has(block.id)).length;
+      const remainingBlocks = file.blocks
+          .filter(block => !selectedIds.has(block.id))
+          .map((block, index) => ({ ...block, id: index + 1, index: index + 1 }));
+      const translatedCount = remainingBlocks.filter(block => !!block.translatedText).length;
+
+      setFiles(prev => prev.map(currentFile => currentFile.id === activeFileId ? {
+          ...currentFile,
+          blocks: remainingBlocks,
+          processedCount: translatedCount,
+          progress: remainingBlocks.length > 0 ? (translatedCount / remainingBlocks.length) * 100 : 0,
+          netflixErrors: validateNetflixStandards(remainingBlocks, settings.outputStandard),
+          modificationsMade: [],
+          historyPointer: -1
+      } : currentFile));
+
+      showToast(`${deletedCount} بلوک حذف شد.`, 'success');
+  };
+
   const handleOptimizePersianStructure = () => {
       if (!activeFileId) return;
       const file = files.find(f => f.id === activeFileId);
@@ -1163,7 +1249,7 @@ const App: React.FC = () => {
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
                     </div>
-                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} onRetranslateSelected={handleRetranslateSelectedBlocks} isRetranslatingSelection={isRetranslatingSelection} />
+                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} onRetranslateSelected={handleRetranslateSelectedBlocks} onAutoFixSelected={handleAutoFixSelectedBlocks} onDeleteSelected={handleDeleteSelectedBlocks} isRetranslatingSelection={isRetranslatingSelection} />
                 </>
             )}
         </main>
