@@ -340,6 +340,12 @@ Translation quality requirements:
 `;
   prompt += `- Keep each translatedText concise enough for subtitles while still sounding human and polished.
 `;
+  prompt += `- Return clean text only: no markdown, no labels, no notes, no raw markers inside translatedText.
+`;
+  prompt += `- Keep necessary names, brands, and technical terms from the source, but avoid accidental English filler.
+`;
+  prompt += `- Prefer one line when concise; use at most two readable lines only when needed.
+`;
   prompt += `- Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}]. Do not include markdown or explanations.`;
   return prompt;
 };
