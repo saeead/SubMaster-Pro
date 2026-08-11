@@ -304,6 +304,62 @@ export const smartChunking = (blocks: SubtitleBlock[], chunkSize: number = BATCH
   return chunks;
 };
 
+
+const PARAGRAPH_CHUNK_MAX_CHARS = 2600;
+const PARAGRAPH_CHUNK_MIN_BLOCKS = 8;
+
+const getBlockPlainText = (block: SubtitleBlock): string => block.originalText.replace(/\s+/g, ' ').trim();
+
+/**
+ * Paragraph method chunking: keeps the original subtitle blocks/timing intact,
+ * but groups adjacent cue texts as coherent marked paragraphs before they are sent
+ * to the model. The markers are later used by translateBatch to restore each
+ * translated sentence to its source block id.
+ */
+export const paragraphChunking = (blocks: SubtitleBlock[], maxChars: number = PARAGRAPH_CHUNK_MAX_CHARS): SubtitleChunk[] => {
+  const chunks: SubtitleChunk[] = [];
+  let start = 0;
+
+  while (start < blocks.length) {
+    let end = start;
+    let charCount = 0;
+    let lastSafeEnd = start;
+
+    while (end < blocks.length) {
+      const nextText = getBlockPlainText(blocks[end]);
+      const projected = charCount + nextText.length + 8; // marker and separator overhead
+      const previous = blocks[end - 1];
+      const current = blocks[end];
+      const reachedSoftBoundary = end > start && (
+        endsWithSentencePunctuation(previous?.originalText || '') ||
+        hasSpeakerBoundary(previous, current)
+      );
+
+      if (projected > maxChars && end > start) break;
+
+      charCount = projected;
+      end++;
+
+      if (reachedSoftBoundary && end - start >= PARAGRAPH_CHUNK_MIN_BLOCKS) {
+        lastSafeEnd = end - 1;
+      }
+    }
+
+    const targetEnd = lastSafeEnd > start && end < blocks.length ? lastSafeEnd : end;
+    const { contextStart, contextEnd } = getSmartContextWindow(blocks, start, targetEnd, OVERLAP_SIZE + 3);
+    const chunkBlocks = blocks.slice(contextStart, contextEnd);
+    chunks.push({
+      id: chunks.length,
+      blocks: chunkBlocks,
+      targetStartIndex: start - contextStart,
+      targetEndIndex: targetEnd - contextStart
+    });
+    start = targetEnd;
+  }
+
+  return chunks;
+};
+
 export const stringifySRT = (blocks: SubtitleBlock[]): string => {
   return blocks.map(block => {
     const text = block.translatedText && block.translatedText.trim() !== '' ? block.translatedText : block.originalText;

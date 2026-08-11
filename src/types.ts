@@ -101,6 +101,7 @@ export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
 export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
+export type TranslationMethod = 'default' | 'paragraph';
 
 export interface OpenAICompatibleService {
   id: string;
@@ -116,6 +117,7 @@ export interface AppSettings {
   temperature: number; // New field for Translation Quality
   outputFormat: 'srt' | 'vtt' | 'ass';
   outputStandard: OutputStandard;
+  translationMethod: TranslationMethod;
   model: ModelType;
   aiProvider: AIProvider;
   lmStudioBaseUrl: string;
