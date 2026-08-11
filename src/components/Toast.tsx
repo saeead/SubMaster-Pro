@@ -13,11 +13,9 @@ interface ToastProps {
 
 export const Toast: React.FC<ToastProps> = ({ message, type = 'error', onClose }) => {
   useEffect(() => {
-    // Duration depends on type: Errors need more time to read, warnings/success less
-    const duration = type === 'error' ? 12000 : 5000;
-    const timer = setTimeout(onClose, duration);
+    const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
-  }, [onClose, type]);
+  }, [onClose]);
 
   const getStyle = () => {
     switch (type) {

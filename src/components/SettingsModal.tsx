@@ -493,23 +493,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
               </div>
 
-              {/* Custom Prompt */}
-              <div className="space-y-3">
-                <label className="text-sm text-[#00f0ff] font-bold uppercase tracking-wider flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4" />
-                  پرامپت اختصاصی کاربر
-                </label>
-                <textarea
-                  value={settings.customPrompt}
-                  onChange={(e) => updateSettings({ customPrompt: e.target.value })}
-                  placeholder="مثلاً: اسامی شخصیت‌ها را ترجمه نکن، اصطلاحات فنی را انگلیسی نگه دار، یا لحن طنز را بیشتر کن..."
-                  className="w-full bg-[#0a0e27]/50 text-sm text-white placeholder-white/30 focus:outline-none resize-y min-h-[110px] rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all custom-scrollbar"
-                />
-                <p className="text-[11px] text-white/40 leading-relaxed">
-                  این متن به دستور سیستم ترجمه اضافه می‌شود و برای Gemini و LM Studio اعمال خواهد شد.
-                </p>
-              </div>
-
               {/* Model Selection */}
               <div className="space-y-4">
                  <div className="flex items-center gap-2">

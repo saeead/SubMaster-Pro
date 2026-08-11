@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { SubtitleBlock, NetflixError } from '../types';
-import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers, Undo, Redo, CheckSquare, Square, Languages, X, Loader2 } from 'lucide-react';
+import { Clock, AlertTriangle, Search, Replace, ArrowLeft, Layers, Undo, Redo, CheckSquare, Square, Languages, X, Loader2, Wand2, Trash2, ChevronsDown, ChevronsUp } from 'lucide-react';
 
 interface SubtitleEditorProps {
   blocks: SubtitleBlock[];
@@ -17,6 +17,8 @@ interface SubtitleEditorProps {
   canRedo: boolean;
   onCommitChange: (id: number, oldText: string, newText: string) => void;
   onRetranslateSelected: (ids: number[]) => Promise<void> | void;
+  onAutoFixSelected: (ids: number[]) => void;
+  onDeleteSelected: (ids: number[]) => void;
   isRetranslatingSelection?: boolean;
 }
 
@@ -32,12 +34,15 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   canRedo,
   onCommitChange,
   onRetranslateSelected,
+  onAutoFixSelected,
+  onDeleteSelected,
   isRetranslatingSelection = false
 }) => {
   const [findTerm, setFindTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
   const [scope, setScope] = useState<'current' | 'all'>('current');
   const [selectedBlockIds, setSelectedBlockIds] = useState<number[]>([]);
+  const [selectionAnchorId, setSelectionAnchorId] = useState<number | null>(null);
 
   useEffect(() => {
     const availableIds = new Set(blocks.map(block => block.id));
@@ -48,6 +53,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const selectedSet = new Set(selectedBlockIds);
 
   const toggleBlockSelection = (id: number) => {
+    setSelectionAnchorId(id);
     setSelectedBlockIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
@@ -57,6 +63,36 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
   const clearSelection = () => {
     setSelectedBlockIds([]);
+    setSelectionAnchorId(null);
+  };
+
+  const getSelectionAnchorIndex = () => {
+    const anchorId = selectionAnchorId ?? selectedBlockIds[0];
+    return blocks.findIndex(block => block.id === anchorId);
+  };
+
+  const selectBlocksBelow = () => {
+    const anchorIndex = getSelectionAnchorIndex();
+    if (anchorIndex === -1) return;
+    setSelectedBlockIds(blocks.slice(anchorIndex).map(block => block.id));
+  };
+
+  const selectBlocksAbove = () => {
+    const anchorIndex = getSelectionAnchorIndex();
+    if (anchorIndex === -1) return;
+    setSelectedBlockIds(blocks.slice(0, anchorIndex + 1).map(block => block.id));
+  };
+
+  const handleAutoFixSelection = () => {
+    if (selectedBlockIds.length === 0) return;
+    onAutoFixSelected(selectedBlockIds);
+    clearSelection();
+  };
+
+  const handleDeleteSelection = () => {
+    if (selectedBlockIds.length === 0) return;
+    onDeleteSelected(selectedBlockIds);
+    clearSelection();
   };
 
   const handleRetranslateSelection = async () => {
@@ -231,10 +267,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 </div>
               </div>
     
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6" dir="ltr">
                 {/* Original Text */}
-                <div className="relative group/input">
-                    <label className="absolute -top-3 right-3 px-2 bg-[#0a0e27] text-[10px] text-white/40 uppercase tracking-wider rounded border border-white/10">Original</label>
+                <div className="relative group/input" dir="ltr">
+                    <label className="absolute -top-3 left-3 px-2 bg-[#0a0e27] text-[10px] text-white/40 uppercase tracking-wider rounded border border-white/10">Original</label>
                     <div 
                         className="w-full p-4 bg-[#0a0e27]/50 rounded-xl text-white/80 text-sm leading-7 dir-ltr text-left border border-white/5 min-h-[100px]"
                     >
@@ -243,8 +279,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 </div>
     
                 {/* Translated Text */}
-                <div className="relative group/input">
-                    <label className={`absolute -top-3 left-3 px-2 bg-[#0a0e27] text-[10px] uppercase tracking-wider rounded border ${hasError ? 'text-[#E50914] border-[#E50914]/50' : 'text-[#00f0ff] border-[#00f0ff]/20'}`}>Persian</label>
+                <div className="relative group/input" dir="rtl">
+                    <label className={`absolute -top-3 right-3 px-2 bg-[#0a0e27] text-[10px] uppercase tracking-wider rounded border ${hasError ? 'text-[#E50914] border-[#E50914]/50' : 'text-[#00f0ff] border-[#00f0ff]/20'}`}>Persian</label>
                     <textarea
                         value={block.translatedText || ''}
                         onChange={(e) => onUpdateBlock(block.id, e.target.value)}
@@ -283,29 +319,65 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             <div className="text-center text-sm font-bold text-text sm:text-right">
               {selectedCount} بلوک انتخاب شده است
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
               <button
                 type="button"
                 onClick={selectAllBlocks}
                 disabled={selectedCount === blocks.length || isRetranslatingSelection}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 انتخاب همه
               </button>
               <button
                 type="button"
+                onClick={selectBlocksBelow}
+                disabled={isRetranslatingSelection}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronsDown className="h-4 w-4" />
+                انتخاب پایینی‌ها
+              </button>
+              <button
+                type="button"
+                onClick={selectBlocksAbove}
+                disabled={isRetranslatingSelection}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronsUp className="h-4 w-4" />
+                انتخاب بالایی‌ها
+              </button>
+              <button
+                type="button"
+                onClick={handleAutoFixSelection}
+                disabled={isRetranslatingSelection}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-[#E50914]/30 bg-[#E50914]/10 px-3 py-2 text-xs font-bold text-red-200 transition-all hover:bg-[#E50914]/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Wand2 className="h-4 w-4" />
+                اصلاح خودکار
+              </button>
+              <button
+                type="button"
                 onClick={handleRetranslateSelection}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-2 rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-4 py-2 text-xs font-bold text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-3 py-2 text-xs font-bold text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isRetranslatingSelection ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
                 ترجمه دوباره
               </button>
               <button
                 type="button"
+                onClick={handleDeleteSelection}
+                disabled={isRetranslatingSelection}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                حذف
+              </button>
+              <button
+                type="button"
                 onClick={clearSelection}
                 disabled={isRetranslatingSelection}
-                className="flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/60 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
                 لغو

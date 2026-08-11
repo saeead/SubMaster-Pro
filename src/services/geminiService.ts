@@ -51,60 +51,21 @@ const extractJsonArray = (text: string): string => {
 
 const RAW_MARKER_PATTERN = /⟦\d+⟧/;
 const MARKDOWN_OR_EXPLANATION_PATTERN = /(```|^#+\s|^\s*[-*]\s|ترجمه(?:\s*:| زیر)|translation\s*:|note\s*:|explanation\s*:)/im;
-const UNWANTED_ENGLISH_PATTERN = /[A-Za-z]{4,}/;
-const PERSIAN_WORD_PATTERN = /[\u0600-\u06FF]+/g;
+const ENGLISH_TOKEN_PATTERN = /[A-Za-z][A-Za-z0-9_.+#/-]{2,}/g;
+const COMMON_TECHNICAL_TERMS = new Set([
+  'api', 'apis', 'app', 'apps', 'backend', 'cache', 'cli', 'cloud', 'code', 'container',
+  'css', 'database', 'db', 'debug', 'deployment', 'docker', 'frontend', 'framework',
+  'github', 'html', 'http', 'https', 'javascript', 'json', 'kubernetes', 'linux',
+  'localstorage', 'model', 'models', 'node', 'npm', 'openai', 'plugin', 'proxy',
+  'python', 'react', 'server', 'service', 'typescript', 'ui', 'url', 'vite', 'vpn'
+]);
 
-const normalizeForSegmentationCheck = (text: string): string => (
-  text
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[ي]/g, 'ی')
-    .replace(/[ك]/g, 'ک')
-    .replace(/\s+/g, ' ')
-    .trim()
-);
+type QualityIssueSeverity = 'critical' | 'local' | 'none';
 
-const getPersianWordSet = (text: string): Set<string> => {
-  const words = normalizeForSegmentationCheck(text).match(PERSIAN_WORD_PATTERN) || [];
-  return new Set(words.filter(word => word.length > 2));
-};
-
-const jaccardSimilarity = (left: string, right: string): number => {
-  const leftWords = getPersianWordSet(left);
-  const rightWords = getPersianWordSet(right);
-  if (leftWords.size === 0 || rightWords.size === 0) return 0;
-  let intersection = 0;
-  leftWords.forEach(word => { if (rightWords.has(word)) intersection++; });
-  const union = leftWords.size + rightWords.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-};
-
-const validateParagraphSegmentation = (targetBatch: BatchRequest[], results: BatchResponse[]): BatchResponse[] => {
-  const errors: string[] = [];
-  const byId = new Map(results.map(item => [item.id, item]));
-
-  targetBatch.forEach((source, index) => {
-    const current = byId.get(source.id);
-    if (!current) return;
-
-    const sourceLength = countReadableChars(source.text);
-    const translatedLength = countReadableChars(current.translatedText);
-    const maxAllowedLength = Math.max(70, Math.round(sourceLength * 1.75));
-    if (sourceLength > 0 && translatedLength > maxAllowedLength) {
-      errors.push(`id ${source.id} is too long for its source cue (${translatedLength}/${maxAllowedLength})`);
-    }
-
-    const previous = index > 0 ? byId.get(targetBatch[index - 1].id) : undefined;
-    if (previous && jaccardSimilarity(previous.translatedText, current.translatedText) > 0.72) {
-      errors.push(`ids ${targetBatch[index - 1].id} and ${source.id} look duplicated or merged`);
-    }
-  });
-
-  if (errors.length > 0) {
-    throw new Error(`Paragraph segmentation failed: ${errors.slice(0, 5).join('; ')}`);
-  }
-
-  return results;
-};
+interface QualityAssessment {
+  severity: QualityIssueSeverity;
+  reasons: string[];
+}
 
 const validateBatchResponse = (targetIds: number[], response: unknown): BatchResponse[] => {
   if (!Array.isArray(response)) {
@@ -158,21 +119,114 @@ const validateBatchResponse = (targetIds: number[], response: unknown): BatchRes
 
 const countReadableChars = (text: string): number => text.replace(/[\r\n]+/g, '').length;
 
-const hasQualityIssue = (result: BatchResponse, source?: BatchRequest): boolean => {
-  const text = result.translatedText.trim();
-  const maxLineLength = Math.max(...text.split('\n').map(line => line.length));
-  const sourceLength = source ? countReadableChars(source.text) : 0;
+const normalizeEnglishToken = (token: string): string => token.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
 
-  return (
-    text === '' ||
-    RAW_MARKER_PATTERN.test(text) ||
-    MARKDOWN_OR_EXPLANATION_PATTERN.test(text) ||
-    UNWANTED_ENGLISH_PATTERN.test(text) ||
-    maxLineLength > 42 ||
-    text.split('\n').length > 2 ||
-    (sourceLength > 0 && text.length > sourceLength * 2.3)
-  );
+const extractEnglishTokens = (text: string): Set<string> => {
+  const tokens = new Set<string>();
+  for (const match of text.matchAll(ENGLISH_TOKEN_PATTERN)) {
+    const normalized = normalizeEnglishToken(match[0]);
+    if (normalized) tokens.add(normalized);
+  }
+  return tokens;
 };
+
+const hasUnwantedEnglish = (translatedText: string, source?: BatchRequest, settings?: AppSettings): boolean => {
+  const translatedTokens = extractEnglishTokens(translatedText);
+  if (translatedTokens.size === 0) return false;
+
+  const sourceTokens = source ? extractEnglishTokens(source.text) : new Set<string>();
+  const glossaryTerms = new Set(
+    (settings?.glossary || [])
+      .flatMap(item => Array.from(extractEnglishTokens(`${item.term} ${item.translation}`)))
+      .map(normalizeEnglishToken)
+  );
+
+  const unexpectedTokens = Array.from(translatedTokens).filter(token => (
+    !sourceTokens.has(token) &&
+    !glossaryTerms.has(token) &&
+    !COMMON_TECHNICAL_TERMS.has(token)
+  ));
+
+  if (unexpectedTokens.length === 0) return false;
+
+  const latinCharCount = (translatedText.match(/[A-Za-z]/g) || []).length;
+  const readableChars = Math.max(1, countReadableChars(translatedText));
+  return unexpectedTokens.length >= 2 || latinCharCount / readableChars > 0.35;
+};
+
+const normalizeSubtitleLinesLocally = (text: string): string => {
+  const clean = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  if (clean.length <= 42) return clean;
+
+  const words = clean.split(' ');
+  const targetLength = clean.length / 2;
+  let bestIndex = Math.max(1, Math.floor(words.length / 2));
+  let currentLength = 0;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let i = 1; i < words.length; i++) {
+    currentLength += words[i - 1].length + 1;
+    const punctuationBonus = /[،,:؛;.!؟?]$/.test(words[i - 1]) ? -8 : 0;
+    const balancePenalty = Math.abs(currentLength - targetLength);
+    const lineOverflowPenalty = Math.max(0, currentLength - 42) * 2;
+    const score = balancePenalty + lineOverflowPenalty + punctuationBonus;
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+
+  return `${words.slice(0, bestIndex).join(' ')}\n${words.slice(bestIndex).join(' ')}`.trim();
+};
+
+const locallyNormalizeDraft = (draft: BatchResponse[]): BatchResponse[] => (
+  draft.map(item => ({ ...item, translatedText: normalizeSubtitleLinesLocally(item.translatedText) || item.translatedText.trim() }))
+);
+
+const assessTranslationQuality = (result: BatchResponse, source?: BatchRequest, settings?: AppSettings): QualityAssessment => {
+  const text = result.translatedText.trim();
+  const lines = text.split('\n');
+  const maxLineLength = Math.max(...lines.map(line => line.length));
+  const sourceLength = source ? countReadableChars(source.text) : 0;
+  const reasons: string[] = [];
+
+  if (text === '') reasons.push('empty translation');
+  if (RAW_MARKER_PATTERN.test(text)) reasons.push('raw subtitle marker');
+  if (MARKDOWN_OR_EXPLANATION_PATTERN.test(text)) reasons.push('markdown/explanation');
+  if (hasUnwantedEnglish(text, source, settings)) reasons.push('unwanted English');
+  if (sourceLength > 0 && text.length > Math.max(sourceLength * 2.8, sourceLength + 90)) reasons.push('suspiciously long translation');
+
+  if (reasons.length > 0) {
+    return { severity: 'critical', reasons };
+  }
+
+  const localReasons: string[] = [];
+  if (maxLineLength > 42) localReasons.push('line too long');
+  if (lines.length > 2) localReasons.push('too many lines');
+
+  return localReasons.length > 0
+    ? { severity: 'local', reasons: localReasons }
+    : { severity: 'none', reasons: [] };
+};
+
+const getCriticalReviewTargets = (
+  targetBatch: BatchRequest[],
+  draft: BatchResponse[],
+  settings: AppSettings,
+  forceParagraphMode: boolean
+): BatchRequest[] => {
+  if (forceParagraphMode) return targetBatch;
+  return targetBatch.filter(block => {
+    const result = draft.find(item => item.id === block.id);
+    if (!result) return true;
+    return assessTranslationQuality(result, block, settings).severity === 'critical';
+  });
+};
+
+const mergeReviewedTranslations = (draft: BatchResponse[], reviewed: BatchResponse[]): BatchResponse[] => (
+  locallyNormalizeDraft(draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item))
+);
 
 const buildReviewPrompt = (
   targetBatch: BatchRequest[],
@@ -650,31 +704,25 @@ export const translateBatch = async (
 
       if (settings.aiProvider === 'lm_studio') {
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
-        const draft = validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
-        const reviewTargets = forceParagraphMode
-          ? targetBatch
-          : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
-        if (reviewTargets.length === 0) return forceParagraphMode ? validateParagraphSegmentation(targetBatch, draft) : draft;
-        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre, contextPost);
+        const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
+        const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
+        if (reviewTargets.length === 0) return draft;
+        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
         const reviewedText = await callLmStudioChat(settings, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        const mergedResults = draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
-        return forceParagraphMode ? validateParagraphSegmentation(targetBatch, mergedResults) : mergedResults;
+        return mergeReviewedTranslations(draft, reviewed);
       }
 
       if (settings.aiProvider === 'openai_compatible') {
         const service = getActiveOpenAICompatibleService(settings);
         const text = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
-        const draft = validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
-        const reviewTargets = forceParagraphMode
-          ? targetBatch
-          : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
-        if (reviewTargets.length === 0) return forceParagraphMode ? validateParagraphSegmentation(targetBatch, draft) : draft;
-        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre, contextPost);
+        const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
+        const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
+        if (reviewTargets.length === 0) return draft;
+        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
         const reviewedText = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        const mergedResults = draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
-        return forceParagraphMode ? validateParagraphSegmentation(targetBatch, mergedResults) : mergedResults;
+        return mergeReviewedTranslations(draft, reviewed);
       }
 
       const ai = new GoogleGenAI({ apiKey: currentApiKey });
@@ -692,17 +740,15 @@ export const translateBatch = async (
 
       if (!response.text) throw new Error("Empty response from Gemini");
 
-      const draft = validateBatchResponse(targetIds, JSON.parse(response.text));
-      const reviewTargets = forceParagraphMode
-        ? targetBatch
-        : targetBatch.filter(block => hasQualityIssue(draft.find(item => item.id === block.id)!, block));
-      if (reviewTargets.length === 0) return forceParagraphMode ? validateParagraphSegmentation(targetBatch, draft) : draft;
+      const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(response.text)));
+      const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
+      if (reviewTargets.length === 0) return draft;
 
       const reviewPrompt = buildReviewPrompt(
         reviewTargets,
         draft.filter(item => reviewTargets.some(block => block.id === item.id)),
-        contextPre,
-        contextPost
+        contextPre.slice(-2),
+        contextPost.slice(0, 2)
       );
       const reviewResponse = await ai.models.generateContent({
         model: modelName,
@@ -718,8 +764,7 @@ export const translateBatch = async (
 
       if (!reviewResponse.text) throw new Error("Empty review response from Gemini");
       const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(reviewResponse.text));
-      const mergedResults = draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item);
-      return forceParagraphMode ? validateParagraphSegmentation(targetBatch, mergedResults) : mergedResults;
+      return mergeReviewedTranslations(draft, reviewed);
 
     } catch (error: any) {
       const errorMessage = extractErrorDetails(error);
