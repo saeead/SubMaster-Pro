@@ -250,16 +250,55 @@ export const optimizePersianStructure = (blocks: SubtitleBlock[]): SubtitleBlock
 
 export interface SubtitleChunk { id: number; blocks: SubtitleBlock[]; targetStartIndex: number; targetEndIndex: number; }
 
+const endsWithSentencePunctuation = (text: string): boolean => /[.!?؟…؛;]["')\]]?\s*$/.test(text.trim());
+const startsWithDialogueMarker = (text: string): boolean => /^\s*[-–—]\s+/.test(text);
+const hasSpeakerBoundary = (left?: SubtitleBlock, right?: SubtitleBlock): boolean => {
+  if (!left || !right) return false;
+  const leftIsDialogue = startsWithDialogueMarker(left.originalText);
+  const rightIsDialogue = startsWithDialogueMarker(right.originalText);
+  return leftIsDialogue || rightIsDialogue;
+};
+
+export const getSmartContextWindow = (
+  blocks: SubtitleBlock[],
+  targetStart: number,
+  targetEndExclusive: number,
+  maxContextBlocks: number = 4
+): { contextStart: number; contextEnd: number } => {
+  let contextStart = targetStart;
+  let contextEnd = targetEndExclusive;
+
+  while (
+    contextStart > 0 &&
+    targetStart - contextStart < maxContextBlocks &&
+    !endsWithSentencePunctuation(blocks[contextStart - 1].originalText) &&
+    !hasSpeakerBoundary(blocks[contextStart - 1], blocks[contextStart])
+  ) {
+    contextStart--;
+  }
+
+  while (
+    contextEnd < blocks.length &&
+    contextEnd - targetEndExclusive < maxContextBlocks &&
+    !endsWithSentencePunctuation(blocks[contextEnd - 1].originalText) &&
+    !hasSpeakerBoundary(blocks[contextEnd - 1], blocks[contextEnd])
+  ) {
+    contextEnd++;
+  }
+
+  return { contextStart, contextEnd };
+};
+
 export const smartChunking = (blocks: SubtitleBlock[], chunkSize: number = BATCH_SIZE): SubtitleChunk[] => {
   const chunks: SubtitleChunk[] = [];
-  const overlap = OVERLAP_SIZE;
   for (let i = 0; i < blocks.length; i += chunkSize) {
-    const start = Math.max(0, i - overlap);
-    const end = Math.min(blocks.length, i + chunkSize + overlap);
+    const targetEnd = Math.min(blocks.length, i + chunkSize);
+    const { contextStart, contextEnd } = getSmartContextWindow(blocks, i, targetEnd, OVERLAP_SIZE + 3);
+    const start = contextStart;
+    const end = contextEnd;
     const chunkBlocks = blocks.slice(start, end);
     const relativeStart = i - start;
-    const targetCount = Math.min(chunkSize, blocks.length - i);
-    const relativeEnd = relativeStart + targetCount;
+    const relativeEnd = relativeStart + (targetEnd - i);
     chunks.push({ id: chunks.length, blocks: chunkBlocks, targetStartIndex: relativeStart, targetEndIndex: relativeEnd });
   }
   return chunks;

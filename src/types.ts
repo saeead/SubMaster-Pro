@@ -41,6 +41,7 @@ export interface SubtitleFile {
   status: AppStatus;
   progress: number;
   progressMessage?: string;
+  diagnostic?: TranslationDiagnostic | null;
   processingDuration?: string | null;
   netflixErrors?: NetflixError[];
   processedCount: number;
@@ -60,11 +61,25 @@ export interface TranslationStats {
 export interface BatchRequest {
   id: number;
   text: string;
+  previousTranslatedText?: string;
+  problemHint?: string;
 }
 
 export interface BatchResponse {
   id: number;
   translatedText: string;
+}
+
+export type DiagnosticSeverity = 'info' | 'warning' | 'error';
+
+export interface TranslationDiagnostic {
+  code: string;
+  severity: DiagnosticSeverity;
+  title: string;
+  cause: string;
+  recovery: string;
+  technicalDetails?: string;
+  timestamp: string;
 }
 
 export interface UserAPIKey {

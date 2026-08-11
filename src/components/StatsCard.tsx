@@ -65,6 +65,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   const isError = status === AppStatus.ERROR;
   const validationErrors = activeFile.netflixErrors || [];
   const hasErrors = validationErrors.length > 0;
+  const diagnostic = activeFile.diagnostic;
   const hasTranslation = translatedCount > 0;
   const canDownloadOutput = isCompleted || ((isPaused || isCancelled || isError) && hasTranslation);
 
@@ -198,6 +199,38 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                 </div>
             </div>
         </div>
+
+        {diagnostic && (
+            <div className={`rounded-2xl border p-4 ${
+                diagnostic.severity === 'error'
+                    ? 'bg-red-500/10 border-red-500/30'
+                    : diagnostic.severity === 'warning'
+                        ? 'bg-yellow-500/10 border-yellow-500/30'
+                        : 'bg-blue-500/10 border-blue-500/30'
+            }`}>
+                <div className="flex items-start gap-3">
+                    <XCircle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
+                        diagnostic.severity === 'error' ? 'text-red-400' : diagnostic.severity === 'warning' ? 'text-yellow-400' : 'text-blue-400'
+                    }`} />
+                    <div className="space-y-2 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <strong className="text-white">{diagnostic.title}</strong>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 dir-ltr">{diagnostic.code}</span>
+                        </div>
+                        <p className="text-white/75 leading-relaxed"><span className="text-white/90 font-bold">علت احتمالی:</span> {diagnostic.cause}</p>
+                        <p className="text-white/75 leading-relaxed"><span className="text-white/90 font-bold">راه‌حل پیشنهادی:</span> {diagnostic.recovery}</p>
+                        {diagnostic.technicalDetails && (
+                            <details className="text-white/55">
+                                <summary className="cursor-pointer hover:text-white transition-colors">جزئیات فنی</summary>
+                                <pre className="mt-2 max-h-28 overflow-auto rounded-lg bg-black/30 p-3 text-[11px] whitespace-pre-wrap dir-ltr text-left">
+                                    {diagnostic.technicalDetails}
+                                </pre>
+                            </details>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Action Buttons - Centered and 1/3 Width on Desktop */}
         <div className="flex flex-col md:flex-row items-center justify-center gap-4">
