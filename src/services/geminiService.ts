@@ -35,6 +35,40 @@ const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
   return `${normalizeOpenAIBaseUrl(trimmed, 'https://api.openai.com/v1')}/chat/completions`;
 };
 
+const isOpenRouterService = (service: Pick<OpenAICompatibleService, 'baseUrl' | 'name'>): boolean => (
+  service.baseUrl.toLowerCase().includes('openrouter.ai') || service.name.toLowerCase().includes('openrouter')
+);
+
+const normalizeOpenAICompatibleModel = (service: OpenAICompatibleService): string => {
+  const model = service.model.trim();
+  if (!model || !isOpenRouterService(service) || model.includes('/')) return model;
+
+  if (/^gpt-|^o[134](?:-|$)/i.test(model)) return `openai/${model}`;
+  if (/^gemini-/i.test(model)) return `google/${model}`;
+  if (/^claude-/i.test(model)) return `anthropic/${model}`;
+  if (/^llama/i.test(model)) return `meta-llama/${model}`;
+  if (/^mistral/i.test(model)) return `mistralai/${model}`;
+
+  return model;
+};
+
+const buildOpenAICompatibleHeaders = (service: OpenAICompatibleService): Record<string, string> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+  const apiKey = service.apiKey.trim();
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+  if (isOpenRouterService(service)) {
+    const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    headers['HTTP-Referer'] = appOrigin;
+    headers['X-OpenRouter-Title'] = 'SubMaster Pro';
+  }
+
+  return headers;
+};
+
 const normalizeLmStudioBaseUrl = (baseUrl: string): string => normalizeOpenAIBaseUrl(baseUrl);
 
 const extractJsonArray = (text: string): string => {
@@ -306,26 +340,32 @@ const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatib
 
 const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean): Promise<Response> => {
   const endpointUrl = resolveOpenAIChatCompletionsUrl(service.baseUrl);
+  const upstreamHeaders = buildOpenAICompatibleHeaders(service);
+
   if (useProxy) {
     return fetch('/api/openai-compatible/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpointUrl, apiKey: service.apiKey, body })
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ endpointUrl, headers: upstreamHeaders, body })
     });
   }
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (service.apiKey.trim()) headers.Authorization = `Bearer ${service.apiKey.trim()}`;
   return fetch(endpointUrl, {
     method: 'POST',
-    headers,
+    headers: upstreamHeaders,
     body: JSON.stringify(body)
   });
 };
 
+const shouldFallbackFromProxyResponse = (response: Response): boolean => {
+  if (response.status !== 404 && response.status !== 405) return false;
+  const contentType = response.headers.get('content-type') || '';
+  return !contentType.includes('application/json');
+};
+
 const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string): Promise<string> => {
   const body = {
-    model: service.model.trim(),
+    model: normalizeOpenAICompatibleModel(service),
     messages: [
       { role: 'system', content: systemInstruction },
       { role: 'user', content: userPrompt }
@@ -336,11 +376,14 @@ const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temper
 
   let response: Response;
   try {
-    response = await requestOpenAICompatibleChat(service, body, false);
-  } catch (error: any) {
-    const msg = extractErrorDetails(error);
-    if (!msg.includes('failed to fetch') && !msg.includes('network')) throw error;
     response = await requestOpenAICompatibleChat(service, body, true);
+    if (shouldFallbackFromProxyResponse(response)) {
+      response = await requestOpenAICompatibleChat(service, body, false);
+    }
+  } catch (proxyError: any) {
+    const msg = extractErrorDetails(proxyError);
+    if (!msg.includes('failed to fetch') && !msg.includes('network') && !msg.includes('unexpected token')) throw proxyError;
+    response = await requestOpenAICompatibleChat(service, body, false);
   }
 
   if (!response.ok) {
@@ -501,11 +544,14 @@ const getOpenAICompatibleFriendlyError = (error: any, serviceName = 'OpenAI Comp
   if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key')) {
     return `⛔ API Key سرویس ${serviceName} معتبر نیست یا دسترسی لازم را ندارد.`;
   }
-  if (msg.includes('404') || msg.includes('not found')) {
-    return `⚠️ مسیر Chat Completions برای ${serviceName} پیدا نشد (404). اگر سرویس مسیر متفاوتی دارد، URL کامل chat/completions را در فیلد Base URL وارد کنید.`;
+  if (msg.includes('model') || msg.includes('no endpoints found') || msg.includes('provider') || msg.includes('data policy')) {
+    const openRouterHint = serviceName.toLowerCase().includes('openrouter')
+      ? ' در OpenRouter معمولاً باید شناسه کامل مدل را وارد کنید؛ مثلاً openai/gpt-4o-mini یا google/gemini-2.0-flash-001. نام gemini-40-mini معتبر نیست و احتمالاً منظور gpt-4o-mini یا یک مدل Gemini با پیشوند google/ است.'
+      : '';
+    return `⚠️ نام مدل برای ${serviceName} معتبر نیست یا توسط سرویس پشتیبانی نمی‌شود.${openRouterHint}`;
   }
-  if (msg.includes('model')) {
-    return `⚠️ نام مدل برای ${serviceName} معتبر نیست یا توسط سرویس پشتیبانی نمی‌شود.`;
+  if (msg.includes('404') || msg.includes('not found')) {
+    return `⚠️ سرویس ${serviceName} پاسخ 404 داد. اگر خطا مربوط به مدل نبود، Base URL را به شکل https://openrouter.ai/api/v1 یا URL کامل chat/completions وارد کنید.`;
   }
   return `⚠️ اتصال به ${serviceName} برقرار نشد: ${msg.substring(0, 180)}`;
 };

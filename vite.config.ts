@@ -10,27 +10,53 @@ const readRequestBody = (req: import('http').IncomingMessage): Promise<string> =
   req.on('error', reject);
 });
 
+const normalizeOpenAICompatibleEndpoint = (baseUrl?: string, endpointUrl?: string): string => {
+  const rawUrl = (endpointUrl || baseUrl || '').trim().replace(/\/+$/, '');
+  if (!rawUrl) throw new Error('Missing endpointUrl');
+
+  const targetUrl = rawUrl.endsWith('/chat/completions')
+    ? rawUrl
+    : `${rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl}/v1`}/chat/completions`;
+  const parsedUrl = new URL(targetUrl);
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Only http and https endpoints are supported');
+  return parsedUrl.toString();
+};
+
 const openAICompatibleProxy = (): Plugin => {
   const handler = async (req: import('http').IncomingMessage, res: import('http').ServerResponse) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      });
+      res.end();
+      return;
+    }
+
     if (req.method !== 'POST') {
-      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.writeHead(405, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ error: 'Method not allowed' }));
       return;
     }
 
     try {
       const rawBody = await readRequestBody(req);
-      const { baseUrl, endpointUrl, apiKey, body } = JSON.parse(rawBody || '{}') as {
+      const { baseUrl, endpointUrl, apiKey, headers: incomingHeaders, body } = JSON.parse(rawBody || '{}') as {
         baseUrl?: string;
         endpointUrl?: string;
         apiKey?: string;
+        headers?: Record<string, string>;
         body?: unknown;
       };
-      const targetUrl = (endpointUrl || (baseUrl ? `${baseUrl.trim().replace(/\/+$/, '')}/chat/completions` : '')).trim();
-      if (!targetUrl) throw new Error('Missing endpointUrl');
+      const targetUrl = normalizeOpenAICompatibleEndpoint(baseUrl, endpointUrl);
 
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (apiKey?.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(incomingHeaders || {})
+      };
+      if (apiKey?.trim() && !headers.Authorization) headers.Authorization = `Bearer ${apiKey.trim()}`;
 
       const upstreamResponse = await fetch(targetUrl, {
         method: 'POST',
@@ -46,7 +72,7 @@ const openAICompatibleProxy = (): Plugin => {
       });
       res.end(responseText);
     } catch (error: any) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ error: error?.message || 'Proxy request failed' }));
     }
   };
