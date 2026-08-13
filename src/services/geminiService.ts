@@ -35,6 +35,24 @@ const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
   return `${normalizeOpenAIBaseUrl(trimmed, 'https://api.openai.com/v1')}/chat/completions`;
 };
 
+const buildOpenAICompatibleHeaders = (service: OpenAICompatibleService): Record<string, string> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+  const apiKey = service.apiKey.trim();
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+  const endpointUrl = resolveOpenAIChatCompletionsUrl(service.baseUrl);
+  if (endpointUrl.includes('openrouter.ai')) {
+    const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    headers['HTTP-Referer'] = appOrigin;
+    headers['X-OpenRouter-Title'] = 'SubMaster Pro';
+  }
+
+  return headers;
+};
+
 const normalizeLmStudioBaseUrl = (baseUrl: string): string => normalizeOpenAIBaseUrl(baseUrl);
 
 const extractJsonArray = (text: string): string => {
@@ -306,21 +324,27 @@ const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatib
 
 const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean): Promise<Response> => {
   const endpointUrl = resolveOpenAIChatCompletionsUrl(service.baseUrl);
+  const upstreamHeaders = buildOpenAICompatibleHeaders(service);
+
   if (useProxy) {
     return fetch('/api/openai-compatible/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpointUrl, apiKey: service.apiKey, body })
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ endpointUrl, headers: upstreamHeaders, body })
     });
   }
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (service.apiKey.trim()) headers.Authorization = `Bearer ${service.apiKey.trim()}`;
   return fetch(endpointUrl, {
     method: 'POST',
-    headers,
+    headers: upstreamHeaders,
     body: JSON.stringify(body)
   });
+};
+
+const shouldFallbackFromProxyResponse = (response: Response): boolean => {
+  if (response.status !== 404 && response.status !== 405) return false;
+  const contentType = response.headers.get('content-type') || '';
+  return !contentType.includes('application/json');
 };
 
 const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string): Promise<string> => {
@@ -336,11 +360,14 @@ const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temper
 
   let response: Response;
   try {
-    response = await requestOpenAICompatibleChat(service, body, false);
-  } catch (error: any) {
-    const msg = extractErrorDetails(error);
-    if (!msg.includes('failed to fetch') && !msg.includes('network')) throw error;
     response = await requestOpenAICompatibleChat(service, body, true);
+    if (shouldFallbackFromProxyResponse(response)) {
+      response = await requestOpenAICompatibleChat(service, body, false);
+    }
+  } catch (proxyError: any) {
+    const msg = extractErrorDetails(proxyError);
+    if (!msg.includes('failed to fetch') && !msg.includes('network') && !msg.includes('unexpected token')) throw proxyError;
+    response = await requestOpenAICompatibleChat(service, body, false);
   }
 
   if (!response.ok) {
