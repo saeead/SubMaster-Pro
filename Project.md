@@ -34,6 +34,7 @@ src/
     subtitleUtils.ts              parse/stringify زیرنویس، chunking، timing و QC
     translationMemory.ts          حافظه ترجمه روی localStorage
     projectStateManager.ts        ذخیره/بازیابی پروژه روی localStorage
+    translationJobRunner.ts       صف ترجمه، lifecycle jobها و AbortController
   components/
     Header.tsx                    نوار بالایی و اکشن‌های عمومی
     Sidebar.tsx                   لیست فایل‌ها و نشست‌های ذخیره‌شده
@@ -50,6 +51,8 @@ src/
 ## 4. مدل داده و state اصلی
 
 مدل اصلی هر cue زیرنویس، `SubtitleBlock` است. هر بلوک شامل `id`، زمان شروع و پایان، متن اصلی، متن ترجمه‌شده و `index` نمایشی است. وضعیت کلی هر فایل با `SubtitleFile` نگهداری می‌شود که علاوه بر metadata فایل، لیست بلوک‌ها، وضعیت پردازش، درصد پیشرفت، خطاهای استاندارد خروجی، شمارش پردازش‌شده‌ها و تاریخچه undo/redo را دارد.
+
+در `AppSettings` فیلد `targetLanguage` هم وجود دارد تا pipeline ترجمه، promptها و formatterها به فارسی محدود نباشند.
 
 وضعیت پردازش فایل با enum `AppStatus` مدیریت می‌شود:
 
@@ -69,9 +72,9 @@ src/
 معماری پروژه به صورت **client-side layered SPA** است:
 
 1. **لایه UI**: کامپوننت‌های React در `src/components` برای دریافت فایل، تنظیمات، نمایش لیست فایل‌ها، ویرایش زیرنویس و export.
-2. **لایه orchestration**: فایل `src/App.tsx` که state اصلی را نگه می‌دارد و جریان‌هایی مثل بارگذاری فایل، شروع ترجمه، توقف، ادامه، ذخیره، export و batch actions را هماهنگ می‌کند.
-3. **لایه domain utilities**: فایل `src/services/subtitleUtils.ts` که parse، stringify، chunking، تنظیم زمان و اعتبارسنجی استانداردها را انجام می‌دهد.
-4. **لایه AI gateway**: فایل `src/services/geminiService.ts` که prompt می‌سازد، provider مناسب را فراخوانی می‌کند، خروجی JSON را validate می‌کند، retry و چرخش کلید API را مدیریت می‌کند و خطاها را diagnostic-friendly می‌کند.
+2. **لایه orchestration**: فایل `src/App.tsx` که state اصلی را نگه می‌دارد و جریان‌هایی مثل بارگذاری فایل، شروع ترجمه، توقف، ادامه، ذخیره، export و batch actions را هماهنگ می‌کند. orchestration ترجمه اکنون روی job queue جداگانه سوار شده است.
+3. **لایه domain utilities**: فایل `src/services/subtitleUtils.ts` که parse، stringify، chunking، تنظیم زمان، formatterهای زبان‌محور و اعتبارسنجی استانداردها را انجام می‌دهد.
+4. **لایه AI gateway**: فایل `src/services/geminiService.ts` که prompt می‌سازد، provider مناسب را فراخوانی می‌کند، خروجی JSON را validate می‌کند، retry و چرخش کلید API را مدیریت می‌کند و خطاها را diagnostic-friendly می‌کند. این لایه برای providerهای HTTP از AbortController هم پشتیبانی می‌کند.
 5. **لایه persistence محلی**: فایل‌های `translationMemory.ts` و `projectStateManager.ts` که داده‌ها را در `localStorage` ذخیره و بازیابی می‌کنند.
 
 ## 6. جریان بارگذاری فایل
@@ -149,14 +152,16 @@ Parserها در `subtitleUtils.ts` پیاده‌سازی شده‌اند:
 
 ### 9.3 توقف، pause و cancel
 
-پروژه به جای cancel کردن مستقیم promiseهای در حال اجرا، از refها استفاده می‌کند:
+پروژه قبلاً به جای cancel کردن مستقیم promiseهای در حال اجرا، از refها استفاده می‌کرد. اکنون یک job queue سبک هم وجود دارد و برای jobهای قابل‌لغو، `AbortController` روی درخواست جاری اعمال می‌شود:
 
 - `isTranslatingRef.current = false` باعث توقف loop بعد از پایان مرحله جاری می‌شود.
 - `isPausedRef.current = true` تفاوت pause با cancel را مشخص می‌کند.
+- `TranslationJobRunner` jobهای queued/running/paused/cancelled را مدیریت می‌کند.
+- `AbortController` برای fetchهای LM Studio و OpenAI-compatible پاس داده می‌شود.
 - در pause، وضعیت پروژه ذخیره می‌شود و فایل به `PAUSED` می‌رود.
 - در cancel، وضعیت فایل‌های در حال ترجمه یا pause شده به `CANCELLED` می‌رود.
 
-این طراحی ساده و قابل اتکا است، اما abort فوری درخواست شبکه را انجام نمی‌دهد.
+این طراحی هنوز client-side است، اما توقف شبکه را بسیار سریع‌تر و قابل پیش‌بینی‌تر کرده است.
 
 ## 10. لایه AI و کیفیت خروجی
 
@@ -177,6 +182,7 @@ Parserها در `subtitleUtils.ts` پیاده‌سازی شده‌اند:
 - idها غیرمنتظره، تکراری یا missing نباشند.
 - متن شامل marker خام، markdown یا توضیحات اضافه نباشد.
 - تعداد خروجی با تعداد targetها برابر باشد.
+- ترجمه‌های تکراری پشت‌سرهم و cueهای بیش از حد بلند هم علامت‌گذاری می‌شوند.
 
 سپس خروجی بر اساس ترتیب target idها مرتب می‌شود.
 
@@ -198,6 +204,7 @@ Parserها در `subtitleUtils.ts` پیاده‌سازی شده‌اند:
 
 - تعداد کل/انجام‌شده/باقی‌مانده chunkها.
 - بلوک‌های پردازش‌شده.
+- `processedBlockIds` برای resume پایدارتر.
 - کل بلوک‌های فایل.
 - وضعیت و درصد پیشرفت.
 - تاریخچه تغییرات.
@@ -205,7 +212,7 @@ Parserها در `subtitleUtils.ts` پیاده‌سازی شده‌اند:
 
 در `App.tsx` با هر تغییر در `files`، auto-save اجرا می‌شود. کاربر همچنین می‌تواند ذخیره دستی، import backup JSON و export backup JSON انجام دهد.
 
-نکته امنیتی مهم: schema پروژه فیلد `apiKeyUsed` دارد و در auto-save فعلی، کلید معتبر انتخاب‌شده ممکن است در localStorage ذخیره شود. در export فایل پشتیبان، این فیلد پاک می‌شود؛ اما ذخیره محلی هنوز باید از نظر امنیتی بازبینی شود.
+نکته امنیتی مهم: schema پروژه هنوز فیلد `apiKeyUsed` را به‌صورت backward-compatible نگه می‌دارد، اما در مسیر save/export مقدار آن خالی می‌شود تا کلید واقعی ذخیره نشود.
 
 ## 13. ویرایش، undo/redo و عملیات گروهی
 
@@ -247,6 +254,7 @@ Shortcutها:
 - SRT با `stringifySRT` تولید می‌شود.
 - VTT با `stringifyVTT` تولید می‌شود و در صورت فعال بودن style، block `STYLE` و کلاس cue اضافه می‌شود.
 - ASS با `stringifyASS` تولید می‌شود و style کامل شامل فونت، رنگ، outline/box، shadow و alignment در header نوشته می‌شود.
+- formatter خروجی اکنون بر اساس `targetLanguage` هم line break مناسب‌تری می‌سازد.
 
 اگر `translatedText` وجود نداشته باشد، خروجی برای آن cue از `originalText` استفاده می‌کند تا فایل ناقص هم قابل export باشد.
 
@@ -276,4 +284,4 @@ Upload files
   -> export SRT/VTT/ASS or ZIP
 ```
 
-نقطه قوت اصلی معماری، ساده بودن deploy و اجرای کاملاً client-side است. نقطه ضعف اصلی همین معماری، محدودیت‌های localStorage، نبود job queue واقعی، نبود AbortController برای لغو فوری network request، نبود تست خودکار و ریسک امنیتی ذخیره API key در مرورگر است.
+نقطه قوت اصلی معماری، ساده بودن deploy و اجرای کاملاً client-side است. نقطه ضعف اصلی همین معماری، محدودیت‌های localStorage و ریسک‌های مقیاس‌پذیری است؛ با این حال job queue سبک، AbortController و تست‌های واحد هسته‌ای بخشی از این gap را کم کرده‌اند.

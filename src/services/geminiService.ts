@@ -9,7 +9,7 @@ const responseSchema: Schema = {
     type: Type.OBJECT,
     properties: {
       id: { type: Type.INTEGER, description: "The exact ID from the input block" },
-      translatedText: { type: Type.STRING, description: "The Persian translation text" }
+      translatedText: { type: Type.STRING, description: "The translation text in the configured target language" }
     },
     required: ["id", "translatedText"]
   }
@@ -139,6 +139,21 @@ const validateBatchResponse = (targetIds: number[], response: unknown): BatchRes
 
     validated.push({ id, translatedText: cleanText });
   });
+
+  for (let index = 1; index < validated.length; index++) {
+    const previous = validated[index - 1].translatedText.replace(/\s+/g, ' ').trim();
+    const current = validated[index].translatedText.replace(/\s+/g, ' ').trim();
+    if (previous && current && previous === current && previous.length > 12) {
+      errors.push(`ids ${validated[index - 1].id} and ${validated[index].id} contain repeated translations`);
+    }
+  }
+
+  targetBatchLengthCheck: for (const item of validated) {
+    const source = targetIds.includes(item.id) ? item : null;
+    if (!source) break targetBatchLengthCheck;
+    const readableChars = countReadableChars(item.translatedText);
+    if (readableChars > 500) errors.push(`id ${item.id} is too long for a subtitle cue`);
+  }
 
   const missingIds = targetIds.filter(id => !seenIds.has(id));
   if (missingIds.length > 0) errors.push(`missing ids: ${missingIds.join(', ')}`);
@@ -338,7 +353,7 @@ const getActiveOpenAICompatibleService = (settings: AppSettings): OpenAICompatib
   return activeService;
 };
 
-const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean): Promise<Response> => {
+const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, body: unknown, useProxy: boolean, signal?: AbortSignal): Promise<Response> => {
   const endpointUrl = resolveOpenAIChatCompletionsUrl(service.baseUrl);
   const upstreamHeaders = buildOpenAICompatibleHeaders(service);
 
@@ -346,14 +361,16 @@ const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, bod
     return fetch('/api/openai-compatible/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ endpointUrl, headers: upstreamHeaders, body })
+      body: JSON.stringify({ endpointUrl, headers: upstreamHeaders, body }),
+      signal
     });
   }
 
   return fetch(endpointUrl, {
     method: 'POST',
     headers: upstreamHeaders,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
 };
 
@@ -363,7 +380,7 @@ const shouldFallbackFromProxyResponse = (response: Response): boolean => {
   return !contentType.includes('application/json');
 };
 
-const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string): Promise<string> => {
+const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string, signal?: AbortSignal): Promise<string> => {
   const body = {
     model: normalizeOpenAICompatibleModel(service),
     messages: [
@@ -376,14 +393,14 @@ const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temper
 
   let response: Response;
   try {
-    response = await requestOpenAICompatibleChat(service, body, true);
+    response = await requestOpenAICompatibleChat(service, body, true, signal);
     if (shouldFallbackFromProxyResponse(response)) {
-      response = await requestOpenAICompatibleChat(service, body, false);
+      response = await requestOpenAICompatibleChat(service, body, false, signal);
     }
   } catch (proxyError: any) {
     const msg = extractErrorDetails(proxyError);
     if (!msg.includes('failed to fetch') && !msg.includes('network') && !msg.includes('unexpected token')) throw proxyError;
-    response = await requestOpenAICompatibleChat(service, body, false);
+    response = await requestOpenAICompatibleChat(service, body, false, signal);
   }
 
   if (!response.ok) {
@@ -397,7 +414,7 @@ const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temper
   return content;
 };
 
-const callLmStudioChat = async (settings: AppSettings, systemInstruction: string, userPrompt: string): Promise<string> => {
+const callLmStudioChat = async (settings: AppSettings, systemInstruction: string, userPrompt: string, signal?: AbortSignal): Promise<string> => {
   const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -410,7 +427,8 @@ const callLmStudioChat = async (settings: AppSettings, systemInstruction: string
       ],
       temperature: settings.temperature,
       stream: false
-    })
+    }),
+    signal
   });
 
   if (!response.ok) {
@@ -453,7 +471,7 @@ FUTURE CONTEXT (Study for flow):
 ${JSON.stringify(contextPost)}`;
     prompt += `
 
-Task: Translate TARGET BATCH into Persian.
+Task: Translate TARGET BATCH into the configured target language.
 Ensure the flow matches the scenario. Use "Tehrani Spoken" rules if conversational.
 Return JSON array matching the schema.`;
     return prompt;
@@ -621,7 +639,7 @@ export const getTranslationDiagnostic = (error: any, settings: AppSettings, cont
     };
   }
 
-  if (msg.includes('invalid model response') || msg.includes('json') || msg.includes('empty response') || msg.includes('missing ids')) {
+  if (msg.includes('invalid model response') || msg.includes('json') || msg.includes('empty response') || msg.includes('missing ids') || msg.includes('repeated translations') || msg.includes('too long')) {
     return {
       code: 'invalid_model_output',
       severity: 'warning',
@@ -709,7 +727,8 @@ export const translateBatch = async (
   contextPost: BatchRequest[],
   settings: AppSettings,
   onKeyRateLimit?: (key: string) => void,
-  forceParagraphMode: boolean = false
+  forceParagraphMode: boolean = false,
+  signal?: AbortSignal
 ): Promise<BatchResponse[]> => {
   let attempt = 0;
   let overloadRetries = 0; 
@@ -746,32 +765,36 @@ export const translateBatch = async (
         settings.customPrompt, 
         settings.outputStandard,
         settings.glossary,
-        settings.doNotTranslateTerms
+        settings.doNotTranslateTerms,
+        settings.targetLanguage
       );
 
       if (settings.aiProvider === 'lm_studio') {
-        const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        signal?.throwIfAborted();
+        const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
         const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
         const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
         if (reviewTargets.length === 0) return draft;
         const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
-        const reviewedText = await callLmStudioChat(settings, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        const reviewedText = await callLmStudioChat(settings, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
         return mergeReviewedTranslations(draft, reviewed);
       }
 
       if (settings.aiProvider === 'openai_compatible') {
         const service = getActiveOpenAICompatibleService(settings);
-        const text = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        signal?.throwIfAborted();
+        const text = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
         const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
         const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
         if (reviewTargets.length === 0) return draft;
         const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
-        const reviewedText = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
+        const reviewedText = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
         const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
         return mergeReviewedTranslations(draft, reviewed);
       }
 
+      signal?.throwIfAborted();
       const ai = new GoogleGenAI({ apiKey: currentApiKey });
       const response = await ai.models.generateContent({
         model: modelName,
@@ -785,6 +808,7 @@ export const translateBatch = async (
         },
       });
 
+      signal?.throwIfAborted();
       if (!response.text) throw new Error("Empty response from Gemini");
 
       const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(response.text)));
@@ -809,6 +833,7 @@ export const translateBatch = async (
         },
       });
 
+      signal?.throwIfAborted();
       if (!reviewResponse.text) throw new Error("Empty review response from Gemini");
       const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(reviewResponse.text));
       return mergeReviewedTranslations(draft, reviewed);
@@ -863,7 +888,8 @@ export const retranslateSelectedBlocks = async (
     settings.customPrompt,
     settings.outputStandard,
     settings.glossary,
-    settings.doNotTranslateTerms
+    settings.doNotTranslateTerms,
+    settings.targetLanguage
   );
 
   let modelName = APP_CONFIG.geminiModels.standard;
@@ -878,6 +904,7 @@ export const retranslateSelectedBlocks = async (
     let currentApiKey = '';
     try {
       if (settings.aiProvider === 'lm_studio') {
+        signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         return validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
       }
@@ -936,11 +963,11 @@ export const retranslateSelectedBlocks = async (
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';
     if (settings.aiProvider === 'lm_studio') {
-        return callLmStudioChat(settings, LANGUAGE_PROMPTS[targetLang], `${text}\n\nReturn only the translated text.`);
+        return callLmStudioChat(settings, `${LANGUAGE_PROMPTS[targetLang]}\n${targetLang === 'fa' ? 'Use natural Persian.' : 'Use natural target-language grammar and style.'}`, `${text}\n\nReturn only the translated text.`);
     }
     if (settings.aiProvider === 'openai_compatible') {
         const service = getActiveOpenAICompatibleService(settings);
-        return callOpenAICompatibleChat(service, settings.temperature, LANGUAGE_PROMPTS[targetLang], `${text}\n\nReturn only the translated text.`);
+        return callOpenAICompatibleChat(service, settings.temperature, `${LANGUAGE_PROMPTS[targetLang]}\n${targetLang === 'fa' ? 'Use natural Persian.' : 'Use natural target-language grammar and style.'}`, `${text}\n\nReturn only the translated text.`);
     }
     const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
     const response = await ai.models.generateContent({

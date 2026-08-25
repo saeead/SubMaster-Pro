@@ -4,6 +4,7 @@ import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Databas
 import { AppSettings, OpenAICompatibleService, UserAPIKey } from '../types';
 import { diagnoseConnection, validateAPIConnection } from '../services/geminiService';
 import { getMemorySize, clearMemory } from '../services/translationMemory';
+import { TARGET_LANGUAGES } from '../constants';
 import { HelpTooltip } from './HelpTooltip';
 import { ApiKeyHelpModal } from './ApiKeyHelpModal';
 
@@ -268,6 +269,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                     <span className="block text-sm font-bold">OpenAI Compatible</span>
                     <span className="block text-xs mt-1 leading-5 text-white/70">Chat Completions با Base URL و API Key</span>
                   </button>
+                </div>
+
+                <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-2">
+                  <label className="block text-xs text-white/50">زبان مقصد</label>
+                  <select
+                    value={settings.targetLanguage}
+                    onChange={(e) => updateSettings({ targetLanguage: e.target.value as keyof typeof TARGET_LANGUAGES })}
+                    className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none"
+                  >
+                    {Object.entries(TARGET_LANGUAGES).map(([code, name]) => (
+                      <option key={code} value={code}>{name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-white/40 leading-relaxed">
+                    prompt، formatter و QC بر اساس زبان انتخاب‌شده تنظیم می‌شوند.
+                  </p>
                 </div>
 
                 {settings.aiProvider === 'lm_studio' && (
