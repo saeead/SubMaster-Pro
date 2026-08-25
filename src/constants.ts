@@ -57,6 +57,8 @@ export const OPTIMIZATION_CONFIG = {
 };
 
 export const BATCH_SIZE = 20; 
+export const SKELETON_STR_BATCH_SIZE = 36;
+export const SKELETON_STR_CONTEXT_WINDOW = 40;
 export const OVERLAP_SIZE = 1;
 export const DELAY_BETWEEN_BATCHES_MS = 4200; 
 export const DELAY_BETWEEN_FILES_MS = 10000; 
