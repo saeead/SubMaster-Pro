@@ -984,7 +984,18 @@ export const translateFreeText = async (text: string, settings: AppSettings, tar
 
 /** Dedicated raw tagged call used only by the opt-in Skeleton STR method. */
 export const translateSkeletonPayload = async (content: string, settings: AppSettings, signal?: AbortSignal): Promise<string> => {
-  const systemInstruction = 'You are a professional subtitle translator. Respond only with the tagged lines. Do not add explanations, comments, markdown fences, or any extra text.';
+  // Reuse the app-wide tone, topic, glossary, protected terms, custom prompt and
+  // output-standard rules, then override only the wire format for Skeleton STR.
+  const styleInstruction = getSystemInstruction(
+    settings.tone,
+    settings.topic,
+    settings.customPrompt,
+    settings.outputStandard,
+    settings.glossary,
+    settings.doNotTranslateTerms,
+    settings.targetLanguage
+  );
+  const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing. Return ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
