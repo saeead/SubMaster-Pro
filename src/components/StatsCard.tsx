@@ -211,7 +211,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         <h4 className="text-sm font-bold text-white">روش ترجمه</h4>
                         <p className="text-xs text-white/50 mt-1">قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.</p>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-full md:min-w-[420px]" role="radiogroup" aria-label="روش ترجمه">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-full md:min-w-[420px]" role="radiogroup" aria-label="روش ترجمه">
                         <button
                             type="button"
                             role="radio"
@@ -231,6 +231,17 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         >
                             <span className="block text-sm font-bold">متد پاراگراف</span>
                             <span className="block text-[11px] mt-1">متن یک‌پارچه با نشانگر ID و بازگردانی به زمان‌بندی اصلی</span>
+                        </button>
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={translationMethod === 'skeleton_str'}
+                            onClick={() => onTranslationMethodChange('skeleton_str')}
+                            title="Strip structure → context-batch translate dialogue only → restore original skeleton. Timecodes never leave the client."
+                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'skeleton_str' ? 'border-[#a3e635] bg-[#a3e635]/10 text-white shadow-[0_0_15px_rgba(163,230,53,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                        >
+                            <span className="block text-sm font-bold">Skeleton STR <span className="text-xs font-normal">(اسکلت‌محور STR)</span></span>
+                            <span className="block text-[11px] mt-1">Extracts dialogue, translates with numbered context batches, writes text back into the original timecodes. Existing methods are unchanged.</span>
                         </button>
                     </div>
                 </div>
