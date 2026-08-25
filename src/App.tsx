@@ -20,7 +20,7 @@ import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, Check, Wand2, History, ArrowUp } from 'lucide-react';
+import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -31,7 +31,8 @@ const App: React.FC = () => {
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [savedProjects, setSavedProjects] = useState<string[]>([]); // Track saved sessions
   
-  const [toast, setToast] = useState<{msg: string, type: ToastType} | null>(null);
+  const [toast, setToast] = useState<Array<{id: number; msg: string; type: ToastType}>>([]);
+  const toastIdRef = useRef(0);
   
   // UI State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -198,8 +199,11 @@ const App: React.FC = () => {
   };
 
   const showToast = (msg: string, type: ToastType = 'error') => {
-    setToast({ msg, type });
+    const id = ++toastIdRef.current;
+    setToast(prev => [...prev, { id, msg, type }].slice(-5));
   };
+
+  const dismissToast = (id: number) => setToast(prev => prev.filter(item => item.id !== id));
 
   const showDiagnosticToast = (diagnostic: TranslationDiagnostic) => {
     showToast(`${diagnostic.title}: ${diagnostic.recovery}`, diagnostic.severity === 'info' ? 'success' : diagnostic.severity);
@@ -229,7 +233,7 @@ const App: React.FC = () => {
     if (activeFileId === null && newFiles.length > 0) {
       setActiveFileId(newFiles[0].id);
     }
-    setToast(null);
+    setToast([]);
   };
 
   // Handle Importing a Backup JSON file
@@ -311,11 +315,23 @@ const App: React.FC = () => {
     
     setFiles([]);
     setActiveFileId(null);
-    setToast(null);
+    setToast([]);
     setCompletionToast(false);
     isTranslatingRef.current = false;
     isPausedRef.current = false;
     setSavedProjects(ProjectStateManager.listSavedProjects());
+  };
+
+  const removeFile = (fileId: string) => {
+    const removedIndex = files.findIndex(file => file.id === fileId);
+    if (removedIndex === -1) return;
+    ProjectStateManager.deleteProjectState(fileId);
+    setFiles(prev => prev.filter(file => file.id !== fileId));
+    if (activeFileId === fileId) {
+      const remaining = files.filter(file => file.id !== fileId);
+      setActiveFileId(remaining[Math.min(removedIndex, remaining.length - 1)]?.id || null);
+    }
+    showToast('فایل از پروژه حذف شد.', 'success');
   };
 
   const updateBlock = (fileId: string, blockId: number, text: string) => {
@@ -941,15 +957,44 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                const results = isSkeletonMethod
+                // Both branches return promises. Await the selected request before
+                // iterating its mapped results; otherwise Skeleton STR leaves a
+                // Promise here and `results.forEach` crashes the React flow.
+                const results = await (isSkeletonMethod
                     ? (() => {
                         const contextLines = chunk.blocks.map(block => block.originalText);
                         const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex);
-                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length), settingsRef.current, signal)
-                          .then(response => extractTranslatedLinesWithNumbers(response, targetBlocks.length, targetBlocks.map(block => block.originalText), contextLines)
-                            .map((translatedText, index) => ({ id: targetBlocks[index].id, translatedText: translatedText || targetBlocks[index].originalText })));
+                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage), settingsRef.current, signal)
+                          .then(async response => {
+                            const sourceLines = targetBlocks.map(block => block.originalText);
+                            const translatedLines = extractTranslatedLinesWithNumbers(response, targetBlocks.length, sourceLines, contextLines);
+
+                            // A tagged response can omit individual slots. Retry every
+                            // missing slot as a single-line request before soft-filling;
+                            // this guarantees Skeleton STR does not silently leave
+                            // dialogue untranslated when the model drops a marker.
+                            for (let index = 0; index < translatedLines.length; index++) {
+                              if (translatedLines[index]) continue;
+                              const singleStart = chunk.targetStartIndex + index;
+                              const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 6);
+                              for (let attempt = 0; attempt < 2 && !translatedLines[index]; attempt++) {
+                                const retryResponse = await translateSkeletonPayload(
+                                  buildSkeletonUserPrompt(singlePayload, 1, settingsRef.current.targetLanguage),
+                                  settingsRef.current,
+                                  signal
+                                );
+                                const retry = extractTranslatedLinesWithNumbers(retryResponse, 1, [sourceLines[index]], contextLines)[0];
+                                if (retry) translatedLines[index] = retry;
+                              }
+                            }
+
+                            return translatedLines.map((translatedText, index) => ({
+                              id: targetBlocks[index].id,
+                              translatedText: translatedText || targetBlocks[index].originalText
+                            }));
+                          });
                       })()
-                    : translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal);
+                    : translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal));
 
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
@@ -1234,11 +1279,14 @@ const App: React.FC = () => {
                             variant="compact"
                         />
                         {files.map(file => (
-                            <button key={file.id} onClick={() => setActiveFileId(file.id)} className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px] flex-shrink-0 ${activeFileId === file.id ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'}`}>
+                            <div key={file.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all min-w-[170px] max-w-[220px] flex-shrink-0 ${activeFileId === file.id ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'}`}>
+                              <button type="button" onClick={() => setActiveFileId(file.id)} className="flex min-w-0 flex-1 items-center gap-2 text-right">
                                 <div className={`w-2 h-2 rounded-full ${file.status === AppStatus.COMPLETED ? 'bg-green-500' : file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' : file.status === AppStatus.ERROR ? 'bg-red-500' : file.status === AppStatus.PAUSED ? 'bg-orange-400' : 'bg-text/20'}`}></div>
                                 <span className="truncate text-sm font-medium direction-ltr">{file.name}</span>
                                 {file.status === AppStatus.COMPLETED && <Check className="w-3 h-3 text-green-500 ml-auto" />}
-                            </button>
+                              </button>
+                              <button type="button" onClick={() => removeFile(file.id)} className="rounded-full p-1 text-text-muted transition-colors hover:bg-red-500/15 hover:text-red-400" aria-label={`بستن ${file.name}`} title="بستن فایل"><X className="h-4 w-4" /></button>
+                            </div>
                         ))}
                     </div>
                     <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
@@ -1282,7 +1330,15 @@ const App: React.FC = () => {
                 </div>
             </div>
         )}
-        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        {toast.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex w-full max-w-md flex-col gap-3 pointer-events-none">
+            {[...toast].reverse().map(item => (
+              <div key={item.id} className="pointer-events-auto">
+                <Toast message={item.msg} type={item.type} onClose={() => dismissToast(item.id)} />
+              </div>
+            ))}
+          </div>
+        )}
         {completionToast && !files.some(f => f.status === AppStatus.PAUSED || f.status === AppStatus.ERROR) && (
              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-5 fade-in duration-300 w-full max-w-md px-4">
                 <div className="glass bg-background/95 border border-green-500/50 text-text p-4 rounded-2xl shadow-[0_0_30px_rgba(34,197,94,0.2)] flex items-start gap-4 backdrop-blur-xl">
