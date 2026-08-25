@@ -22,6 +22,16 @@ test('marker extraction rejects 1-based numbering and merge responses', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_1]a[/TRANSLATE_1][TRANSLATE_2]b[/TRANSLATE_2]', 2, ['one', 'two'], []), ['', '']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]both[/TRANSLATE_0][TRANSLATE_1][/TRANSLATE_1]', 2, ['one', 'two'], []), ['', '']);
 });
+test('Skeleton STR preserves real U+200C characters in translated slots', () => {
+  const output = skeleton.extractTranslatedLinesWithNumbers(
+    '[TRANSLATE_0]می‌رود، کتاب‌ها بهینه‌تر و برنامه‌نویسی[/TRANSLATE_0]',
+    1,
+    ['goes'],
+    []
+  );
+  assert.equal(output[0], 'می‌رود، کتاب‌ها بهینه‌تر و برنامه‌نویسی');
+  assert.equal([...output[0]].filter(character => character === '\u200C').length, 4);
+});
 test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Persian \(Farsi\)/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);

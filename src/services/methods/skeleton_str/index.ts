@@ -85,6 +85,13 @@ const normalizeForAlignment = (value: string): string => value
   .replace(/\s+/g, ' ')
   .trim();
 
+// Alignment may ignore invisible characters, but subtitle output must retain
+// the real U+200C character supplied by the model.
+const cleanTranslatedSlot = (value: string): string => value
+  .replace(/[\u200B\u200D\u2060\uFEFF]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 export const buildContextPayload = (lines: string[], start: number, end: number, window = 40, options: SkeletonPayloadOptions = {}): string => {
   const padding = Math.min(80, Math.max(1, Math.floor(window / 2)));
   const from = Math.max(0, start - padding);
@@ -152,7 +159,7 @@ export const extractTranslatedLinesByMarkerIds = (response: string, expectedMark
   while ((match = pattern.exec(response))) {
     const id = Number(match[1]);
     const slot = idToSlot.get(id);
-    if (slot !== undefined && output[slot] === '') output[slot] = normalizeForAlignment(match[2]);
+    if (slot !== undefined && output[slot] === '') output[slot] = cleanTranslatedSlot(match[2]);
   }
 
   const seen = new Map<string, number>();
