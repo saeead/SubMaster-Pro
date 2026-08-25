@@ -24,16 +24,9 @@ const SAFETY_SETTINGS = [
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const looksLikeVersionedOpenAIPath = (url: URL): boolean => {
-  const path = url.pathname.replace(/\/+$/, '');
-  return /(?:^|\/)v\d+(?:beta|alpha)?(?:\/|$)/i.test(path) || /(?:^|\/)openai(?:\/|$)/i.test(path);
-};
-
 const normalizeOpenAIBaseUrl = (baseUrl: string, fallback = 'http://localhost:1234/v1'): string => {
   const trimmed = (baseUrl || fallback).trim().replace(/\/+$/, '');
-  const parsed = new URL(trimmed);
-  if (parsed.pathname.replace(/\/+$/, '') === '') return `${trimmed}/v1`;
-  return looksLikeVersionedOpenAIPath(parsed) ? trimmed : `${trimmed}/v1`;
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 };
 
 const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
@@ -1008,7 +1001,7 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
     settings.doNotTranslateTerms,
     settings.targetLanguage
   );
-  const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing. For Persian output, proofread spelling carefully, use professional Persian punctuation, and apply نیم‌فاصله correctly for prefixes/suffixes such as می، نمی، ها، تر and ترین. Return ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
+  const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing. Return ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
