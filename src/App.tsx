@@ -31,7 +31,8 @@ const App: React.FC = () => {
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [savedProjects, setSavedProjects] = useState<string[]>([]); // Track saved sessions
   
-  const [toast, setToast] = useState<{msg: string, type: ToastType} | null>(null);
+  const [toast, setToast] = useState<Array<{id: number; msg: string; type: ToastType}>>([]);
+  const toastIdRef = useRef(0);
   
   // UI State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -198,8 +199,11 @@ const App: React.FC = () => {
   };
 
   const showToast = (msg: string, type: ToastType = 'error') => {
-    setToast({ msg, type });
+    const id = ++toastIdRef.current;
+    setToast(prev => [...prev, { id, msg, type }].slice(-5));
   };
+
+  const dismissToast = (id: number) => setToast(prev => prev.filter(item => item.id !== id));
 
   const showDiagnosticToast = (diagnostic: TranslationDiagnostic) => {
     showToast(`${diagnostic.title}: ${diagnostic.recovery}`, diagnostic.severity === 'info' ? 'success' : diagnostic.severity);
@@ -229,7 +233,7 @@ const App: React.FC = () => {
     if (activeFileId === null && newFiles.length > 0) {
       setActiveFileId(newFiles[0].id);
     }
-    setToast(null);
+    setToast([]);
   };
 
   // Handle Importing a Backup JSON file
@@ -311,7 +315,7 @@ const App: React.FC = () => {
     
     setFiles([]);
     setActiveFileId(null);
-    setToast(null);
+    setToast([]);
     setCompletionToast(false);
     isTranslatingRef.current = false;
     isPausedRef.current = false;
@@ -1285,7 +1289,15 @@ const App: React.FC = () => {
                 </div>
             </div>
         )}
-        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        {toast.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex w-full max-w-md flex-col gap-3 pointer-events-none">
+            {[...toast].reverse().map(item => (
+              <div key={item.id} className="pointer-events-auto">
+                <Toast message={item.msg} type={item.type} onClose={() => dismissToast(item.id)} />
+              </div>
+            ))}
+          </div>
+        )}
         {completionToast && !files.some(f => f.status === AppStatus.PAUSED || f.status === AppStatus.ERROR) && (
              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-5 fade-in duration-300 w-full max-w-md px-4">
                 <div className="glass bg-background/95 border border-green-500/50 text-text p-4 rounded-2xl shadow-[0_0_30px_rgba(34,197,94,0.2)] flex items-start gap-4 backdrop-blur-xl">

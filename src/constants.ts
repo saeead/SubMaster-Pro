@@ -6,7 +6,7 @@ export const APP_CONFIG = {
   maxWordsPerBlock: 24, 
   minWordsPerBlock: 1, 
   maxFileSize: 100 * 1024 * 1024, 
-  maxFilesPerUpload: 10, 
+  maxFilesPerUpload: 50,
   supportedFormats: ['srt', 'vtt', 'ass'],
   geminiModels: {
     standard: 'gemini-3-flash-preview',       
