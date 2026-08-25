@@ -102,6 +102,14 @@ export const buildContextPayload = (lines: string[], start: number, end: number,
 };
 
 export const SKELETON_STR_SYSTEM_PROMPT = 'You are a professional subtitle translator. Respond only with the tagged lines. Do not add explanations, comments, markdown fences, or any extra text.';
+
+/** Persian-only writing rules for Skeleton STR model responses. */
+export const SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION = `For Persian output, apply the Persian Academy's orthography consistently:
+- Use the exact zero-width non-joiner character (U+200C), never a regular space, hyphen, or tatweel, in required compounds and affixes: می‌رود، نمی‌دانم، کتاب‌ها، نوشته‌ام، بزرگ‌تر، بهینه‌سازی، و فارسی‌زبان.
+- Do not remove an existing required U+200C or attach words without it; write neither «می رود» nor «بهینهتر».
+- Use standard Persian punctuation: no space before «،»، «؛»، «؟»، «!» or «.»; use one ordinary space after punctuation when another word follows.
+- Use Persian ی and ک, apply the correct میانجیِ ی in اضافه constructions when needed, and avoid extra or missing spaces.
+- Preserve these rules in every tagged line while keeping the subtitle concise and natural.`;
 const TARGET_LANGUAGE_NAMES: Record<string, string> = {
   fa: 'Persian (Farsi)', en: 'English', ru: 'Russian', zh: 'Chinese', de: 'German', es: 'Spanish'
 };

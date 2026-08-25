@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type, Schema, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService, TranslationDiagnostic } from "../types";
 import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
+import { SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION } from "./methods/skeleton_str";
 
 const responseSchema: Schema = {
   type: Type.ARRAY,
@@ -1008,7 +1009,10 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
     settings.doNotTranslateTerms,
     settings.targetLanguage
   );
-  const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing. For Persian output, proofread spelling carefully, use professional Persian punctuation, and apply نیم‌فاصله correctly for prefixes/suffixes such as می، نمی، ها، تر and ترین. Return ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
+  const persianOrthographyInstruction = settings.targetLanguage === 'fa'
+    ? `\n\n--- Persian orthography contract ---\n${SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION}`
+    : '';
+  const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone, and speaker intent; avoid literal, word-for-word, or machine-like phrasing.${persianOrthographyInstruction}\n\nReturn ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
