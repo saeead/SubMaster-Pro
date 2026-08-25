@@ -27,6 +27,23 @@ test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'en'), /Do not answer in English unless English is the selected target language/);
 });
+test('Skeleton STR Persian writing contract requires the exact half-space character', () => {
+  const contract = skeleton.SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION;
+  assert.match(contract, /U\+200C/);
+  assert.match(contract, /می‌رود/);
+  assert.match(contract, /نمی‌دانم/);
+  assert.match(contract, /کتاب‌ها/);
+  assert.match(contract, /نوشته‌ام/);
+  assert.match(contract, /بهینه‌سازی/);
+  assert.match(contract, /فارسی‌زبان/);
+  assert.match(contract, /«می رود»/);
+});
+test('Skeleton STR restores U+200C when a model omits or replaces required half-spaces', () => {
+  const output = skeleton.normalizeSkeletonPersianHalfSpaces('بهینهتر میرود کتابها برنامه نویسی بزرگتر دستـنویس کتاب خانه صفر عرض نیم فاصله');
+  assert.equal(output, 'بهینه‌تر می‌رود کتاب‌ها برنامه‌نویسی بزرگ‌تر دست‌نویس کتاب‌خانه صفر‌عرض نیم‌فاصله');
+  assert.equal([...output].filter(character => character === '\u200C').length, 9);
+  assert.equal(skeleton.normalizeSkeletonPersianHalfSpaces('بزرگترین کتابهایی'), 'بزرگ‌ترین کتاب‌هایی');
+});
 test('Skeleton STR context payload gives a larger paragraph-sized window', () => {
   const lines = Array.from({ length: 80 }, (_, index) => `line-${index}`);
   const payload = skeleton.buildContextPayload(lines, 22, 58);
