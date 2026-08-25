@@ -22,6 +22,11 @@ test('marker extraction rejects 1-based numbering and merge responses', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_1]a[/TRANSLATE_1][TRANSLATE_2]b[/TRANSLATE_2]', 2, ['one', 'two'], []), ['', '']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]both[/TRANSLATE_0][TRANSLATE_1][/TRANSLATE_1]', 2, ['one', 'two'], []), ['', '']);
 });
+test('Skeleton STR prompt names the configured target language', () => {
+  assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Persian \(Farsi\)/);
+  assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);
+  assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'en'), /Do not answer in English unless English is the selected target language/);
+});
 test('echoing context is rejected, while an identical own source is allowed', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]next[/TRANSLATE_0]', 1, ['self'], ['self', 'next']), ['']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]Tokyo[/TRANSLATE_0]', 1, ['Tokyo'], ['Tokyo']), ['Tokyo']);
