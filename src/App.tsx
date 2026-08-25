@@ -15,7 +15,7 @@ import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
-import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds } from './services/methods/skeleton_str';
+import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, normalizeSkeletonPersianHalfSpaces } from './services/methods/skeleton_str';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
@@ -986,13 +986,19 @@ const App: React.FC = () => {
                                   signal
                                 );
                                 const retry = extractTranslatedLinesByMarkerIds(retryResponse, [singleMarkerId], [sourceLines[index]], contextLines)[0];
-                                if (retry) translatedLines[index] = retry;
+                                if (retry) translatedLines[index] = settingsRef.current.targetLanguage === 'fa'
+                                  ? normalizeSkeletonPersianHalfSpaces(retry)
+                                  : retry;
                               }
                             }
 
                             return translatedLines.map((translatedText, index) => ({
                               id: targetBlocks[index].id,
-                              translatedText: translatedText || targetBlocks[index].originalText
+                              translatedText: translatedText
+                                ? (settingsRef.current.targetLanguage === 'fa'
+                                  ? normalizeSkeletonPersianHalfSpaces(translatedText)
+                                  : translatedText)
+                                : targetBlocks[index].originalText
                             }));
                           });
                       })()

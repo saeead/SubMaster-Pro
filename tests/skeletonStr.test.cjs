@@ -38,6 +38,12 @@ test('Skeleton STR Persian writing contract requires the exact half-space charac
   assert.match(contract, /فارسی‌زبان/);
   assert.match(contract, /«می رود»/);
 });
+test('Skeleton STR restores U+200C when a model omits or replaces required half-spaces', () => {
+  const output = skeleton.normalizeSkeletonPersianHalfSpaces('بهینهتر میرود کتابها برنامه نویسی بزرگتر دستـنویس کتاب خانه صفر عرض نیم فاصله');
+  assert.equal(output, 'بهینه‌تر می‌رود کتاب‌ها برنامه‌نویسی بزرگ‌تر دست‌نویس کتاب‌خانه صفر‌عرض نیم‌فاصله');
+  assert.equal([...output].filter(character => character === '\u200C').length, 9);
+  assert.equal(skeleton.normalizeSkeletonPersianHalfSpaces('بزرگترین کتابهایی'), 'بزرگ‌ترین کتاب‌هایی');
+});
 test('Skeleton STR context payload gives a larger paragraph-sized window', () => {
   const lines = Array.from({ length: 80 }, (_, index) => `line-${index}`);
   const payload = skeleton.buildContextPayload(lines, 22, 58);
