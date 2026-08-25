@@ -73,14 +73,14 @@ export const restoreAssAfterTranslation = (translation: string, prepared: AssPre
   return prepared.leadingTags + output.replace(/#{1,3} ?\d+ ?#{1,3}/g, '');
 };
 
-export const buildContextPayload = (lines: string[], start: number, end: number, window = 20): string => { const padding = Math.min(50, Math.max(1, Math.floor(window / 2))); return lines.slice(Math.max(0, start - padding), Math.min(lines.length, end + padding)).map((line, relative) => { const absolute = Math.max(0, start - padding) + relative; return absolute >= start && absolute < end ? `[TRANSLATE_${absolute - start}]${line}[/TRANSLATE_${absolute - start}]` : `[CONTEXT]${line}[/CONTEXT]`; }).join('\n'); };
+export const buildContextPayload = (lines: string[], start: number, end: number, window = 40): string => { const padding = Math.min(80, Math.max(1, Math.floor(window / 2))); return lines.slice(Math.max(0, start - padding), Math.min(lines.length, end + padding)).map((line, relative) => { const absolute = Math.max(0, start - padding) + relative; return absolute >= start && absolute < end ? `[TRANSLATE_${absolute - start}]${line}[/TRANSLATE_${absolute - start}]` : `[CONTEXT]${line}[/CONTEXT]`; }).join('\n'); };
 export const SKELETON_STR_SYSTEM_PROMPT = 'You are a professional subtitle translator. Respond only with the tagged lines. Do not add explanations, comments, markdown fences, or any extra text.';
 const TARGET_LANGUAGE_NAMES: Record<string, string> = {
   fa: 'Persian (Farsi)', en: 'English', ru: 'Russian', zh: 'Chinese', de: 'German', es: 'Spanish'
 };
 export const buildSkeletonUserPrompt = (content: string, count: number, targetLanguage = 'fa'): string => {
   const language = TARGET_LANGUAGE_NAMES[targetLanguage] || targetLanguage;
-  return `Context: This is part of a subtitle file. Translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. Do NOT skip any numbers from 0 to ${count - 1}\n3. Keep the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Do not answer in English unless English is the selected target language.\n\n${content}`;
+  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. Do NOT skip any numbers from 0 to ${count - 1}\n3. Keep the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Do not answer in English unless English is the selected target language.\n\n${content}`;
 };
 
 export const extractTranslatedLinesWithNumbers = (response: string, expectedCount: number, sourceLines: string[], contextLines: string[]): string[] => {
