@@ -948,7 +948,7 @@ const App: React.FC = () => {
                     ? (() => {
                         const contextLines = chunk.blocks.map(block => block.originalText);
                         const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex);
-                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length), settingsRef.current, signal)
+                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage), settingsRef.current, signal)
                           .then(response => extractTranslatedLinesWithNumbers(response, targetBlocks.length, targetBlocks.map(block => block.originalText), contextLines)
                             .map((translatedText, index) => ({ id: targetBlocks[index].id, translatedText: translatedText || targetBlocks[index].originalText })));
                       })()
