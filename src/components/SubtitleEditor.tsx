@@ -155,8 +155,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                     </button>
                 </div>
 
-                {hasMultipleFiles && (
-                    <div className="flex bg-[#0a0e27] rounded-lg p-1 border border-white/10">
+                <div className="flex bg-[#0a0e27] rounded-lg p-1 border border-white/10">
                         <button 
                             onClick={() => setScope('current')}
                             className={`px-3 py-1 text-xs rounded transition-colors ${scope === 'current' ? 'bg-white/10 text-white' : 'text-white/50'}`}
@@ -168,10 +167,9 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                             className={`px-3 py-1 text-xs rounded transition-colors flex items-center gap-1 ${scope === 'all' ? 'bg-[#ff00ea]/20 text-[#ff00ea]' : 'text-white/50'}`}
                         >
                             <Layers className="w-3 h-3" />
-                            همه فایل‌ها
+                            اعمال برای تمام فایل‌ها
                         </button>
-                    </div>
-                )}
+                </div>
             </div>
         </div>
         
