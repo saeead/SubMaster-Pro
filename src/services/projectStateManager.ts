@@ -1,5 +1,5 @@
 
-import { SubtitleBlock, Modification } from '../types';
+import { SubtitleBlock, Modification, SubtitleFile } from '../types';
 
 /**
  * @typedef {Object} ProcessedBlock
@@ -22,7 +22,8 @@ export interface ProjectState {
   remainingChunks: number;
   processedBlocks: ProcessedBlock[];
   fullInputContent: string;
-  apiKeyUsed: string; // Security Warning: Stored in localStorage
+  apiKeyUsed?: string; // Deprecated: never persisted with real API keys
+  processedBlockIds: number[];
   modificationsMade: Modification[];
   lastProcessedIndex: number;
   timestamp: string;
@@ -35,6 +36,41 @@ export interface ProjectState {
   status: string;
   progress: number;
 }
+
+
+export const getProcessedBlockIds = (blocks: SubtitleBlock[]): number[] => (
+  blocks.filter(block => !!block.translatedText && block.translatedText.trim() !== '').map(block => block.id)
+);
+
+export const getLastContiguousProcessedIndex = (blocks: SubtitleBlock[]): number => {
+  const firstIncompleteIndex = blocks.findIndex(block => !block.translatedText || block.translatedText.trim() === '');
+  return firstIncompleteIndex === -1 ? blocks.length - 1 : firstIncompleteIndex - 1;
+};
+
+export const buildProjectStateFromFile = (file: SubtitleFile): ProjectState => {
+  const processedBlockIds = getProcessedBlockIds(file.blocks);
+  const completedChunks = processedBlockIds.length;
+  return {
+    id: file.id,
+    name: file.name,
+    type: file.type,
+    status: file.status,
+    progress: file.blocks.length > 0 ? (completedChunks / file.blocks.length) * 100 : 0,
+    allBlocks: file.blocks,
+    totalChunks: file.blocks.length,
+    completedChunks,
+    remainingChunks: Math.max(0, file.blocks.length - completedChunks),
+    processedBlocks: file.blocks
+      .filter(block => !!block.translatedText && block.translatedText.trim() !== '')
+      .map(block => ({ original: block.originalText, translated: block.translatedText! })),
+    processedBlockIds,
+    fullInputContent: '',
+    apiKeyUsed: '',
+    modificationsMade: file.modificationsMade || [],
+    lastProcessedIndex: getLastContiguousProcessedIndex(file.blocks),
+    timestamp: new Date().toISOString()
+  };
+};
 
 const ProjectStateManager = (() => {
   const STORAGE_PREFIX = 'submaster_proj_v1_';
@@ -92,7 +128,11 @@ const ProjectStateManager = (() => {
           return null;
         }
 
-        return JSON.parse(serializedState);
+        const parsed = JSON.parse(serializedState);
+        parsed.apiKeyUsed = '';
+        if (!Array.isArray(parsed.processedBlockIds)) parsed.processedBlockIds = getProcessedBlockIds(parsed.allBlocks || []);
+        parsed.lastProcessedIndex = getLastContiguousProcessedIndex(parsed.allBlocks || []);
+        return parsed;
       } catch (error) {
         console.error('[ProjectStateManager] Error parsing state JSON:', error);
         return null;

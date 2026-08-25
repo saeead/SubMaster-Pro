@@ -159,14 +159,17 @@ export const getSystemInstruction = (
   customPrompt: string, 
   outputStandard: OutputStandard,
   glossary: GlossaryItem[] = [],
-  doNotTranslateTerms: string = ''
+  doNotTranslateTerms: string = '',
+  targetLanguage: TargetLanguage = 'fa'
 ) => {
-  let prompt = SYSTEM_PROMPTS.base + '\n\n';
+  let prompt = SYSTEM_PROMPTS.base.replace(/Persian|فارسی/g, TARGET_LANGUAGES[targetLanguage] || 'Persian') + '\n\n';
+  prompt += `--- Target language ---\nTranslate all target subtitle text into ${TARGET_LANGUAGES[targetLanguage]}. Follow native grammar, punctuation, subtitle conventions, and reading direction for this language. Do not force Persian style rules when the target language is not Persian.\n\n`;
   if (outputStandard === 'netflix') prompt += SYSTEM_PROMPTS.netflix + '\n\n';
   if (outputStandard === 'bbc') prompt += SYSTEM_PROMPTS.bbc + '\n\n';
   if (outputStandard === 'broadcast') prompt += SYSTEM_PROMPTS.broadcast + '\n\n';
 
-  if (SYSTEM_PROMPTS.tones[tone]) prompt += `${SYSTEM_PROMPTS.tones[tone]}\n\n`;
+  if (targetLanguage === 'fa' && SYSTEM_PROMPTS.tones[tone]) prompt += `${SYSTEM_PROMPTS.tones[tone]}\n\n`;
+  else if (SYSTEM_PROMPTS.tones[tone]) prompt += `Tone: ${tone}. Keep the translation native and subtitle-friendly for ${TARGET_LANGUAGES[targetLanguage]}.\n\n`;
   if (SYSTEM_PROMPTS.topics[topic]) prompt += `${SYSTEM_PROMPTS.topics[topic]}\n\n`;
 
   if (glossary.length > 0) {

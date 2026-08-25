@@ -10,7 +10,7 @@
 - migration برای پاک‌سازی پروژه‌های ذخیره‌شده قبلی اضافه شود.
 - settings مربوط به API key جدا از backup پروژه نگهداری شود.
 
-### 2. اضافه کردن تست‌های واحد برای parser و stringify
+### 2. اضافه کردن تست‌های واحد برای parser و stringify [انجام شده]
 
 توابع parse و generate هسته نرم‌افزار هستند و باید تست شوند:
 
@@ -20,7 +20,7 @@
 
 پیشنهاد ابزار: Vitest + Testing Library.
 
-### 3. استفاده از AbortController برای لغو فوری درخواست‌ها
+### 3. استفاده از AbortController برای لغو فوری درخواست‌ها [انجام شده]
 
 Pause و cancel فعلی loop را بعد از پایان request جاری متوقف می‌کند، اما request شبکه فعال را abort نمی‌کند. پیشنهاد:
 
@@ -29,7 +29,7 @@ Pause و cancel فعلی loop را بعد از پایان request جاری مت�
 - بررسی امکان abort در SDK Gemini یا wrap کردن request در کنترل سطح بالاتر.
 - نمایش وضعیت «در حال لغو درخواست جاری» به کاربر.
 
-### 4. اصلاح محاسبه resume و lastProcessedIndex
+### 4. اصلاح محاسبه resume و lastProcessedIndex [انجام شده]
 
 در save state، مقدار `lastProcessedIndex` با `findIndex(...)-1` محاسبه می‌شود که برای اولین ترجمه یا gapهای وسط فایل می‌تواند دقیق نباشد. پیشنهاد:
 
@@ -47,7 +47,7 @@ Pause و cancel فعلی loop را بعد از پایان request جاری مت�
 - ذخیره پروژه‌ها، بلوک‌ها، حافظه ترجمه و history به صورت object store جداگانه.
 - امکان compact و cleanup خودکار.
 
-### 6. ایجاد job queue واقعی برای ترجمه
+### 6. ایجاد job queue واقعی برای ترجمه [انجام شده]
 
 در حال حاضر orchestration ترجمه داخل `App.tsx` است. بهتر است یک لایه service مستقل ایجاد شود:
 
@@ -65,7 +65,7 @@ Pause و cancel فعلی loop را بعد از پایان request جاری مت�
 - انتقال عملیات فایل به serviceهای domain.
 - کاهش اندازه `App.tsx` و افزایش testability.
 
-### 8. validation دقیق‌تر خروجی مدل
+### 8. validation دقیق‌تر خروجی مدل [انجام شده]
 
 اعتبارسنجی فعلی خوب است، اما می‌تواند بهتر شود:
 
@@ -75,7 +75,7 @@ Pause و cancel فعلی loop را بعد از پایان request جاری مت�
 - scoring کیفیت و نمایش آن در UI.
 - retry selective فقط برای idهای مشکل‌دار.
 
-### 9. پشتیبانی رسمی از target languageهای غیر فارسی
+### 9. پشتیبانی رسمی از target languageهای غیر فارسی [انجام شده]
 
 در types، چند target language تعریف شده، اما pipeline اصلی و promptها عمدتاً فارسی‌محور هستند. پیشنهاد:
 

@@ -130,7 +130,21 @@ export interface AppSettings {
   glossary: GlossaryItem[];
   doNotTranslateTerms: string;
   theme: 'dark' | 'light';
+  targetLanguage: TargetLanguage;
 }
+
+export type TranslationJobStatus = 'queued' | 'running' | 'paused' | 'cancelled' | 'failed' | 'completed';
+
+export interface TranslationJob {
+  id: string;
+  fileId: string;
+  status: TranslationJobStatus;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
 
 // --- NEW TYPES FOR TIMING & QC ---
 

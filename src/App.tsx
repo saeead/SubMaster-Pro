@@ -13,10 +13,11 @@ import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
-import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatPersianSubtitle, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
+import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic } from './services/geminiService';
 import { getFromMemory, addToMemory } from './services/translationMemory';
-import ProjectStateManager, { ProjectState } from './services/projectStateManager'; // Import Manager
+import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
+import { TranslationJobRunner } from './services/translationJobRunner';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
 import { Loader2, Check, Wand2, History, ArrowUp } from 'lucide-react';
 
@@ -62,7 +63,8 @@ const App: React.FC = () => {
     enableTranslationMemory: true,
     glossary: [],
     doNotTranslateTerms: '',
-    theme: 'dark'
+    theme: 'dark',
+    targetLanguage: 'fa'
   });
 
   // Refs for processing
@@ -71,6 +73,7 @@ const App: React.FC = () => {
   const isPausedRef = useRef<boolean>(false); 
   const settingsRef = useRef<AppSettings>(settings);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const jobRunnerRef = useRef<TranslationJobRunner | null>(null);
 
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
@@ -116,6 +119,7 @@ const App: React.FC = () => {
         if (!parsed.openAICompatibleServices) parsed.openAICompatibleServices = [];
         if (parsed.temperature === undefined) parsed.temperature = 0.7; 
         if (!parsed.theme) parsed.theme = 'dark';
+        if (!parsed.targetLanguage) parsed.targetLanguage = 'fa';
         setSettings(prev => ({ ...prev, ...parsed }));
       } catch (error) {
         console.error('Failed to load settings from local storage:', error);
@@ -138,36 +142,11 @@ const App: React.FC = () => {
   const saveCurrentProjectState = useCallback(() => {
     if (files.length > 0) {
       files.forEach(file => {
-        // Map SubtitleFile to ProjectState
-        const state: ProjectState = {
-          id: file.id,
-          name: file.name,
-          type: file.type,
-          status: file.status,
-          progress: file.progress,
-          allBlocks: file.blocks,
-          
-          // Required Schema mapping
-          totalChunks: file.blocks.length,
-          completedChunks: file.processedCount,
-          remainingChunks: file.blocks.length - file.processedCount,
-          processedBlocks: file.blocks.filter(b => !!b.translatedText).map(b => ({ original: b.originalText, translated: b.translatedText! })),
-          fullInputContent: '', // Optional/Heavy
-          apiKeyUsed: settings.apiKeys.find(k => k.isValid)?.key || 'unknown',
-          
-          // Map Modifications history
-          modificationsMade: file.modificationsMade || [],
-          
-          lastProcessedIndex: file.blocks.findIndex(b => !!b.translatedText) - 1, // Approximation
-          timestamp: new Date().toISOString()
-        };
-        
-        ProjectStateManager.saveProjectState(file.id, state);
+        ProjectStateManager.saveProjectState(file.id, buildProjectStateFromFile(file));
       });
-      // Update saved list
       setSavedProjects(ProjectStateManager.listSavedProjects());
     }
-  }, [files, settings.apiKeys]);
+  }, [files]);
 
   // Auto-Save Logic (Debounced slightly by React batched updates, runs on file change)
   useEffect(() => {
@@ -185,24 +164,7 @@ const App: React.FC = () => {
     const file = getActiveFile();
     if (!file) return;
 
-    // Create current state
-    const state: ProjectState = {
-        id: file.id,
-        name: file.name,
-        type: file.type,
-        status: file.status,
-        progress: file.progress,
-        allBlocks: file.blocks,
-        totalChunks: file.blocks.length,
-        completedChunks: file.processedCount,
-        remainingChunks: file.blocks.length - file.processedCount,
-        processedBlocks: file.blocks.filter(b => !!b.translatedText).map(b => ({ original: b.originalText, translated: b.translatedText! })),
-        fullInputContent: '', 
-        apiKeyUsed: '', // SECURITY: Strip API Key
-        modificationsMade: file.modificationsMade || [],
-        lastProcessedIndex: file.blocks.findIndex(b => !!b.translatedText) - 1,
-        timestamp: new Date().toISOString()
-    };
+    const state: ProjectState = buildProjectStateFromFile(file);
 
     const jsonString = JSON.stringify(state, null, 2);
     const fileName = `${file.name.replace(/\.[^/.]+$/, "")}_backup.json`;
@@ -500,7 +462,7 @@ const App: React.FC = () => {
               segmentResults.push(translatedSegment);
           }
           const results = segmentResults.flat();
-          const resultMap = new Map(results.map(result => [result.id, formatPersianSubtitle(result.translatedText)]));
+          const resultMap = new Map(results.map(result => [result.id, formatSubtitleForLanguage(result.translatedText, settingsRef.current.targetLanguage)]));
           const groupId = crypto.randomUUID();
 
           setFiles(prev => prev.map(currentFile => {
@@ -860,7 +822,7 @@ const App: React.FC = () => {
     const file = getActiveFile();
     if (!file) return;
 
-    const outputName = file.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_fa.${format}`);
+    const outputName = file.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_${settings.targetLanguage}.${format}`);
     const content = generateSubtitleFile(file.blocks, format, styles);
     downloadFile(outputName, content);
     setIsExportModalOpen(false);
@@ -871,7 +833,7 @@ const App: React.FC = () => {
       
       files.forEach(f => {
          const format = settings.outputFormat;
-         const outputName = f.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_fa.${format}`);
+         const outputName = f.name.replace(/\.(srt|vtt|ass|ssa)$/i, `_${settings.targetLanguage}.${format}`);
          const content = generateSubtitleFile(f.blocks, format); 
          zip.file(outputName, content);
       });
@@ -891,7 +853,7 @@ const App: React.FC = () => {
       setFiles(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
   };
 
-  const processFile = async (fileId: string) => {
+  const processFile = async (fileId: string, signal?: AbortSignal) => {
      const file = filesRef.current.find(f => f.id === fileId);
      if (!file) return;
 
@@ -977,13 +939,13 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod);
+                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal);
 
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
                         const newBlocks = [...f.blocks];
                         results.forEach(res => {
-                            const formattedText = formatPersianSubtitle(res.translatedText);
+                            const formattedText = formatSubtitleForLanguage(res.translatedText, settingsRef.current.targetLanguage);
                             const idx = newBlocks.findIndex(b => b.id === res.id);
                             if (idx !== -1) {
                                 newBlocks[idx].translatedText = formattedText;
@@ -1156,35 +1118,22 @@ const App: React.FC = () => {
 
     let stoppedEarly = false;
 
+    const runner = new TranslationJobRunner(async (job, signal) => {
+        const file = filesRef.current.find(item => item.id === job.fileId);
+        if (!file) return;
+        setActiveFileId(file.id);
+        await processFile(file.id, signal);
+    });
+    jobRunnerRef.current = runner;
+    pendingFiles.forEach(file => runner.enqueue(file.id));
+
     try {
-        for (let i = 0; i < pendingFiles.length; i++) {
-            if (!isTranslatingRef.current) {
-                stoppedEarly = true;
-                break;
-            }
-            const file = pendingFiles[i];
-            setActiveFileId(file.id);
-
-            try {
-                await processFile(file.id);
-            } catch (e: any) {
-                console.error(`Failed to process file ${file.name}`, e);
-                if (!isTranslatingRef.current) {
-                    stoppedEarly = true;
-                    break;
-                }
-            }
-
-            if (i < pendingFiles.length - 1 && isTranslatingRef.current) {
-                const waitTime = DELAY_BETWEEN_FILES_MS;
-                const nextFileId = pendingFiles[i+1].id;
-                updateFileStatus(nextFileId, { progressMessage: `در انتظار نوبت (${Math.round(waitTime/1000)} ثانیه)...` });
-                await new Promise(resolve => setTimeout(resolve, waitTime));
-            }
-        }
+        await runner.run();
+        stoppedEarly = runner.getSnapshot().some(job => job.status === 'paused' || job.status === 'cancelled');
     } catch (e) {
-        console.error("Batch Loop Error", e);
+        console.error("Batch Queue Error", e);
     } finally {
+        jobRunnerRef.current = null;
         isTranslatingRef.current = false;
         if (!stoppedEarly) {
             setCompletionToast(true); 
@@ -1195,6 +1144,7 @@ const App: React.FC = () => {
   const pauseTranslation = () => {
     isTranslatingRef.current = false;
     isPausedRef.current = true; 
+    jobRunnerRef.current?.pauseActive();
     
     setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت' } : f));
     
@@ -1205,6 +1155,7 @@ const App: React.FC = () => {
   const cancelTranslation = () => {
     isTranslatingRef.current = false;
     isPausedRef.current = false; 
+    jobRunnerRef.current?.cancelAll();
     setFiles(prev => prev.map(f => 
         (f.status === AppStatus.TRANSLATING || f.status === AppStatus.PAUSED) 
         ? { ...f, status: AppStatus.CANCELLED, progressMessage: 'لغو شد' } 

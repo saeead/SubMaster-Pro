@@ -1,5 +1,5 @@
 
-import { SubtitleBlock, AdjustmentConfig, NetflixError, VttStyleConfig, StyleConfig, OutputStandard } from '../types';
+import { SubtitleBlock, AdjustmentConfig, NetflixError, VttStyleConfig, StyleConfig, OutputStandard, TargetLanguage } from '../types';
 import { BATCH_SIZE, OVERLAP_SIZE, OPTIMIZATION_CONFIG } from '../constants';
 
 // Helper to convert timestamp string to milliseconds
@@ -153,6 +153,27 @@ export const formatPersianSubtitle = (text: string): string => {
   const line1 = words.slice(0, bestSplitIndex).join(' ');
   const line2 = words.slice(bestSplitIndex).join(' ');
   return `${line1}\n${line2}`;
+};
+
+
+export const formatSubtitleForLanguage = (text: string, targetLanguage: TargetLanguage = 'fa'): string => {
+  if (targetLanguage === 'fa') return formatPersianSubtitle(text);
+  if (!text) return '';
+  const clean = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (clean.length <= 42) return clean;
+  const words = clean.split(' ');
+  if (words.length <= 1) return clean;
+  const targetLength = clean.length / 2;
+  let bestIndex = Math.max(1, Math.floor(words.length / 2));
+  let currentLength = 0;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < words.length; i++) {
+    currentLength += words[i - 1].length + 1;
+    const punctuationBonus = /[,:;.!?]$/.test(words[i - 1]) ? -8 : 0;
+    const score = Math.abs(currentLength - targetLength) + Math.max(0, currentLength - 42) * 2 + punctuationBonus;
+    if (score < bestScore) { bestScore = score; bestIndex = i; }
+  }
+  return `${words.slice(0, bestIndex).join(' ')}\n${words.slice(bestIndex).join(' ')}`.trim();
 };
 
 export const optimizeSubtitleBlocks = (blocks: SubtitleBlock[], standard: OutputStandard = 'normal'): SubtitleBlock[] => {
