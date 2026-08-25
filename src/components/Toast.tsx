@@ -60,7 +60,7 @@ export const Toast: React.FC<ToastProps> = ({ message, type = 'error', onClose }
   const IconComponent = style.Icon;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-5 fade-in duration-300 w-full max-w-md px-4">
+    <div className="relative w-full max-w-md px-4 animate-in slide-in-from-bottom-5 fade-in duration-300">
       <div className={`glass ${style.bg} border ${style.border} text-white p-4 rounded-2xl ${style.shadow} flex items-start gap-4 backdrop-blur-xl`}>
         <div className={`p-2 ${style.iconBg} rounded-full flex-shrink-0 mt-0.5`}>
            <IconComponent className={`w-5 h-5 ${style.iconColor}`} />
