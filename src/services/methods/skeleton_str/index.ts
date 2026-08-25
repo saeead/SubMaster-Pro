@@ -1,7 +1,7 @@
 /** Skeleton STR phases 1 and 2. This module intentionally owns its parsing and
  * marker protocol so existing translation methods remain untouched. */
 export type SkeletonFileType = 'srt' | 'vtt' | 'sbv' | 'lrc' | 'ass';
-export interface SkeletonSplit { fileType: SkeletonFileType; originalLines: string[]; contentLines: string[]; contentIndices: number[]; assContentStartIndex: number; }
+export interface SkeletonSplit { fileType: SkeletonFileType; originalLines: string[]; contentLines: string[]; contentIndices: number[]; assContentStartIndex: number; lineEnding?: '\n' | '\r\n'; }
 export interface AssPrepared { cleanLine: string; leadingTags: string; breaks: string[]; verbatim?: string; }
 
 const TIMECODE = /^(?:\d+:)?\d{2}:\d{2}[,.]\d{1,3}[ \t]+-->[ \t]+(?:\d+:)?\d{2}:\d{2}[,.]\d{1,3}/;
@@ -57,7 +57,7 @@ export const filterSubLines = (originalLines: string[], fileType: SkeletonFileTy
   return { originalLines, contentLines, contentIndices, assContentStartIndex: 9 };
 };
 
-export const splitSkeleton = (text: string): SkeletonSplit => { const originalLines = text.replace(/\r\n?/g, '\n').split('\n'); const fileType = detectSkeletonFileType(text); return { fileType, ...filterSubLines(originalLines, fileType) }; };
+export const splitSkeleton = (text: string): SkeletonSplit => { const originalLines = text.replace(/\r\n?/g, '\n').split('\n'); const fileType = detectSkeletonFileType(text); const lineEnding = /\r\n/.test(text) ? '\r\n' : '\n'; return { fileType, ...filterSubLines(originalLines, fileType), lineEnding }; };
 
 export const prepareAssForTranslation = (line: string): AssPrepared => {
   if (/\{\\p[1-9]\}/i.test(line)) return { cleanLine: '', leadingTags: '', breaks: [], verbatim: line };
@@ -83,4 +83,77 @@ export const extractTranslatedLinesWithNumbers = (response: string, expectedCoun
   if (expectedCount > 1 && hasOverflow && output[0] === '') return Array(expectedCount).fill('');
   for (let i = 0; i < expectedCount; i++) if (!output[i] && !isBlankTarget(sourceLines[i] || '')) for (let previous = i - 1; previous >= 0; previous--) { if (!isBlankTarget(sourceLines[previous] || '')) { output[previous] = ''; break; } }
   return output.map((value, index) => value && contextLines.some((context, contextIndex) => contextIndex !== index && context === value) ? '' : value);
+};
+
+export interface SkeletonRestoreOptions {
+  bilingual?: boolean;
+  failures?: ReadonlySet<number>;
+  lineEnding?: '\n' | '\r\n';
+}
+
+const findPreviousTimingLine = (lines: string[], index: number, type: SkeletonFileType): number => {
+  const matcher = type === 'sbv' ? SBV : TIMECODE;
+  for (let cursor = index - 1; cursor >= 0; cursor--) if (matcher.test(lines[cursor].trim())) return cursor;
+  return -1;
+};
+
+const assPrefix = (line: string, contentStartIndex: number): string => {
+  const colon = line.indexOf(':');
+  const body = line.slice(colon + 1);
+  return `${line.slice(0, colon + 1)}${body.split(',').slice(0, contentStartIndex).join(',')},`;
+};
+
+const lrcPrefix = (line: string): string => line.match(/^(?:\[\d{2}:\d{2}(?:\.\d{2,3})?\])+/)?.[0] || '';
+
+/**
+ * Phase 3: writes known translated slots into a copy of the source lines. It
+ * never parses model output for cues, so model-shaped dialogue cannot alter
+ * timings, cue IDs, headers, or block boundaries.
+ */
+export const restoreSkeleton = (split: SkeletonSplit, translatedLines: string[], options: SkeletonRestoreOptions = {}): string => {
+  if (translatedLines.length !== split.contentLines.length) throw new Error('Skeleton STR restore requires one translated slot per source line.');
+  const output = [...split.originalLines];
+  const failures = options.failures || new Set<number>();
+  const bilingualGroups = new Map<number, number[]>();
+
+  split.contentIndices.forEach((physicalIndex, index) => {
+    const source = split.contentLines[index];
+    const translated = translatedLines[index];
+    // I3/I4: an empty response must preserve the original physical line.
+    if (!translated || isBlankTarget(translated)) return;
+    if (options.bilingual && split.fileType !== 'ass' && split.fileType !== 'lrc') {
+      const group = findPreviousTimingLine(split.originalLines, physicalIndex, split.fileType);
+      const members = bilingualGroups.get(group) || [];
+      members.push(index); bilingualGroups.set(group, members);
+      return;
+    }
+    if (split.fileType === 'ass') {
+      if (failures.has(index)) return;
+      const restoredText = options.bilingual
+        ? `${source}\\N${translated.replace(/^\{[^}]*\}/, '')}`
+        : translated;
+      output[physicalIndex] = `${assPrefix(split.originalLines[physicalIndex], split.assContentStartIndex)}${restoredText}`;
+    } else if (split.fileType === 'lrc') {
+      output[physicalIndex] = options.bilingual && !failures.has(index)
+        ? `${lrcPrefix(split.originalLines[physicalIndex])}${source} / ${translated}`
+        : `${lrcPrefix(split.originalLines[physicalIndex])}${translated}`;
+    } else {
+      output[physicalIndex] = translated;
+    }
+  });
+
+  if (options.bilingual && split.fileType !== 'ass' && split.fileType !== 'lrc') {
+    bilingualGroups.forEach((members) => {
+      const successful = members.filter(index => !failures.has(index) && !isBlankTarget(translatedLines[index]));
+      if (successful.length === 0) return;
+      const first = split.contentIndices[members[0]];
+      const originals = members.map(index => split.contentLines[index]);
+      const translations = successful.map(index => translatedLines[index]);
+      output[first] = [...originals, ...translations].join(options.lineEnding || split.lineEnding || '\n');
+      members.slice(1).forEach(index => { output[split.contentIndices[index]] = ''; });
+    });
+  }
+
+  const lineEnding = options.lineEnding || split.lineEnding || '\n';
+  return output.join(lineEnding);
 };

@@ -285,3 +285,29 @@ Upload files
 ```
 
 نقطه قوت اصلی معماری، ساده بودن deploy و اجرای کاملاً client-side است. نقطه ضعف اصلی همین معماری، محدودیت‌های localStorage و ریسک‌های مقیاس‌پذیری است؛ با این حال job queue سبک، AbortController و تست‌های واحد هسته‌ای بخشی از این gap را کم کرده‌اند.
+
+## 18. معماری مکمل: Skeleton STR (سه‌فاز، opt-in)
+
+روش `skeleton_str` یک strategy مستقل در کنار `default` و `paragraph` است؛ انتخاب آن اختیاری است و promptها و رفتار روش‌های موجود را تغییر نمی‌دهد. هسته این strategy در `src/services/methods/skeleton_str/index.ts` نگهداری می‌شود و یک قرارداد index-based دارد: مدل فقط دیالوگ را می‌بیند و ساختار فایل دوباره از خروجی مدل parse نمی‌شود.
+
+```text
+source text
+  -> Phase 1: detect + split
+     originalLines + contentLines + contentIndices
+  -> Phase 2: numbered context batches
+     translatedLines (هم‌طول با contentLines)
+  -> Phase 3: restore by original physical indices
+     original skeleton with translated dialogue
+```
+
+### فاز ۱: جداسازی skeleton
+
+`detectSkeletonFileType` با بررسی محتوا، VTT را از header، ASS را فقط با رأی اکید، و SRT/SBV/LRC را با الگوهای زمان تشخیص می‌دهد. `filterSubLines` فقط خطوط قابل ترجمه را همراه با اندیس فیزیکی‌شان ذخیره می‌کند. بنابراین timecode، شماره cue، metadata و blockهای VTT، شناسه cue، و فیلدهای غیرمتنی ASS وارد payload مدل نمی‌شوند. برای ASS، `prepareAssForTranslation` تگ‌های ابتدایی و breakهای `\N` را با placeholder محافظت می‌کند و drawingها را verbatim نگه می‌دارد.
+
+### فاز ۲: ترجمه دیالوگ با markerهای شماره‌دار
+
+`buildContextPayload` فقط targetها را با `[TRANSLATE_n]` و همسایه‌ها را با `[CONTEXT]` می‌سازد. `translateSkeletonPayload` همان gateway/provider انتخابی برنامه را با system instruction اختصاصی صدا می‌زند. `extractTranslatedLinesWithNumbers` با backreference markerها را می‌خواند، از fallback موقعیتی پرهیز می‌کند، پاسخ one-based جابه‌جا، merge مشکوک و echo از context را رد می‌کند. در orchestration، هر slot نامعتبر یا خالی با source همان block باقی می‌ماند تا هیچ cue جابه‌جا نشود.
+
+### فاز ۳: بازگردانی skeleton
+
+`restoreSkeleton` یک کپی از `originalLines` می‌سازد و فقط در `contentIndices` می‌نویسد. اگر translation slot خالی باشد، هیچ writeای انجام نمی‌شود؛ در نتیجه blank cue separator ایجاد نشده و متن اصلی همان timestamp باقی می‌ماند. برای ASS prefix تمام فیلدهای `Dialogue:` حفظ می‌شود؛ برای LRC تمام timestamp prefixها باقی می‌مانند. در حالت bilingual، cueها با اندیس timecode قبلی گروه‌بندی می‌شوند، نه با مقدار زمان، تا cueهای مستقل با timestamp یکسان با هم ادغام نشوند. line ending اصلی (`\n` یا `\r\n`) نیز در restore حفظ می‌شود.

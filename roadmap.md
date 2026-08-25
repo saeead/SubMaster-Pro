@@ -214,3 +214,12 @@ README فعلی بسیار عمومی است. پیشنهاد:
 - snapshot/diff.
 - import/export versioned.
 - مستندات کامل کاربر نهایی.
+
+## کارهای انجام‌شده — Skeleton STR (فازهای ۱ تا ۳)
+
+پیاده‌سازی روش اختیاری **Skeleton STR** تکمیل شده است. این روش در انتهای انتخاب‌گر روش‌های ترجمه قرار دارد و روش پیش‌فرض یا paragraph را تغییر نمی‌دهد.
+
+- **فاز ۱ — Skeleton split:** تشخیص محتوایی SRT/VTT/SBV/LRC/ASS، استخراج صرفاً دیالوگ و نگاشت ایندکس فیزیکی خطوط، حذف header/block/cue-idهای VTT، تشخیص شماره cue در SRT فشرده، و حفاظت از تگ‌ها و drawingهای ASS انجام شده است.
+- **فاز ۲ — Dialogue translation:** batchهای دارای `[CONTEXT]` و markerهای شماره‌دار `[TRANSLATE_n]` به provider انتخاب‌شده ارسال می‌شوند. استخراج پاسخ از marker استفاده می‌کند و محافظ‌های one-based overflow، merge و echo را اعمال می‌کند؛ slot خالی با متن مبدأ همان cue soft-fill می‌شود.
+- **فاز ۳ — Skeleton restore:** خروجی فقط با `contentIndices` روی کپی `originalLines` نوشته می‌شود و هرگز از پاسخ مدل برای کشف timing/cue استفاده نمی‌شود. خروجی خالی خط مبدأ را نگه می‌دارد؛ زمان‌ها، cueها، headerها و prefixهای LRC/ASS حفظ می‌شوند. مسیر bilingual نیز grouping را بر پایه index خط timecode انجام می‌دهد.
+- برای هر سه فاز تست بدون شبکه افزوده شده است: زمان‌بندی SRT، SRT فشرده، VTT block/cue-id، ASS tag و drawing، LRC، marker guards و بازگردانی SRT/ASS/LRC.
