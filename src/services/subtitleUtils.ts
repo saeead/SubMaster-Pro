@@ -128,17 +128,18 @@ const countChars = (text: string): number => text.replace(/[\r\n]+/g, '').length
 const isSentenceComplete = (text: string): boolean => /[.?!؟!;]['"]?$/.test(text.trim());
 
 
+const PERSIAN_HALF_SPACE = '\u200C';
+
 const normalizePersianOrthography = (text: string): string => text
   .replace(/ي/g, 'ی')
   .replace(/ك/g, 'ک')
   .replace(/\s+/g, ' ')
   .replace(/\s+([،؛:؟!,.])/g, '$1')
   .replace(/([،؛:؟!,.])([^\s\n])/g, '$1 $2')
-  .replace(/(^|\s)(می|نمی)\s+(?=\p{L})/gu, '$1$2‌')
-  .replace(/(^|\s)(می|نمی)(باشد|کنم|کنی|کند|کنند|کنیم|کنید|شود|شوند|شویم|شوید|توانم|توانی|تواند|توانند|توانیم|توانید|خواهم|خواهی|خواهد|خواهند|خواهیم|خواهید|گویم|گویی|گوید|گویند|گوییم|گویید|روم|روی|رود|رویم|روید|روند)(?=$|\s|[،؛:؟!,.])/gu, '$1$2‌$3')
-  .replace(/(\p{L}{2,})\s+(ها|های|هایی|تر|ترین)(?=$|\s|[،؛:؟!,.])/gu, '$1‌$2')
-  .replace(/(\p{L}{2,}ه)(ها|های|هایی)(?=$|\s|[،؛:؟!,.])/gu, '$1‌$2')
-  .replace(/(\p{L}{2,}ی)(ها|های|هایی)(?=$|\s|[،؛:؟!,.])/gu, '$1‌$2')
+  .replace(/(^|\s)(می|نمی)\s+(?=\p{L})/gu, (_match, boundary, prefix) => `${boundary}${prefix}${PERSIAN_HALF_SPACE}`)
+  .replace(/(^|\s)(می|نمی)(باشد|کنم|کنی|کند|کنند|کنیم|کنید|شود|شوند|شویم|شوید|توانم|توانی|تواند|توانند|توانیم|توانید|خواهم|خواهی|خواهد|خواهند|خواهیم|خواهید|گویم|گویی|گوید|گویند|گوییم|گویید|روم|روی|رود|رویم|روید|روند)(?=$|\s|[،؛:؟!,.])/gu, (_match, boundary, prefix, stem) => `${boundary}${prefix}${PERSIAN_HALF_SPACE}${stem}`)
+  .replace(/(\p{L}{2,})\s+(هایی|های|ها|ترین|تر)(?=$|\s|[،؛:؟!,.])/gu, (_match, word, suffix) => `${word}${PERSIAN_HALF_SPACE}${suffix}`)
+  .replace(/(\p{L}{2,}[هی])(هایی|های|ها)(?=$|\s|[،؛:؟!,.])/gu, (_match, word, suffix) => `${word}${PERSIAN_HALF_SPACE}${suffix}`)
   .replace(/\s+/g, ' ')
   .trim();
 
