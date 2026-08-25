@@ -237,11 +237,11 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                             role="radio"
                             aria-checked={translationMethod === 'skeleton_str'}
                             onClick={() => onTranslationMethodChange('skeleton_str')}
-                            title="Strip structure → context-batch translate dialogue only → restore original skeleton. Timecodes never leave the client."
+                            title="ساختار فایل در دستگاه شما می‌ماند؛ فقط دیالوگ‌ها با بافت پیرامونی ترجمه و سپس در زمان‌بندی اصلی بازگردانده می‌شوند."
                             className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'skeleton_str' ? 'border-[#a3e635] bg-[#a3e635]/10 text-white shadow-[0_0_15px_rgba(163,230,53,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
                         >
                             <span className="block text-sm font-bold">Skeleton STR <span className="text-xs font-normal">(اسکلت‌محور STR)</span></span>
-                            <span className="block text-[11px] mt-1">Extracts dialogue, translates with numbered context batches, writes text back into the original timecodes. Existing methods are unchanged.</span>
+                            <span className="block text-[11px] mt-1">فقط دیالوگ‌ها را با دسته‌های بافت‌دار و شماره‌گذاری‌شده ترجمه می‌کند و آن‌ها را در زمان‌بندی اصلی می‌نویسد. روش‌های دیگر تغییری نمی‌کنند.</span>
                         </button>
                     </div>
                 </div>
