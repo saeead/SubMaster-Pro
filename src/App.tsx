@@ -14,7 +14,8 @@ import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
-import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic } from './services/geminiService';
+import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
+import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesWithNumbers } from './services/methods/skeleton_str';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
@@ -861,6 +862,7 @@ const App: React.FC = () => {
      const startTime = Date.now();
 
      const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
+     const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str';
      const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, BATCH_SIZE);
      const totalChunks = chunks.length;
 
@@ -939,7 +941,15 @@ const App: React.FC = () => {
             const postContextReq: BatchRequest[] = postContextBlocks.map(b => ({ id: b.id, text: b.originalText }));
 
             try {
-                const results = await translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal);
+                const results = isSkeletonMethod
+                    ? (() => {
+                        const contextLines = chunk.blocks.map(block => block.originalText);
+                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex);
+                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length), settingsRef.current, signal)
+                          .then(response => extractTranslatedLinesWithNumbers(response, targetBlocks.length, targetBlocks.map(block => block.originalText), contextLines)
+                            .map((translatedText, index) => ({ id: targetBlocks[index].id, translatedText: translatedText || targetBlocks[index].originalText })));
+                      })()
+                    : translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal);
 
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
