@@ -375,9 +375,15 @@ const requestOpenAICompatibleChat = async (service: OpenAICompatibleService, bod
 };
 
 const shouldFallbackFromProxyResponse = (response: Response): boolean => {
-  if (response.status !== 404 && response.status !== 405) return false;
   const contentType = response.headers.get('content-type') || '';
-  return !contentType.includes('application/json');
+  const isJson = contentType.includes('application/json');
+
+  // When the optional Vite proxy is unavailable (for example in a static
+  // production deployment), SPA fallbacks often answer the proxy URL with
+  // index.html and a 200/404 status. Treat any non-JSON proxy response as a
+  // missing proxy and retry the provider endpoint directly instead of trying
+  // to parse HTML as a Chat Completions response.
+  return !isJson || response.status === 404 || response.status === 405;
 };
 
 const callOpenAICompatibleChat = async (service: OpenAICompatibleService, temperature: number, systemInstruction: string, userPrompt: string, signal?: AbortSignal): Promise<string> => {

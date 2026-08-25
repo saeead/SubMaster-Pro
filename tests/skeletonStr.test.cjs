@@ -27,6 +27,13 @@ test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'en'), /Do not answer in English unless English is the selected target language/);
 });
+test('Skeleton STR context payload gives a larger paragraph-sized window', () => {
+  const lines = Array.from({ length: 80 }, (_, index) => `line-${index}`);
+  const payload = skeleton.buildContextPayload(lines, 22, 58);
+  assert.equal((payload.match(/\[TRANSLATE_/g) || []).length, 36);
+  assert.equal((payload.match(/\[CONTEXT\]/g) || []).length, 40);
+  assert.match(skeleton.buildSkeletonUserPrompt(payload, 36, 'fa'), /one coherent paragraph/);
+});
 test('echoing context is rejected, while an identical own source is allowed', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]next[/TRANSLATE_0]', 1, ['self'], ['self', 'next']), ['']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]Tokyo[/TRANSLATE_0]', 1, ['Tokyo'], ['Tokyo']), ['Tokyo']);

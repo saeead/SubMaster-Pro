@@ -19,7 +19,7 @@ import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesWit
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
-import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
+import { BATCH_SIZE, SKELETON_STR_BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
 import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
@@ -879,7 +879,7 @@ const App: React.FC = () => {
 
      const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
      const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str';
-     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, BATCH_SIZE);
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? SKELETON_STR_BATCH_SIZE : BATCH_SIZE);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
@@ -963,7 +963,7 @@ const App: React.FC = () => {
                 const results = await (isSkeletonMethod
                     ? (() => {
                         const contextLines = chunk.blocks.map(block => block.originalText);
-                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex);
+                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW);
                         return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage), settingsRef.current, signal)
                           .then(async response => {
                             const sourceLines = targetBlocks.map(block => block.originalText);
@@ -976,7 +976,7 @@ const App: React.FC = () => {
                             for (let index = 0; index < translatedLines.length; index++) {
                               if (translatedLines[index]) continue;
                               const singleStart = chunk.targetStartIndex + index;
-                              const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 6);
+                              const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 12);
                               for (let attempt = 0; attempt < 2 && !translatedLines[index]; attempt++) {
                                 const retryResponse = await translateSkeletonPayload(
                                   buildSkeletonUserPrompt(singlePayload, 1, settingsRef.current.targetLanguage),
