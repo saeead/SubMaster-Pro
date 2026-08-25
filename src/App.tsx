@@ -15,7 +15,7 @@ import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
-import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesWithNumbers } from './services/methods/skeleton_str';
+import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds } from './services/methods/skeleton_str';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
@@ -963,11 +963,12 @@ const App: React.FC = () => {
                 const results = await (isSkeletonMethod
                     ? (() => {
                         const contextLines = chunk.blocks.map(block => block.originalText);
-                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW);
-                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage), settingsRef.current, signal)
+                        const markerIds = targetBlocks.map(block => block.id);
+                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW, { targetMarkerIds: markerIds });
+                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage, markerIds), settingsRef.current, signal)
                           .then(async response => {
                             const sourceLines = targetBlocks.map(block => block.originalText);
-                            const translatedLines = extractTranslatedLinesWithNumbers(response, targetBlocks.length, sourceLines, contextLines);
+                            const translatedLines = extractTranslatedLinesByMarkerIds(response, markerIds, sourceLines, contextLines);
 
                             // A tagged response can omit individual slots. Retry every
                             // missing slot as a single-line request before soft-filling;
@@ -976,14 +977,15 @@ const App: React.FC = () => {
                             for (let index = 0; index < translatedLines.length; index++) {
                               if (translatedLines[index]) continue;
                               const singleStart = chunk.targetStartIndex + index;
-                              const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 12);
+                              const singleMarkerId = markerIds[index];
+                              const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 12, { markerBase: singleMarkerId });
                               for (let attempt = 0; attempt < 2 && !translatedLines[index]; attempt++) {
                                 const retryResponse = await translateSkeletonPayload(
-                                  buildSkeletonUserPrompt(singlePayload, 1, settingsRef.current.targetLanguage),
+                                  buildSkeletonUserPrompt(singlePayload, 1, settingsRef.current.targetLanguage, [singleMarkerId]),
                                   settingsRef.current,
                                   signal
                                 );
-                                const retry = extractTranslatedLinesWithNumbers(retryResponse, 1, [sourceLines[index]], contextLines)[0];
+                                const retry = extractTranslatedLinesByMarkerIds(retryResponse, [singleMarkerId], [sourceLines[index]], contextLines)[0];
                                 if (retry) translatedLines[index] = retry;
                               }
                             }
