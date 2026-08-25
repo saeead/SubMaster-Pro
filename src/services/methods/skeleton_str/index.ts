@@ -73,22 +73,73 @@ export const restoreAssAfterTranslation = (translation: string, prepared: AssPre
   return prepared.leadingTags + output.replace(/#{1,3} ?\d+ ?#{1,3}/g, '');
 };
 
-export const buildContextPayload = (lines: string[], start: number, end: number, window = 20): string => { const padding = Math.min(50, Math.max(1, Math.floor(window / 2))); return lines.slice(Math.max(0, start - padding), Math.min(lines.length, end + padding)).map((line, relative) => { const absolute = Math.max(0, start - padding) + relative; return absolute >= start && absolute < end ? `[TRANSLATE_${absolute - start}]${line}[/TRANSLATE_${absolute - start}]` : `[CONTEXT]${line}[/CONTEXT]`; }).join('\n'); };
+export interface SkeletonPayloadOptions {
+  markerBase?: number;
+  targetMarkerIds?: number[];
+}
+
+const normalizeForAlignment = (value: string): string => value
+  .replace(/\[\/?(?:TRANSLATE(?:_\d+)?|TRANSLTranslate_\d+|CONTEXT)\]/g, '')
+  .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+export const buildContextPayload = (lines: string[], start: number, end: number, window = 40, options: SkeletonPayloadOptions = {}): string => {
+  const padding = Math.min(80, Math.max(1, Math.floor(window / 2)));
+  const from = Math.max(0, start - padding);
+  return lines
+    .slice(from, Math.min(lines.length, end + padding))
+    .map((line, relative) => {
+      const absolute = from + relative;
+      const markerId = absolute >= start && absolute < end
+        ? options.targetMarkerIds?.[absolute - start] ?? (options.markerBase ?? 0) + absolute - start
+        : undefined;
+      return markerId !== undefined
+        ? `[TRANSLATE_${markerId}]${line}[/TRANSLATE_${markerId}]`
+        : `[CONTEXT]${line}[/CONTEXT]`;
+    })
+    .join('\n');
+};
+
 export const SKELETON_STR_SYSTEM_PROMPT = 'You are a professional subtitle translator. Respond only with the tagged lines. Do not add explanations, comments, markdown fences, or any extra text.';
 const TARGET_LANGUAGE_NAMES: Record<string, string> = {
   fa: 'Persian (Farsi)', en: 'English', ru: 'Russian', zh: 'Chinese', de: 'German', es: 'Spanish'
 };
-export const buildSkeletonUserPrompt = (content: string, count: number, targetLanguage = 'fa'): string => {
+export const buildSkeletonUserPrompt = (content: string, count: number, targetLanguage = 'fa', expectedMarkerIds?: number[]): string => {
   const language = TARGET_LANGUAGE_NAMES[targetLanguage] || targetLanguage;
-  return `Context: This is part of a subtitle file. Translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. Do NOT skip any numbers from 0 to ${count - 1}\n3. Keep the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Do not answer in English unless English is the selected target language.\n\n${content}`;
+  const markerRequirement = expectedMarkerIds?.length
+    ? `Translate exactly these marker IDs and no others: ${expectedMarkerIds.map(id => `TRANSLATE_${id}`).join(', ')}.`
+    : `Do NOT skip any numbers from 0 to ${count - 1}.`;
+  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Do not answer in English unless English is the selected target language.\n\n${content}`;
 };
 
 export const extractTranslatedLinesWithNumbers = (response: string, expectedCount: number, sourceLines: string[], contextLines: string[]): string[] => {
-  const output = Array<string>(expectedCount).fill(''); const pattern = /\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/(?:TRANSLATE|TRANSLTranslate)_\1\]/g; let match: RegExpExecArray | null; let hasOverflow = false;
-  while ((match = pattern.exec(response))) { const id = Number(match[1]); if (id === expectedCount) hasOverflow = true; if (id >= 0 && id < expectedCount && output[id] === '') output[id] = match[2].replace(/\[\/?(?:TRANSLATE(?:_\d+)?|TRANSLTranslate_\d+|CONTEXT)\]/g, '').trim(); }
-  if (expectedCount > 1 && hasOverflow && output[0] === '') return Array(expectedCount).fill('');
-  for (let i = 0; i < expectedCount; i++) if (!output[i] && !isBlankTarget(sourceLines[i] || '')) for (let previous = i - 1; previous >= 0; previous--) { if (!isBlankTarget(sourceLines[previous] || '')) { output[previous] = ''; break; } }
-  return output.map((value, index) => value && contextLines.some((context, contextIndex) => contextIndex !== index && context === value) ? '' : value);
+  const expectedIds = Array.from({ length: expectedCount }, (_, index) => index);
+  if (expectedCount > 1 && !response.includes('[TRANSLATE_0]') && response.includes(`[TRANSLATE_${expectedCount}]`)) return Array(expectedCount).fill('');
+  if (expectedCount > 1 && /\[TRANSLATE_\d+\]\s*\[\/TRANSLATE_\d+\]/.test(response)) return Array(expectedCount).fill('');
+  return extractTranslatedLinesByMarkerIds(response, expectedIds, sourceLines, contextLines);
+};
+
+export const extractTranslatedLinesByMarkerIds = (response: string, expectedMarkerIds: number[], sourceLines: string[], contextLines: string[]): string[] => {
+  const output = Array<string>(expectedMarkerIds.length).fill('');
+  const idToSlot = new Map(expectedMarkerIds.map((id, index) => [id, index]));
+  const pattern = /\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/(?:TRANSLATE|TRANSLTranslate)_\1\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(response))) {
+    const id = Number(match[1]);
+    const slot = idToSlot.get(id);
+    if (slot !== undefined && output[slot] === '') output[slot] = normalizeForAlignment(match[2]);
+  }
+
+  const seen = new Map<string, number>();
+  return output.map((value, index) => {
+    if (!value) return '';
+    if (contextLines.some((context, contextIndex) => contextIndex !== index && normalizeForAlignment(context) === value)) return '';
+    const duplicateSource = seen.get(value);
+    if (duplicateSource !== undefined && normalizeForAlignment(sourceLines[duplicateSource] || '') !== normalizeForAlignment(sourceLines[index] || '')) return '';
+    seen.set(value, index);
+    return value;
+  });
 };
 
 export interface SkeletonRestoreOptions {

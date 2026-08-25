@@ -58,3 +58,10 @@ test('parseASS extracts dialogue text and stringifyASS converts timing format', 
   const output = utils.stringifyASS(blocks);
   assert.ok(output.includes('Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello, world!'));
 });
+
+test('formatPersianSubtitle normalizes Persian orthography and spacing', () => {
+  assert.equal(utils.formatPersianSubtitle('مي شود ، کتاب ها بهترند'), 'می‌شود، کتاب‌ها بهترند');
+  assert.equal(utils.formatPersianSubtitle('نمي توانم.پس'), 'نمی‌توانم. پس');
+  assert.equal(utils.formatPersianSubtitle('سهمیههایی بر اساس ملیت و اروپاییهای غربی'), 'سهمیه‌هایی بر اساس ملیت و اروپایی‌های غربی');
+  assert.equal(utils.formatPersianSubtitle('این قانون میباشد و نمیتواند حذف شود'), 'این قانون می‌باشد و نمی‌تواند حذف شود');
+});
