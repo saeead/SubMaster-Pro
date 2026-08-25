@@ -1,216 +1,485 @@
-# roadmap.md — پیشنهادهای بهبود SubMaster Pro
+# SubMaster Pro
 
-## اولویت خیلی بالا
+A powerful client-side subtitle processing application for uploading, translating, editing, optimizing, and exporting subtitle files.
 
-### 1. حذف ذخیره API Key از state پروژه
+SubMaster Pro is a modern Single Page Application (SPA) built with **React 19**, **TypeScript**, and **Vite**. It provides a complete workflow for subtitle localization using AI providers such as **Gemini**, **LM Studio**, and **OpenAI-compatible APIs**.
 
-در حال حاضر schema پروژه فیلد `apiKeyUsed` دارد و هنگام auto-save ممکن است مقدار کلید معتبر در localStorage ذخیره شود. پیشنهاد می‌شود:
+The application runs completely in the browser and does not require a dedicated backend. User settings, translation memory, and project states are stored locally using browser `localStorage`.
 
-- این فیلد از `ProjectState` حذف شود یا همیشه مقدار masked مثل `...1234` داشته باشد.
-- migration برای پاک‌سازی پروژه‌های ذخیره‌شده قبلی اضافه شود.
-- settings مربوط به API key جدا از backup پروژه نگهداری شود.
+---
 
-### 2. اضافه کردن تست‌های واحد برای parser و stringify
+## ✨ Features
 
-توابع parse و generate هسته نرم‌افزار هستند و باید تست شوند:
+* Upload and process subtitle files
 
-- parse/stringify برای SRT، VTT و ASS.
-- تبدیل زمان‌ها با `timeToMs`، `msToTime` و `msToAssTime`.
-- edge caseهای line ending، متن چندخطی، تگ ASS، cue بدون شماره و زمان‌های کوتاه.
+  * SRT
+  * VTT
+  * ASS
 
-پیشنهاد ابزار: Vitest + Testing Library.
+* AI-powered subtitle translation
 
-### 3. استفاده از AbortController برای لغو فوری درخواست‌ها
+  * Google Gemini
+  * LM Studio
+  * OpenAI-compatible providers
 
-Pause و cancel فعلی loop را بعد از پایان request جاری متوقف می‌کند، اما request شبکه فعال را abort نمی‌کند. پیشنهاد:
+* Advanced translation pipeline:
 
-- ساخت یک `AbortController` برای هر batch.
-- ارسال `signal` به fetchهای LM Studio/OpenAI-compatible.
-- بررسی امکان abort در SDK Gemini یا wrap کردن request در کنترل سطح بالاتر.
-- نمایش وضعیت «در حال لغو درخواست جاری» به کاربر.
+  * Smart chunking with context awareness
+  * Paragraph-based translation mode
+  * Translation memory
+  * Batch processing
+  * Resume interrupted translations
 
-### 4. اصلاح محاسبه resume و lastProcessedIndex
+* Subtitle editing tools:
 
-در save state، مقدار `lastProcessedIndex` با `findIndex(...)-1` محاسبه می‌شود که برای اولین ترجمه یا gapهای وسط فایل می‌تواند دقیق نباشد. پیشنهاد:
+  * Inline subtitle editor
+  * Undo / Redo support
+  * Find & replace
+  * Bulk editing operations
 
-- ذخیره bitmap یا set از block idهای ترجمه‌شده.
-- محاسبه resume بر اساس اولین chunk ناقص، نه فقط اولین translatedText.
-- ذخیره metadata chunkها برای resume پایدار بین تغییر الگوریتم chunking.
+* Quality control:
 
-## اولویت بالا
+  * Subtitle length validation
+  * CPS (Characters Per Second) checks
+  * Line length optimization
+  * Standard presets
 
-### 5. جایگزینی localStorage با IndexedDB
+* Export support:
 
-برای فایل‌های بزرگ، چند پروژه و حافظه ترجمه 10هزار آیتمی، localStorage محدود و synchronous است. پیشنهاد:
+  * SRT
+  * VTT
+  * ASS
+  * ZIP batch export
 
-- استفاده از IndexedDB با wrapperهایی مثل Dexie.
-- ذخیره پروژه‌ها، بلوک‌ها، حافظه ترجمه و history به صورت object store جداگانه.
-- امکان compact و cleanup خودکار.
+* Local project management:
 
-### 6. ایجاد job queue واقعی برای ترجمه
+  * Auto-save
+  * Import / Export project backups
+  * Persistent translation memory
 
-در حال حاضر orchestration ترجمه داخل `App.tsx` است. بهتر است یک لایه service مستقل ایجاد شود:
+---
 
-- `TranslationJobRunner`
-- وضعیت job: queued/running/paused/cancelled/failed/completed
-- event emitter یا callback برای progress.
-- retry policy قابل تنظیم.
-- امکان اجرای موازی محدود برای فایل‌های کوچک، با رعایت rate limit.
+# 🏗 Architecture
 
-### 7. جدا کردن منطق business از UI
+SubMaster Pro follows a **client-side layered SPA architecture**.
 
-`App.tsx` مسئول state، persistence، orchestration، export، undo/redo و translation loop است. پیشنهاد:
+```
+UI Layer
+   |
+   ↓
+React Components
+   |
+   ↓
+Application Orchestration
+   |
+   ↓
+Domain Utilities
+   |
+   ↓
+AI Gateway
+   |
+   ↓
+Local Persistence
+```
 
-- ساخت hookهای جداگانه مثل `useProjectFiles`، `useTranslationRunner`، `useUndoRedo`، `useProjectPersistence`.
-- انتقال عملیات فایل به serviceهای domain.
-- کاهش اندازه `App.tsx` و افزایش testability.
+## Main Layers
 
-### 8. validation دقیق‌تر خروجی مدل
+### UI Layer
 
-اعتبارسنجی فعلی خوب است، اما می‌تواند بهتر شود:
+Located in:
 
-- تشخیص ترجمه‌های تکراری پشت‌سرهم.
-- تشخیص عدم تناسب طول ترجمه با duration.
-- تشخیص باقی‌ماندن زبان مبدأ بر اساس target language.
-- scoring کیفیت و نمایش آن در UI.
-- retry selective فقط برای idهای مشکل‌دار.
+```
+src/components/
+```
 
-### 9. پشتیبانی رسمی از target languageهای غیر فارسی
+Responsible for:
 
-در types، چند target language تعریف شده، اما pipeline اصلی و promptها عمدتاً فارسی‌محور هستند. پیشنهاد:
+* File upload
+* Subtitle editing
+* Settings management
+* Export dialogs
+* User notifications
 
-- افزودن `targetLanguage` به settings اصلی.
-- parameterize کردن `responseSchema.description` و system prompts.
-- جدا کردن `formatPersianSubtitle` از formatter عمومی.
-- ساخت formatter مخصوص زبان‌های RTL/LTR.
+---
 
-## اولویت متوسط
+### Application Layer
 
-### 10. بهبود امنیت و CORS با backend سبک اختیاری
+Main file:
 
-برای سرویس‌های OpenAI-compatible، فراخوانی مستقیم از مرورگر می‌تواند با CORS یا افشای key مشکل داشته باشد. پیشنهاد:
+```
+src/App.tsx
+```
 
-- ساخت یک proxy/serverless function رسمی.
-- نگهداری API key در session backend یا encrypted storage.
-- rate limit و audit logging سمت server.
+Handles:
 
-### 11. اضافه کردن export/import کامل پروژه با نسخه schema
+* Global application state
+* Translation workflow
+* File lifecycle
+* Export operations
+* Batch actions
 
-Backup JSON بهتر است versioned باشد:
+---
 
-- `schemaVersion`
-- `appVersion`
-- migration برای نسخه‌های قدیمی.
-- انتخاب import mode: replace یا append.
-- validation فایل backup قبل از import.
+### Subtitle Processing Layer
 
-### 12. بهبود مدیریت history
+Location:
 
-برای فایل‌های بزرگ، history می‌تواند سنگین شود. پیشنهاد:
+```
+src/services/subtitleUtils.ts
+```
 
-- سقف history قابل تنظیم.
-- فشرده‌سازی تغییرات پشت‌سرهم روی یک block.
-- نگهداری history در IndexedDB.
-- undo ساختاری برای حذف/ادغام/بهینه‌سازی به جای پاک کردن history.
+Responsibilities:
 
-### 13. گزارش کیفیت قبل از export
+* Parsing subtitle formats
+* Generating subtitle output
+* Chunking
+* Timing management
+* Quality validation
 
-قبل از export، یک گزارش نهایی نمایش داده شود:
+Supported parsers:
 
-- تعداد cueهای ترجمه‌نشده.
-- تعداد خطاهای CPS/CPL/gap.
-- طولانی‌ترین خط‌ها.
-- cueهای مشکوک به ترجمه ماشینی یا انگلیسی ناخواسته.
-- پیشنهاد auto-fix یا retranslate selected.
+* `parseSRT`
+* `parseVTT`
+* `parseASS`
 
-### 14. بهینه‌سازی حافظه ترجمه
+---
 
-حافظه فعلی exact-match است. پیشنهاد:
+### AI Gateway
 
-- normalize بهتر متن: حذف whitespace اضافی، lowercase برای زبان‌های Latin، حذف punctuation کم‌اثر.
-- fuzzy matching با threshold.
-- ذخیره metadata: provider، model، timestamp، topic، tone.
-- امکان export/import حافظه ترجمه.
+Location:
 
-### 15. بهبود parsing فرمت ASS/SSA
+```
+src/services/geminiService.ts
+```
 
-Parser فعلی برای ASS ساده است و بر اساس split با comma کار می‌کند. در ASS، متن dialogue می‌تواند comma داشته باشد و format events ممکن است سفارشی باشد. پیشنهاد:
+Responsibilities:
 
-- parse کردن خط `Format:` برای پیدا کردن index ستون‌های Start/End/Text.
-- حفظ style و actor/effect در metadata.
-- خروجی ASS با امکان حفظ template اصلی.
+* Building AI prompts
+* Provider communication
+* Response validation
+* Retry handling
+* Error diagnostics
 
-## اولویت پایین‌تر ولی مفید
+Supported providers:
 
-### 16. Web Worker برای پردازش فایل‌های بزرگ
+* Gemini
+* LM Studio
+* OpenAI-compatible APIs
 
-Parse، stringify، zip و validation فایل‌های بزرگ می‌تواند UI را قفل کند. پیشنهاد:
+---
 
-- انتقال parse و QC به Web Worker.
-- progress event برای parse و export.
-- streaming ZIP در صورت امکان.
+# 🛠 Technology Stack
 
-### 17. telemetry محلی و debug panel
+| Technology    | Purpose                        |
+| ------------- | ------------------------------ |
+| React 19      | UI development                 |
+| TypeScript    | Type safety                    |
+| Vite          | Development & production build |
+| @google/genai | Gemini integration             |
+| JSZip         | ZIP export                     |
+| lucide-react  | UI icons                       |
 
-برای عیب‌یابی، یک پنل debug اختیاری اضافه شود:
+---
 
-- آخرین diagnosticها.
-- زمان هر batch.
-- تعداد retryها.
-- provider/model فعال.
-- cache hit rate حافظه ترجمه.
+# 📁 Project Structure
 
-### 18. کنترل دقیق‌تر rate limit
+```
+src/
+│
+├── App.tsx
+├── index.tsx
+├── constants.ts
+├── types.ts
+│
+├── services/
+│   ├── geminiService.ts
+│   ├── subtitleUtils.ts
+│   ├── translationMemory.ts
+│   ├── projectStateManager.ts
+│   └── translationJobRunner.ts
+│
+└── components/
+    ├── Header.tsx
+    ├── Sidebar.tsx
+    ├── FileUpload.tsx
+    ├── SubtitleEditor.tsx
+    ├── SettingsModal.tsx
+    ├── ExportModal.tsx
+    ├── TimingModal.tsx
+    ├── GlossaryModal.tsx
+    ├── TextTranslatorModal.tsx
+    └── Toast.tsx
+```
 
-به جای delay ثابت بین batchها:
+---
 
-- token bucket یا leaky bucket per provider.
-- تنظیم concurrency و delay بر اساس مدل.
-- backoff با jitter.
-- ذخیره وضعیت rate-limited key با زمان انقضا.
+# 🚀 Running Locally
 
-### 19. snapshot و diff ترجمه
+## Prerequisites
 
-برای بازبینی انسانی:
+Make sure you have installed:
 
-- نمایش diff بین ترجمه قبلی و retranslation.
-- snapshot قبل از auto-fix.
-- approve/reject گروهی تغییرات.
+* Node.js (recommended: latest LTS)
+* npm
 
-### 20. مستندسازی کاربر نهایی
+Check versions:
 
-README فعلی بسیار عمومی است. پیشنهاد:
+```bash
+node -v
+npm -v
+```
 
-- راهنمای نصب و تنظیم Gemini/LM Studio/OpenRouter.
-- توضیح workflow ترجمه، pause/resume و export.
-- نمونه فایل‌های ورودی/خروجی.
-- توضیح محدودیت‌های امنیتی localStorage.
+---
 
-## پیشنهاد فازبندی اجرا
+## Installation
 
-### فاز 1: پایداری و امنیت
+Clone the repository:
 
-- حذف ذخیره API key در پروژه.
-- افزودن تست parser/time/stringify.
-- اضافه کردن AbortController.
-- اصلاح resume metadata.
+```bash
+git clone <repository-url>
+```
 
-### فاز 2: معماری و مقیاس‌پذیری
+Move into the project directory:
 
-- جدا کردن translation runner از `App.tsx`.
-- مهاجرت persistence به IndexedDB.
-- job queue و retry policy مستقل.
+```bash
+cd submaster-pro
+```
 
-### فاز 3: کیفیت ترجمه و QC
+Install dependencies:
 
-- validation پیشرفته‌تر.
-- گزارش کیفیت قبل از export.
-- target language واقعی.
-- fuzzy translation memory.
+```bash
+npm install
+```
 
-### فاز 4: تجربه کاربری حرفه‌ای
+---
 
-- debug panel.
-- snapshot/diff.
-- import/export versioned.
-- مستندات کامل کاربر نهایی.
+## Start Development Server
+
+Run:
+
+```bash
+npm run dev
+```
+
+Vite will start the local development server.
+
+Open the displayed URL in your browser.
+
+Example:
+
+```
+http://localhost:5173
+```
+
+---
+
+## Production Build
+
+Create a production build:
+
+```bash
+npm run build
+```
+
+The optimized files will be generated by Vite.
+
+---
+
+## Preview Production Build
+
+To preview the production output locally:
+
+```bash
+npm run preview
+```
+
+Available scripts:
+
+---
+
+# 🔑 AI Provider Configuration
+
+Open the application settings and configure your preferred provider.
+
+Supported options:
+
+## Gemini
+
+Required:
+
+* Gemini API Key
+* Model configuration
+
+---
+
+## LM Studio
+
+Required:
+
+* Local LM Studio server
+* OpenAI-compatible endpoint
+
+Example:
+
+```
+http://localhost:1234/v1
+```
+
+---
+
+## OpenAI-Compatible Providers
+
+Configure:
+
+* Base URL
+* Model name
+* API key (if required)
+
+The application first attempts to use the internal proxy route:
+
+```
+/api/openai-compatible/chat/completions
+```
+
+and falls back to direct API calls if unavailable.
+
+---
+
+# 💾 Local Storage
+
+SubMaster Pro stores data locally in the browser.
+
+Stored data includes:
+
+* Application settings
+* Translation memory
+* Project state
+* Processing progress
+
+Settings key:
+
+```
+submaster_pro_settings_v1
+```
+
+Translation memory key:
+
+```
+submaster_translation_memory_v1
+```
+
+---
+
+# 🔄 Translation Workflow
+
+The translation pipeline:
+
+```
+Upload subtitle files
+        ↓
+Parse subtitle format
+        ↓
+Create subtitle project state
+        ↓
+Select translation provider
+        ↓
+Generate smart chunks
+        ↓
+Check translation memory
+        ↓
+Translate missing blocks
+        ↓
+Validate AI response
+        ↓
+Apply formatting rules
+        ↓
+Run quality checks
+        ↓
+Export subtitle files
+```
+
+---
+
+# 📤 Export Formats
+
+Supported formats:
+
+## SRT
+
+Standard subtitle format.
+
+## VTT
+
+Supports:
+
+* Styling
+* Cue formatting
+
+## ASS
+
+Supports:
+
+* Font settings
+* Colors
+* Outline
+* Shadow
+* Alignment
+
+---
+
+# ⏯ Translation Control
+
+The application supports:
+
+* Pause
+* Resume
+* Cancel
+
+Translation jobs are managed through:
+
+* Job queue
+* AbortController
+* Persistent project state
+
+---
+
+# ⚠️ Limitations
+
+Because SubMaster Pro is fully client-side:
+
+* Browser storage limits apply
+* Large-scale team collaboration is not supported
+* API keys are managed on the client side
+
+The architecture prioritizes simplicity and easy deployment.
+
+---
+
+# 📌 Future Improvements
+
+Possible improvements:
+
+* Dedicated backend service
+* Cloud project synchronization
+* Team collaboration
+* Advanced analytics
+* Server-side API key management
+
+---
+
+# 📄 License
+
+Add your preferred license here.
+
+---
+
+# 👨‍💻 Development
+
+Built with:
+
+* React
+* TypeScript
+* Vite
+* AI-powered translation services
+
+SubMaster Pro aims to provide a professional subtitle localization workflow directly inside the browser.
