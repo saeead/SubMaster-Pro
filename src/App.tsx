@@ -965,8 +965,34 @@ const App: React.FC = () => {
                         const contextLines = chunk.blocks.map(block => block.originalText);
                         const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex);
                         return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage), settingsRef.current, signal)
-                          .then(response => extractTranslatedLinesWithNumbers(response, targetBlocks.length, targetBlocks.map(block => block.originalText), contextLines)
-                            .map((translatedText, index) => ({ id: targetBlocks[index].id, translatedText: translatedText || targetBlocks[index].originalText })));
+                          .then(async response => {
+                            const sourceLines = targetBlocks.map(block => block.originalText);
+                            const translatedLines = extractTranslatedLinesWithNumbers(response, targetBlocks.length, sourceLines, contextLines);
+
+                            // A tagged response can omit individual slots. Retry every
+                            // missing slot as a single-line request before soft-filling;
+                            // this guarantees Skeleton STR does not silently leave
+                            // dialogue untranslated when the model drops a marker.
+                            for (let index = 0; index < translatedLines.length; index++) {
+                              if (translatedLines[index]) continue;
+                              const singleStart = chunk.targetStartIndex + index;
+                              const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 6);
+                              for (let attempt = 0; attempt < 2 && !translatedLines[index]; attempt++) {
+                                const retryResponse = await translateSkeletonPayload(
+                                  buildSkeletonUserPrompt(singlePayload, 1, settingsRef.current.targetLanguage),
+                                  settingsRef.current,
+                                  signal
+                                );
+                                const retry = extractTranslatedLinesWithNumbers(retryResponse, 1, [sourceLines[index]], contextLines)[0];
+                                if (retry) translatedLines[index] = retry;
+                              }
+                            }
+
+                            return translatedLines.map((translatedText, index) => ({
+                              id: targetBlocks[index].id,
+                              translatedText: translatedText || targetBlocks[index].originalText
+                            }));
+                          });
                       })()
                     : translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal));
 
