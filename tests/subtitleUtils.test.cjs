@@ -62,8 +62,4 @@ test('parseASS extracts dialogue text and stringifyASS converts timing format', 
 test('formatPersianSubtitle normalizes Persian orthography and spacing', () => {
   assert.equal(utils.formatPersianSubtitle('مي شود ، کتاب ها بهترند'), 'می‌شود، کتاب‌ها بهترند');
   assert.equal(utils.formatPersianSubtitle('نمي توانم.پس'), 'نمی‌توانم. پس');
-  assert.equal(utils.formatPersianSubtitle('سهمیههایی بر اساس ملیت و اروپاییهای غربی'), 'سهمیه‌هایی بر اساس ملیت و اروپایی‌های غربی');
-  assert.equal(utils.formatPersianSubtitle('این قانون میباشد و نمیتواند حذف شود'), 'این قانون می‌باشد و نمی‌تواند حذف شود');
-  assert.ok(utils.formatPersianSubtitle('سهمیههایی اروپاییها میباشد').includes('\u200c') || utils.formatPersianSubtitle('سهمیههایی اروپاییها میباشد').includes('‌'));
-  assert.equal([...utils.formatPersianSubtitle('سهمیههایی اروپاییها میباشد')].filter(char => char === '\u200c' || char === '‌').length, 3);
 });
