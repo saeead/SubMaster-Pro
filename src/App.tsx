@@ -20,7 +20,7 @@ import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
 import { BATCH_SIZE, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
-import { Loader2, Check, Wand2, History, ArrowUp } from 'lucide-react';
+import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
 const VERSION_STORAGE_KEY = 'submaster_pro_version';
@@ -320,6 +320,18 @@ const App: React.FC = () => {
     isTranslatingRef.current = false;
     isPausedRef.current = false;
     setSavedProjects(ProjectStateManager.listSavedProjects());
+  };
+
+  const removeFile = (fileId: string) => {
+    const removedIndex = files.findIndex(file => file.id === fileId);
+    if (removedIndex === -1) return;
+    ProjectStateManager.deleteProjectState(fileId);
+    setFiles(prev => prev.filter(file => file.id !== fileId));
+    if (activeFileId === fileId) {
+      const remaining = files.filter(file => file.id !== fileId);
+      setActiveFileId(remaining[Math.min(removedIndex, remaining.length - 1)]?.id || null);
+    }
+    showToast('فایل از پروژه حذف شد.', 'success');
   };
 
   const updateBlock = (fileId: string, blockId: number, text: string) => {
@@ -1241,11 +1253,14 @@ const App: React.FC = () => {
                             variant="compact"
                         />
                         {files.map(file => (
-                            <button key={file.id} onClick={() => setActiveFileId(file.id)} className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[150px] max-w-[200px] flex-shrink-0 ${activeFileId === file.id ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'}`}>
+                            <div key={file.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all min-w-[170px] max-w-[220px] flex-shrink-0 ${activeFileId === file.id ? 'bg-primary/10 border-primary text-text shadow-[0_0_15px_rgba(0,240,255,0.1)]' : 'bg-surface border-border text-text-muted hover:bg-surfaceHighlight'}`}>
+                              <button type="button" onClick={() => setActiveFileId(file.id)} className="flex min-w-0 flex-1 items-center gap-2 text-right">
                                 <div className={`w-2 h-2 rounded-full ${file.status === AppStatus.COMPLETED ? 'bg-green-500' : file.status === AppStatus.TRANSLATING ? 'bg-yellow-500 animate-pulse' : file.status === AppStatus.ERROR ? 'bg-red-500' : file.status === AppStatus.PAUSED ? 'bg-orange-400' : 'bg-text/20'}`}></div>
                                 <span className="truncate text-sm font-medium direction-ltr">{file.name}</span>
                                 {file.status === AppStatus.COMPLETED && <Check className="w-3 h-3 text-green-500 ml-auto" />}
-                            </button>
+                              </button>
+                              <button type="button" onClick={() => removeFile(file.id)} className="rounded-full p-1 text-text-muted transition-colors hover:bg-red-500/15 hover:text-red-400" aria-label={`بستن ${file.name}`} title="بستن فایل"><X className="h-4 w-4" /></button>
+                            </div>
                         ))}
                     </div>
                     <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
