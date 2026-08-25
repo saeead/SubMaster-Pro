@@ -127,9 +127,21 @@ const countWords = (text: string): number => text.trim().split(/\s+/).length;
 const countChars = (text: string): number => text.replace(/[\r\n]+/g, '').length;
 const isSentenceComplete = (text: string): boolean => /[.?!؟!;]['"]?$/.test(text.trim());
 
+
+const normalizePersianOrthography = (text: string): string => text
+  .replace(/ي/g, 'ی')
+  .replace(/ك/g, 'ک')
+  .replace(/\s+/g, ' ')
+  .replace(/\s+([،؛:؟!,.])/g, '$1')
+  .replace(/([،؛:؟!,.])([^\s\n])/g, '$1 $2')
+  .replace(/(^|\s)(می|نمی)\s+(?=\p{L})/gu, '$1$2‌')
+  .replace(/(\p{L})\s+(ها|های|تر|ترین)(?=$|\s|[،؛:؟!,.])/gu, '$1‌$2')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 export const formatPersianSubtitle = (text: string): string => {
   if (!text) return '';
-  const clean = text.replace(/[\r\n]+/g, ' ').trim();
+  const clean = normalizePersianOrthography(text.replace(/[\r\n]+/g, ' '));
   const words = clean.split(/\s+/);
   const wordCount = words.length;
   if (wordCount <= 10) return clean;

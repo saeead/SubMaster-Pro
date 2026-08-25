@@ -27,6 +27,26 @@ test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'en'), /Do not answer in English unless English is the selected target language/);
 });
+test('Skeleton STR context payload gives a larger paragraph-sized window', () => {
+  const lines = Array.from({ length: 80 }, (_, index) => `line-${index}`);
+  const payload = skeleton.buildContextPayload(lines, 22, 58);
+  assert.equal((payload.match(/\[TRANSLATE_/g) || []).length, 36);
+  assert.equal((payload.match(/\[CONTEXT\]/g) || []).length, 40);
+  assert.match(skeleton.buildSkeletonUserPrompt(payload, 36, 'fa'), /one coherent paragraph/);
+});
+test('Skeleton STR maps non-sequential marker IDs and rejects duplicate fill-ins', () => {
+  const payload = skeleton.buildContextPayload(['before', 'first', 'second', 'after'], 1, 3, 2, { targetMarkerIds: [101, 305] });
+  assert.ok(payload.includes('[TRANSLATE_101]first[/TRANSLATE_101]'));
+  assert.ok(payload.includes('[TRANSLATE_305]second[/TRANSLATE_305]'));
+  assert.deepEqual(
+    skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_305]دو[/TRANSLATE_305][TRANSLATE_101]یک[/TRANSLATE_101]', [101, 305], ['first', 'second'], []),
+    ['یک', 'دو']
+  );
+  assert.deepEqual(
+    skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_101]تکراری[/TRANSLATE_101][TRANSLATE_305]تکراری[/TRANSLATE_305]', [101, 305], ['first', 'second'], []),
+    ['تکراری', '']
+  );
+});
 test('echoing context is rejected, while an identical own source is allowed', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]next[/TRANSLATE_0]', 1, ['self'], ['self', 'next']), ['']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]Tokyo[/TRANSLATE_0]', 1, ['Tokyo'], ['Tokyo']), ['Tokyo']);
