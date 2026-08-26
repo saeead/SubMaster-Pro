@@ -8,6 +8,7 @@ const TIMECODE = /^(?:\d+:)?\d{2}:\d{2}[,.]\d{1,3}[ \t]+-->[ \t]+(?:\d+:)?\d{2}:
 const SBV = /^\d+:\d{2}:\d{2}\.\d{1,3},\d+:\d{2}:\d{2}\.\d{1,3}$/;
 const LRC = /^\[\d{2}:\d{2}(?:\.\d{2,3})?\]/;
 const invisible = /[\s\u200B\u200C\u200D\u2060\uFEFF]/g;
+const PERSIAN_HALF_SPACE = '\u200C';
 export const isBlankTarget = (value: string) => value.replace(invisible, '') === '';
 
 export const detectSkeletonFileType = (text: string): SkeletonFileType => {
@@ -123,6 +124,29 @@ export const buildContextPayload = (lines: string[], start: number, end: number,
 };
 
 export const SKELETON_STR_SYSTEM_PROMPT = 'You are a professional subtitle translator. Respond only with the tagged lines. Do not add explanations, comments, markdown fences, or any extra text.';
+
+/** Persian-only writing rules for Skeleton STR model responses. */
+export const SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION = `For Persian output, apply the Persian Academy's orthography consistently:
+- Use the exact zero-width non-joiner character (U+200C), never a regular space, hyphen, or tatweel, in required compounds and affixes: می‌رود، نمی‌دانم، کتاب‌ها، نوشته‌ام، بزرگ‌تر، بهینه‌سازی، و فارسی‌زبان.
+- Do not remove an existing required U+200C or attach words without it; write neither «می رود» nor «بهینهتر».
+- Use standard Persian punctuation: no space before «،»، «؛»، «؟»، «!» or «.»; use one ordinary space after punctuation when another word follows.
+- Use Persian ی and ک, apply the correct میانجیِ ی in اضافه constructions when needed, and avoid extra or missing spaces.
+- Preserve these rules in every tagged line while keeping the subtitle concise and natural.`;
+
+/**
+ * Repairs common model substitutions for U+200C in Persian Skeleton STR output.
+ * This is intentionally limited to unambiguous prefixes, suffixes, and compounds
+ * so a malformed response cannot reach the subtitle formatter with a regular
+ * space, hyphen, or tatweel in place of a required half-space.
+ */
+export const normalizeSkeletonPersianHalfSpaces = (value: string): string => value
+  .replace(/ي/g, 'ی')
+  .replace(/ك/g, 'ک')
+  .replace(/ـ+/g, PERSIAN_HALF_SPACE)
+  .replace(/(می|نمی)(?:\s|\u200C)*(رود|دانم|دانی|داند|دانیم|دانید|دانند|شود|شوند|شوم|شویم|شوید|توانم|توانی|تواند|توانند|توانیم|توانید|کنم|کنی|کند|کنند|کنیم|کنید|باشم|باشی|باشد|باشند|باشیم|باشید)/gu, `$1${PERSIAN_HALF_SPACE}$2`)
+  .replace(/(کتاب)(?:\s|-|ـ|\u200C)*(هایی|های|ها)/gu, `$1${PERSIAN_HALF_SPACE}$2`)
+  .replace(/(بهینه|بزرگ|کوچک)(?:\s|-|ـ|\u200C)*(ترین|تر)/gu, `$1${PERSIAN_HALF_SPACE}$2`)
+  .replace(/(برنامه|دست|کتاب|صفر|نیم|فارسی|بهینه)(?:\s|-|ـ|\u200C)*(نویس(?:ی)?|خانه|عرض|فاصله|زبان|سازی)/gu, `$1${PERSIAN_HALF_SPACE}$2`);
 const TARGET_LANGUAGE_NAMES: Record<string, string> = {
   fa: 'Persian (Farsi)', en: 'English', ru: 'Russian', zh: 'Chinese', de: 'German', es: 'Spanish'
 };
