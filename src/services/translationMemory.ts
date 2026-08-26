@@ -1,58 +1,100 @@
+import * as idb from '../db/indexedDb';
 
-const MEMORY_KEY = 'submaster_translation_memory_v1';
-const MAX_MEMORY_ITEMS = 10000; // Limit to ~10k sentences to keep LocalStorage fast and under 5MB
+const LEGACY_MEMORY_KEY = 'submaster_translation_memory_v1';
+const MAX_MEMORY_ITEMS = 10000;
 
-/**
- * Normalizes text for storage key.
- */
-const normalizeKey = (text: string): string => {
-  return text.trim();
-};
+/** In-memory cache kept in sync with IndexedDB for sync read path during translation. */
+let memoryCache: Record<string, string> | null = null;
+let hydrationPromise: Promise<void> | null = null;
+
+const normalizeKey = (text: string): string => text.trim();
+
+async function hydrateCache(): Promise<void> {
+  if (memoryCache !== null) return;
+  if (hydrationPromise) return hydrationPromise;
+
+  hydrationPromise = (async () => {
+    try {
+      if (idb.isIndexedDbAvailable()) {
+        const flag = await idb.getMeta<string>('legacyTMMigratedAt');
+        if (!flag && typeof localStorage !== 'undefined') {
+          const stored = localStorage.getItem(LEGACY_MEMORY_KEY);
+          if (stored) {
+            try {
+              const legacy = JSON.parse(stored) as Record<string, string>;
+              await idb.saveAllTM(legacy);
+              localStorage.removeItem(LEGACY_MEMORY_KEY);
+              console.info(`[TranslationMemory] Migrated ${Object.keys(legacy).length} entries to IndexedDB`);
+            } catch { /* ignore parse errors */ }
+          }
+          await idb.setMeta('legacyTMMigratedAt', new Date().toISOString());
+        }
+        memoryCache = await idb.loadAllTM();
+      } else if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem(LEGACY_MEMORY_KEY);
+        memoryCache = stored ? JSON.parse(stored) : {};
+      } else {
+        memoryCache = {};
+      }
+    } catch (e) {
+      console.error('Failed to hydrate translation memory', e);
+      memoryCache = {};
+    }
+  })();
+
+  return hydrationPromise;
+}
+
+/** Call once at app startup. */
+export async function ensureTranslationMemoryReady(): Promise<void> {
+  await hydrateCache();
+}
 
 export const loadTranslationMemory = (): Record<string, string> => {
-  try {
-    const stored = localStorage.getItem(MEMORY_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch (e) {
-    console.error("Failed to load translation memory", e);
+  if (memoryCache === null) {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(LEGACY_MEMORY_KEY);
+        return stored ? JSON.parse(stored) : {};
+      } catch {
+        return {};
+      }
+    }
     return {};
+  }
+  return memoryCache;
+};
+
+const persistCache = (): void => {
+  if (memoryCache === null) return;
+  const snapshot = { ...memoryCache };
+  if (idb.isIndexedDbAvailable()) {
+    void idb.saveAllTM(snapshot).then(async () => {
+      if (Object.keys(snapshot).length > MAX_MEMORY_ITEMS) {
+        await idb.pruneTM(MAX_MEMORY_ITEMS);
+        memoryCache = await idb.loadAllTM();
+      }
+    }).catch((e) => console.warn('TM persist failed', e));
+  } else if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(LEGACY_MEMORY_KEY, JSON.stringify(snapshot));
+    } catch (e: any) {
+      if (e?.name === 'QuotaExceededError' || String(e).includes('quota')) {
+        const keys = Object.keys(snapshot);
+        const remove = Math.max(1, Math.floor(keys.length * 0.2));
+        for (let i = 0; i < remove; i++) delete snapshot[keys[i]];
+        memoryCache = snapshot;
+        try {
+          localStorage.setItem(LEGACY_MEMORY_KEY, JSON.stringify(snapshot));
+        } catch { /* give up */ }
+      }
+    }
   }
 };
 
-/**
- * Saves memory to LocalStorage with Quota Management.
- * If quota is exceeded, it removes old entries and retries.
- */
-export const saveTranslationMemory = (memory: Record<string, string>) => {
-  try {
-    localStorage.setItem(MEMORY_KEY, JSON.stringify(memory));
-  } catch (e: any) {
-    // Check for QuotaExceededError
-    if (
-      e.name === 'QuotaExceededError' ||
-      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-      e.toString().includes('quota')
-    ) {
-      console.warn("Translation Memory Full! Cleaning up old entries...");
-      
-      // Prune 20% of the oldest items (assuming insertion order is roughly preserved)
-      const keys = Object.keys(memory);
-      const itemsToRemove = Math.max(1, Math.floor(keys.length * 0.2));
-      
-      for (let i = 0; i < itemsToRemove; i++) {
-        delete memory[keys[i]];
-      }
-      
-      // Retry save
-      try {
-        localStorage.setItem(MEMORY_KEY, JSON.stringify(memory));
-      } catch (retryErr) {
-        console.error("Failed to save even after cleanup", retryErr);
-      }
-    } else {
-      console.warn("Failed to save translation memory", e);
-    }
-  }
+export const saveTranslationMemory = (memory: Record<string, string>): void => {
+  memoryCache = memory;
+  persistCache();
 };
 
 export const getFromMemory = (sourceText: string): string | undefined => {
@@ -61,34 +103,29 @@ export const getFromMemory = (sourceText: string): string | undefined => {
   return memory[normalizeKey(sourceText)];
 };
 
-export const addToMemory = (sourceText: string, translatedText: string) => {
+export const addToMemory = (sourceText: string, translatedText: string): void => {
   if (!sourceText || !translatedText) return;
   const key = normalizeKey(sourceText);
-  
-  // Optimization: Don't reload entire memory if key implies it's small/new
-  // But for safety and simplicity we load it. 
-  // Since we cap at 10k, parsing JSON is fast enough (few ms).
-  const memory = loadTranslationMemory();
-  
-  // If already exists, just update (moves it to end in some implementations, or just updates value)
-  // To implement LRU properly we would delete and re-add, but standard object update is fine for now.
-  memory[key] = translatedText.trim();
+  if (memoryCache === null) memoryCache = loadTranslationMemory();
+  memoryCache[key] = translatedText.trim();
 
-  // Check Soft Limit
-  const keys = Object.keys(memory);
+  const keys = Object.keys(memoryCache);
   if (keys.length > MAX_MEMORY_ITEMS) {
-    // Remove the first (oldest) item
-    const oldestKey = keys[0];
-    delete memory[oldestKey];
+    delete memoryCache[keys[0]];
   }
-
-  saveTranslationMemory(memory);
+  persistCache();
 };
 
-export const clearMemory = () => {
-  localStorage.removeItem(MEMORY_KEY);
+export const clearMemory = (): void => {
+  memoryCache = {};
+  if (idb.isIndexedDbAvailable()) {
+    void idb.clearTM();
+  }
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(LEGACY_MEMORY_KEY);
+  }
 };
 
 export const getMemorySize = (): number => {
-    return Object.keys(loadTranslationMemory()).length;
+  return Object.keys(loadTranslationMemory()).length;
 };
