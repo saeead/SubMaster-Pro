@@ -207,6 +207,7 @@ export const restoreSkeleton = (split: SkeletonSplit, translatedLines: string[],
   split.contentIndices.forEach((physicalIndex, index) => {
     const source = split.contentLines[index];
     const translated = translatedLines[index];
+    // I3/I4: an empty response must preserve the original physical line.
     if (!translated || isBlankTarget(translated)) return;
     if (options.bilingual && split.fileType !== 'ass' && split.fileType !== 'lrc') {
       const group = findPreviousTimingLine(split.originalLines, physicalIndex, split.fileType);
