@@ -21,6 +21,7 @@ Module._extensions['.ts'] = function(module, filename) {
 };
 
 const utils = require(path.join(repoRoot, 'src/services/subtitleUtils.ts'));
+const constants = require(path.join(repoRoot, 'src/constants.ts'));
 
 function test(name, fn) {
   try {
@@ -57,4 +58,12 @@ test('parseASS extracts dialogue text and stringifyASS converts timing format', 
   assert.equal(blocks[0].originalText, 'Hello, world!');
   const output = utils.stringifyASS(blocks);
   assert.ok(output.includes('Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello, world!'));
+});
+
+test('adaptive translation settings favor local and flash providers', () => {
+  assert.equal(constants.getAdaptiveBatchDelay('lm_studio', 'standard'), 0);
+  assert.equal(constants.getAdaptiveBatchDelay('gemini', 'flash'), 800);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'flash', 'default'), 36);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'professional', 'default'), 14);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 48);
 });

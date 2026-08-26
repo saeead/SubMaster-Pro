@@ -19,7 +19,7 @@ import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByM
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
-import { BATCH_SIZE, SKELETON_STR_BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
+import { BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS, getAdaptiveBatchDelay, getAdaptiveTranslationBatchSize } from './constants';
 import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
@@ -879,7 +879,8 @@ const App: React.FC = () => {
 
      const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
      const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str';
-     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? SKELETON_STR_BATCH_SIZE : BATCH_SIZE);
+     const adaptiveBatchSize = getAdaptiveTranslationBatchSize(settingsRef.current.aiProvider, settingsRef.current.model, settingsRef.current.translationMethod);
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? adaptiveBatchSize : BATCH_SIZE);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
@@ -1022,7 +1023,8 @@ const App: React.FC = () => {
                     return f;
                 }));
 
-                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+                const delay = getAdaptiveBatchDelay(settingsRef.current.aiProvider, settingsRef.current.model);
+                if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
