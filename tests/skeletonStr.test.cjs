@@ -32,6 +32,15 @@ test('Skeleton STR preserves real U+200C characters in translated slots', () => 
   assert.equal(output[0], 'می‌رود، کتاب‌ها بهینه‌تر و برنامه‌نویسی');
   assert.equal([...output[0]].filter(character => character === '\u200C').length, 4);
 });
+test('Skeleton STR removes literal escaped line breaks from tagged output', () => {
+  const output = skeleton.extractTranslatedLinesWithNumbers(
+    '[TRANSLATE_0]جملهٔ اول\\nجملهٔ دوم\\Nجملهٔ سوم[/TRANSLATE_0]',
+    1,
+    ['first sentence'],
+    []
+  );
+  assert.equal(output[0], 'جملهٔ اول جملهٔ دوم جملهٔ سوم');
+});
 test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Persian \(Farsi\)/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);

@@ -86,22 +86,6 @@ const extractJsonArray = (text: string): string => {
 
 const RAW_MARKER_PATTERN = /⟦\d+⟧/;
 const MARKDOWN_OR_EXPLANATION_PATTERN = /(```|^#+\s|^\s*[-*]\s|ترجمه(?:\s*:| زیر)|translation\s*:|note\s*:|explanation\s*:)/im;
-const ENGLISH_TOKEN_PATTERN = /[A-Za-z][A-Za-z0-9_.+#/-]{2,}/g;
-const COMMON_TECHNICAL_TERMS = new Set([
-  'api', 'apis', 'app', 'apps', 'backend', 'cache', 'cli', 'cloud', 'code', 'container',
-  'css', 'database', 'db', 'debug', 'deployment', 'docker', 'frontend', 'framework',
-  'github', 'html', 'http', 'https', 'javascript', 'json', 'kubernetes', 'linux',
-  'localstorage', 'model', 'models', 'node', 'npm', 'openai', 'plugin', 'proxy',
-  'python', 'react', 'server', 'service', 'typescript', 'ui', 'url', 'vite', 'vpn'
-]);
-
-type QualityIssueSeverity = 'critical' | 'local' | 'none';
-
-interface QualityAssessment {
-  severity: QualityIssueSeverity;
-  reasons: string[];
-}
-
 const validateBatchResponse = (targetIds: number[], response: unknown): BatchResponse[] => {
   if (!Array.isArray(response)) {
     throw new Error('Invalid model response: expected a JSON array.');
@@ -168,152 +152,6 @@ const validateBatchResponse = (targetIds: number[], response: unknown): BatchRes
 };
 
 const countReadableChars = (text: string): number => text.replace(/[\r\n]+/g, '').length;
-
-const normalizeEnglishToken = (token: string): string => token.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
-
-const extractEnglishTokens = (text: string): Set<string> => {
-  const tokens = new Set<string>();
-  for (const match of text.matchAll(ENGLISH_TOKEN_PATTERN)) {
-    const normalized = normalizeEnglishToken(match[0]);
-    if (normalized) tokens.add(normalized);
-  }
-  return tokens;
-};
-
-const hasUnwantedEnglish = (translatedText: string, source?: BatchRequest, settings?: AppSettings): boolean => {
-  const translatedTokens = extractEnglishTokens(translatedText);
-  if (translatedTokens.size === 0) return false;
-
-  const sourceTokens = source ? extractEnglishTokens(source.text) : new Set<string>();
-  const glossaryTerms = new Set(
-    (settings?.glossary || [])
-      .flatMap(item => Array.from(extractEnglishTokens(`${item.term} ${item.translation}`)))
-      .map(normalizeEnglishToken)
-  );
-
-  const unexpectedTokens = Array.from(translatedTokens).filter(token => (
-    !sourceTokens.has(token) &&
-    !glossaryTerms.has(token) &&
-    !COMMON_TECHNICAL_TERMS.has(token)
-  ));
-
-  if (unexpectedTokens.length === 0) return false;
-
-  const latinCharCount = (translatedText.match(/[A-Za-z]/g) || []).length;
-  const readableChars = Math.max(1, countReadableChars(translatedText));
-  return unexpectedTokens.length >= 2 || latinCharCount / readableChars > 0.35;
-};
-
-const normalizeSubtitleLinesLocally = (text: string): string => {
-  const clean = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!clean) return '';
-  if (clean.length <= 42) return clean;
-
-  const words = clean.split(' ');
-  const targetLength = clean.length / 2;
-  let bestIndex = Math.max(1, Math.floor(words.length / 2));
-  let currentLength = 0;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (let i = 1; i < words.length; i++) {
-    currentLength += words[i - 1].length + 1;
-    const punctuationBonus = /[،,:؛;.!؟?]$/.test(words[i - 1]) ? -8 : 0;
-    const balancePenalty = Math.abs(currentLength - targetLength);
-    const lineOverflowPenalty = Math.max(0, currentLength - 42) * 2;
-    const score = balancePenalty + lineOverflowPenalty + punctuationBonus;
-    if (score < bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-
-  return `${words.slice(0, bestIndex).join(' ')}\n${words.slice(bestIndex).join(' ')}`.trim();
-};
-
-const locallyNormalizeDraft = (draft: BatchResponse[]): BatchResponse[] => (
-  draft.map(item => ({ ...item, translatedText: normalizeSubtitleLinesLocally(item.translatedText) || item.translatedText.trim() }))
-);
-
-const assessTranslationQuality = (result: BatchResponse, source?: BatchRequest, settings?: AppSettings): QualityAssessment => {
-  const text = result.translatedText.trim();
-  const lines = text.split('\n');
-  const maxLineLength = Math.max(...lines.map(line => line.length));
-  const sourceLength = source ? countReadableChars(source.text) : 0;
-  const reasons: string[] = [];
-
-  if (text === '') reasons.push('empty translation');
-  if (RAW_MARKER_PATTERN.test(text)) reasons.push('raw subtitle marker');
-  if (MARKDOWN_OR_EXPLANATION_PATTERN.test(text)) reasons.push('markdown/explanation');
-  if (hasUnwantedEnglish(text, source, settings)) reasons.push('unwanted English');
-  if (sourceLength > 0 && text.length > Math.max(sourceLength * 2.8, sourceLength + 90)) reasons.push('suspiciously long translation');
-
-  if (reasons.length > 0) {
-    return { severity: 'critical', reasons };
-  }
-
-  const localReasons: string[] = [];
-  if (maxLineLength > 42) localReasons.push('line too long');
-  if (lines.length > 2) localReasons.push('too many lines');
-
-  return localReasons.length > 0
-    ? { severity: 'local', reasons: localReasons }
-    : { severity: 'none', reasons: [] };
-};
-
-const getCriticalReviewTargets = (
-  targetBatch: BatchRequest[],
-  draft: BatchResponse[],
-  settings: AppSettings,
-  forceParagraphMode: boolean
-): BatchRequest[] => {
-  if (forceParagraphMode) return targetBatch;
-  return targetBatch.filter(block => {
-    const result = draft.find(item => item.id === block.id);
-    if (!result) return true;
-    return assessTranslationQuality(result, block, settings).severity === 'critical';
-  });
-};
-
-const mergeReviewedTranslations = (draft: BatchResponse[], reviewed: BatchResponse[]): BatchResponse[] => (
-  locallyNormalizeDraft(draft.map(item => reviewed.find(reviewedItem => reviewedItem.id === item.id) || item))
-);
-
-const buildReviewPrompt = (
-  targetBatch: BatchRequest[],
-  draftTranslations: BatchResponse[],
-  contextPre: BatchRequest[],
-  contextPost: BatchRequest[]
-): string => {
-  const draftById = new Map(draftTranslations.map(item => [item.id, item.translatedText]));
-  const reviewItems = targetBatch.map(block => ({
-    id: block.id,
-    sourceText: block.text,
-    draftTranslation: draftById.get(block.id) || ''
-  }));
-
-  return `--- SUBTITLE REVIEW / REWRITER PROTOCOL ---
-You are reviewing Persian subtitle draft translations. Do NOT retranslate from scratch unless the draft is wrong.
-
-PAST CONTEXT (reference only):
-${contextPre.length ? toMarkedSubtitleParagraph(contextPre) : 'N/A'}
-
-ITEMS TO REVIEW:
-${JSON.stringify(reviewItems)}
-
-FUTURE CONTEXT (reference only):
-${contextPost.length ? toMarkedSubtitleParagraph(contextPost) : 'N/A'}
-
-Review requirements:
-- Rewrite into fluent, natural Persian and remove machine-translation wording.
-- Keep subtitle timing constraints in mind: max 2 lines, concise lines, no raw markers like ⟦123⟧.
-- Remove markdown, explanations, labels, notes, or extra commentary.
-- Avoid unwanted English words unless they are names, brands, or necessary technical terms.
-- Preserve the exact IDs and return every reviewed ID exactly once.
-- Do not merge neighboring source cues into one translation and do not duplicate the same translation across adjacent IDs.
-- Each translatedText must contain only the meaning of its own sourceText, even when context explains the sentence flow.
-
-Return ONLY a valid JSON array: [{"id": number, "translatedText": "..."}].`;
-};
 
 const toSelectedRetranslationItems = (blocks: BatchRequest[]): string => (
   blocks.map(block => `⟦id=${block.id}⟧
@@ -779,26 +617,14 @@ export const translateBatch = async (
       if (settings.aiProvider === 'lm_studio') {
         signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
-        const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
-        const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
-        if (reviewTargets.length === 0) return draft;
-        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
-        const reviewedText = await callLmStudioChat(settings, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
-        const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        return mergeReviewedTranslations(draft, reviewed);
+        return validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
       }
 
       if (settings.aiProvider === 'openai_compatible') {
         const service = getActiveOpenAICompatibleService(settings);
         signal?.throwIfAborted();
         const text = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
-        const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text))));
-        const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
-        if (reviewTargets.length === 0) return draft;
-        const reviewPrompt = buildReviewPrompt(reviewTargets, draft.filter(item => reviewTargets.some(block => block.id === item.id)), contextPre.slice(-2), contextPost.slice(0, 2));
-        const reviewedText = await callOpenAICompatibleChat(service, settings.temperature, systemInstruction, `${reviewPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
-        const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(extractJsonArray(reviewedText)));
-        return mergeReviewedTranslations(draft, reviewed);
+        return validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
       }
 
       signal?.throwIfAborted();
@@ -818,32 +644,7 @@ export const translateBatch = async (
       signal?.throwIfAborted();
       if (!response.text) throw new Error("Empty response from Gemini");
 
-      const draft = locallyNormalizeDraft(validateBatchResponse(targetIds, JSON.parse(response.text)));
-      const reviewTargets = getCriticalReviewTargets(targetBatch, draft, settings, forceParagraphMode);
-      if (reviewTargets.length === 0) return draft;
-
-      const reviewPrompt = buildReviewPrompt(
-        reviewTargets,
-        draft.filter(item => reviewTargets.some(block => block.id === item.id)),
-        contextPre.slice(-2),
-        contextPost.slice(0, 2)
-      );
-      const reviewResponse = await ai.models.generateContent({
-        model: modelName,
-        contents: reviewPrompt,
-        config: {
-          systemInstruction: systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: responseSchema,
-          temperature: Math.max(0.15, settings.temperature - 0.2),
-          safetySettings: SAFETY_SETTINGS,
-        },
-      });
-
-      signal?.throwIfAborted();
-      if (!reviewResponse.text) throw new Error("Empty review response from Gemini");
-      const reviewed = validateBatchResponse(reviewTargets.map(block => block.id), JSON.parse(reviewResponse.text));
-      return mergeReviewedTranslations(draft, reviewed);
+      return validateBatchResponse(targetIds, JSON.parse(response.text));
 
     } catch (error: any) {
       const errorMessage = extractErrorDetails(error);
