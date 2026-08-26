@@ -60,8 +60,32 @@ export const BATCH_SIZE = 20;
 export const SKELETON_STR_BATCH_SIZE = 36;
 export const SKELETON_STR_CONTEXT_WINDOW = 40;
 export const OVERLAP_SIZE = 1;
+
+/** @deprecated Prefer getAdaptiveBatchDelay — kept as a soft upper bound reference */
 export const DELAY_BETWEEN_BATCHES_MS = 4200; 
-export const DELAY_BETWEEN_FILES_MS = 10000; 
+export const DELAY_BETWEEN_FILES_MS = 10000;
+
+/** Adaptive inter-batch pacing (Wave 1 speed). */
+export const RATE_LIMIT_CONFIG = {
+  /** Floor delay after a successful Gemini/cloud batch (ms) */
+  successMinMs: 600,
+  /** Cap after many consecutive successes (ms) */
+  successMaxMs: 1800,
+  /** Fast mode uses a lower floor */
+  fastSuccessMinMs: 250,
+  fastSuccessMaxMs: 900,
+  /** Local LM Studio: essentially no pacing */
+  localSuccessMs: 0,
+  /** OpenAI-compatible default floor */
+  openAiSuccessMinMs: 400,
+  openAiSuccessMaxMs: 1200,
+  /** After HTTP 429 before trying another key / retry */
+  rateLimitBackoffMs: 1200,
+  /** After overload / 503 */
+  overloadBackoffMs: 8000,
+  /** Max parallel in-file batches (capped further by available keys) */
+  maxConcurrency: 2,
+};
 
 export const TONE_OPTIONS: Record<ToneType, string> = {
   conversational: 'محاوره‌ای مدرن (Tehrani Spoken)',
