@@ -292,7 +292,7 @@ const toMarkedSubtitleParagraph = (blocks: BatchRequest[]): string => (
   blocks.map(block => `⟦${block.id}⟧ ${block.text.replace(/\s+/g, ' ').trim()}`).join('\n')
 );
 
-const buildContextualTranslationPrompt = (
+export const buildContextualTranslationPrompt = (
   targetBatch: BatchRequest[],
   contextPre: BatchRequest[],
   contextPost: BatchRequest[],
@@ -347,17 +347,17 @@ ${toMarkedSubtitleParagraph(contextPost)}
   prompt += `
 Translation quality requirements:
 `;
-  prompt += `- Translate meaning, tone, and intent, not word-by-word wording.
+  prompt += `- Translate meaning, tone, and intent completely, not word-by-word wording.
 `;
-  prompt += `- Produce fluent, natural, professional Persian with correct punctuation, spacing, and نیم‌فاصله where appropriate.
+  prompt += `- Do NOT summarize, omit, compress, or replace a cue with a short gist. Every detail in every marked source cue must remain in that cue's translation.
 `;
   prompt += `- Preserve continuity across adjacent subtitle blocks, but NEVER move words, meaning, or summary from one marker into another marker's translatedText.
 `;
   prompt += `- Each JSON item must translate ONLY the source text that appears after that item's own marker; do not combine two cues into one translatedText and do not duplicate one translatedText across adjacent IDs.
 `;
-  prompt += `- If a sentence continues across markers, keep the Persian translation split across the same markers as short subtitle fragments; do not complete the whole sentence in the first block.
+  prompt += `- If a sentence continues across markers, preserve all of it across the same markers; do not complete a later cue early or drop its remaining words.
 `;
-  prompt += `- Keep each translatedText concise enough for subtitles while still sounding human and polished.
+  prompt += `- Use subtitle-friendly wording only when it preserves the complete meaning; do not shorten the translation merely to make it fit.
 `;
   prompt += `- Return clean text only: no markdown, no labels, no notes, no raw markers inside translatedText.
 `;
@@ -597,11 +597,12 @@ export const translateBatch = async (
 
       // Local/OpenAI-compatible models usually translate better when subtitle fragments are sent
       // as one marked paragraph instead of isolated JSON rows.
+      const promptMethod = forceParagraphMode || settings.aiProvider !== 'gemini' ? 'paragraph' : 'default';
       const userPrompt = buildContextualTranslationPrompt(
         targetBatch,
         contextPre,
         contextPost,
-        forceParagraphMode || settings.aiProvider !== 'gemini'
+        promptMethod === 'paragraph'
       );
 
       const systemInstruction = getSystemInstruction(
@@ -611,7 +612,8 @@ export const translateBatch = async (
         settings.outputStandard,
         settings.glossary,
         settings.doNotTranslateTerms,
-        settings.targetLanguage
+        settings.targetLanguage,
+        promptMethod
       );
 
       if (settings.aiProvider === 'lm_studio') {
@@ -801,7 +803,8 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
     settings.outputStandard,
     settings.glossary,
     settings.doNotTranslateTerms,
-    settings.targetLanguage
+    settings.targetLanguage,
+    'skeleton_str'
   );
   const persianOrthographyInstruction = settings.targetLanguage === 'fa'
     ? '\nFor Persian output, preserve and use the real zero-width non-joiner (U+200C) wherever Persian orthography requires it. Write, for example, می‌رود, نمی‌دانم, کتاب‌ها, بهینه‌تر, and برنامه‌نویسی; never replace the half-space with a normal space, hyphen, tatweel, or nothing.'

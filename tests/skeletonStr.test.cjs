@@ -45,6 +45,7 @@ test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Persian \(Farsi\)/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'en'), /Do not answer in English unless English is the selected target language/);
+  assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Do not summarize, omit details, or move content between tags/);
 });
 test('Skeleton STR Persian writing contract requires the exact half-space character', () => {
   const contract = skeleton.SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION;
