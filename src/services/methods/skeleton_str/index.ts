@@ -89,6 +89,11 @@ const normalizeForAlignment = (value: string): string => value
 // the real U+200C character supplied by the model.
 const cleanTranslatedSlot = (value: string): string => value
   .replace(/[\u200B\u200D\u2060\uFEFF]/g, '')
+  // Some providers return an escaped line break in their raw tagged response.
+  // It is subtitle text, not JSON, so the escape is otherwise shown literally
+  // as "\\n" in the editor.
+  .replace(/\\[nNr]/g, ' ')
+  .replace(/[\r\n]+/g, ' ')
   .replace(/\s+/g, ' ')
   .trim();
 
@@ -141,7 +146,7 @@ export const buildSkeletonUserPrompt = (content: string, count: number, targetLa
   const markerRequirement = expectedMarkerIds?.length
     ? `Translate exactly these marker IDs and no others: ${expectedMarkerIds.map(id => `TRANSLATE_${id}`).join(', ')}.`
     : `Do NOT skip any numbers from 0 to ${count - 1}.`;
-  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Do not answer in English unless English is the selected target language.\n\n${content}`;
+  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Preserve the complete meaning of every line. Do not summarize, omit details, or move content between tags.\n6. Do not answer in English unless English is the selected target language.\n\n${content}`;
 };
 
 export const extractTranslatedLinesWithNumbers = (response: string, expectedCount: number, sourceLines: string[], contextLines: string[]): string[] => {
@@ -207,6 +212,7 @@ export const restoreSkeleton = (split: SkeletonSplit, translatedLines: string[],
   split.contentIndices.forEach((physicalIndex, index) => {
     const source = split.contentLines[index];
     const translated = translatedLines[index];
+    // I3/I4: an empty response must preserve the original physical line.
     if (!translated || isBlankTarget(translated)) return;
     if (options.bilingual && split.fileType !== 'ass' && split.fileType !== 'lrc') {
       const group = findPreviousTimingLine(split.originalLines, physicalIndex, split.fileType);
