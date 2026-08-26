@@ -102,6 +102,7 @@ export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
 export type TranslationMethod = 'default' | 'paragraph' | 'skeleton_str';
+export type TranslationSpeedMode = 'fast' | 'quality';
 
 export interface OpenAICompatibleService {
   id: string;
@@ -127,6 +128,8 @@ export interface AppSettings {
   customPrompt: string;
   apiKeys: UserAPIKey[];
   enableTranslationMemory: boolean;
+  /** fast = skip critical review pass; quality = current two-pass behavior */
+  translationSpeedMode: TranslationSpeedMode;
   glossary: GlossaryItem[];
   doNotTranslateTerms: string;
   theme: 'dark' | 'light';
