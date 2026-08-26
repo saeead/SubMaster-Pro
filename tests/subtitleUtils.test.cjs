@@ -67,3 +67,21 @@ test('adaptive translation settings favor local and flash providers', () => {
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'professional', 'default'), 14);
   assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 48);
 });
+
+test('translation method prompts preserve meaning and distinguish transport contracts', () => {
+  const paragraph = constants.getMethodTranslationInstruction('paragraph', 'fa');
+  const standard = constants.getMethodTranslationInstruction('default', 'fa');
+  const skeleton = constants.getMethodTranslationInstruction('skeleton_str', 'fa');
+  assert.match(paragraph, /never summarize, omit, or replace a full cue/i);
+  assert.match(paragraph, /own marker/i);
+  assert.match(standard, /JSON item/i);
+  assert.match(skeleton, /requested tagged line/i);
+  assert.match(paragraph, /original source term in parentheses/i);
+});
+
+test('Skeleton STR system instruction does not request JSON output', () => {
+  const skeletonInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'skeleton_str');
+  const standardInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'default');
+  assert.doesNotMatch(skeletonInstruction, /فرمت خروجی \(JSON Array\)/);
+  assert.match(standardInstruction, /فرمت خروجی \(JSON Array\)/);
+});

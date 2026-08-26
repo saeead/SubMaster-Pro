@@ -32,10 +32,20 @@ test('Skeleton STR preserves real U+200C characters in translated slots', () => 
   assert.equal(output[0], 'می‌رود، کتاب‌ها بهینه‌تر و برنامه‌نویسی');
   assert.equal([...output[0]].filter(character => character === '\u200C').length, 4);
 });
+test('Skeleton STR removes literal escaped line breaks from tagged output', () => {
+  const output = skeleton.extractTranslatedLinesWithNumbers(
+    '[TRANSLATE_0]جملهٔ اول\\nجملهٔ دوم\\Nجملهٔ سوم[/TRANSLATE_0]',
+    1,
+    ['first sentence'],
+    []
+  );
+  assert.equal(output[0], 'جملهٔ اول جملهٔ دوم جملهٔ سوم');
+});
 test('Skeleton STR prompt names the configured target language', () => {
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Persian \(Farsi\)/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'de'), /German/);
   assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'en'), /Do not answer in English unless English is the selected target language/);
+  assert.match(skeleton.buildSkeletonUserPrompt('[TRANSLATE_0]Hello[/TRANSLATE_0]', 1, 'fa'), /Do not summarize, omit details, or move content between tags/);
 });
 test('Skeleton STR Persian writing contract requires the exact half-space character', () => {
   const contract = skeleton.SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION;
@@ -73,10 +83,24 @@ test('Skeleton STR maps non-sequential marker IDs and rejects duplicate fill-ins
     skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_101]تکراری[/TRANSLATE_101][TRANSLATE_305]تکراری[/TRANSLATE_305]', [101, 305], ['first', 'second'], []),
     ['تکراری', '']
   );
+  assert.deepEqual(
+    skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_0]یک[/TRANSLATE_0][TRANSLATE_1]دو[/TRANSLATE_1]', [101, 305], ['first', 'second'], []),
+    ['یک', 'دو']
+  );
+  assert.deepEqual(
+    skeleton.extractTranslatedLinesByMarkerIds('[{"id":101,"translatedText":"یک"},{"id":305,"translatedText":"دو"}]', [101, 305], ['first', 'second'], []),
+    ['یک', 'دو']
+  );
+});
+test('Skeleton STR quality gates reject source echoes, omissions, and duplicate cues', () => {
+  assert.match(skeleton.getSkeletonTranslationIssue('historical fiction deep dives so before i actually do that i’m going to go ahead and', 'historical fiction deep dives so before i actually do that i’m going to go ahead and', 'fa'), /source language/);
+  assert.equal(skeleton.validateSkeletonTranslations(['ترجمهٔ اول', 'ترجمهٔ اول'], ['first source', 'second source'], 'fa'), 'slots 1 and 2: repeated translation');
+  assert.equal(skeleton.validateSkeletonTranslations(['', 'ترجمهٔ دوم'], ['first source', 'second source'], 'fa'), 'slot 1: empty translation');
 });
 test('echoing context is rejected, while an identical own source is allowed', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]next[/TRANSLATE_0]', 1, ['self'], ['self', 'next']), ['']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]Tokyo[/TRANSLATE_0]', 1, ['Tokyo'], ['Tokyo']), ['Tokyo']);
+  assert.deepEqual(skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_101]Tokyo[/TRANSLATE_101]', [101], ['Tokyo'], ['before', 'Tokyo', 'after']), ['Tokyo']);
 });
 test('LRC keeps multiple timestamps and skips instrumental anchors', () => {
   const split = skeleton.splitSkeleton('[00:01.00][00:02.00]Hello\n[00:03.00]'); assert.equal(split.fileType, 'lrc'); assert.deepEqual(split.contentLines, ['Hello']);

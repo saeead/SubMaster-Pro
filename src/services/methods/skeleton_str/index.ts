@@ -89,8 +89,44 @@ const normalizeForAlignment = (value: string): string => value
 // the real U+200C character supplied by the model.
 const cleanTranslatedSlot = (value: string): string => value
   .replace(/[\u200B\u200D\u2060\uFEFF]/g, '')
+  // Some providers return an escaped line break in their raw tagged response.
+  // It is subtitle text, not JSON, so the escape is otherwise shown literally
+  // as "\\n" in the editor.
+  .replace(/\\[nNr]/g, ' ')
+  .replace(/[\r\n]+/g, ' ')
   .replace(/\s+/g, ' ')
   .trim();
+
+/** Returns the reason a tagged slot cannot safely be used as a translation. */
+export const getSkeletonTranslationIssue = (value: string, source: string, targetLanguage: string): string | null => {
+  const text = value.trim();
+  if (!text) return 'empty translation';
+  if (/\[(?:\/?(?:TRANSLATE|CONTEXT)_?\d*|CONTEXT)\]|CRITICAL REQUIREMENTS|Return ONLY|system prompt|```/i.test(text)) return 'prompt or marker echo';
+  if (/^(?:#{1,6}\s*|(?:section|chapter|part)\s*\d+\b|(?:بخش|فصل)\s*\d+\b)/i.test(text)) return 'section heading';
+  if (text.length > Math.max(source.trim().length * 6, 180)) return 'abnormally long translation';
+  if (targetLanguage === 'fa') {
+    const latin = (text.match(/[A-Za-z]/g) || []).length;
+    const letters = (text.match(/[A-Za-zآ-ی]/g) || []).length;
+    if (letters >= 12 && latin / letters > 0.65) return 'source language returned instead of Persian';
+  }
+  return null;
+};
+
+/** Applies batch-level quality gates used by the JSON translation methods. */
+export const validateSkeletonTranslations = (translatedLines: string[], sourceLines: string[], targetLanguage: string): string | null => {
+  for (let index = 0; index < translatedLines.length; index++) {
+    const issue = getSkeletonTranslationIssue(translatedLines[index] || '', sourceLines[index] || '', targetLanguage);
+    if (issue) return `slot ${index + 1}: ${issue}`;
+  }
+  for (let index = 1; index < translatedLines.length; index++) {
+    const previous = normalizeForAlignment(translatedLines[index - 1] || '');
+    const current = normalizeForAlignment(translatedLines[index] || '');
+    if (previous && previous === current && normalizeForAlignment(sourceLines[index - 1] || '') !== normalizeForAlignment(sourceLines[index] || '')) {
+      return `slots ${index} and ${index + 1}: repeated translation`;
+    }
+  }
+  return null;
+};
 
 export const buildContextPayload = (lines: string[], start: number, end: number, window = 40, options: SkeletonPayloadOptions = {}): string => {
   const padding = Math.min(80, Math.max(1, Math.floor(window / 2)));
@@ -141,7 +177,7 @@ export const buildSkeletonUserPrompt = (content: string, count: number, targetLa
   const markerRequirement = expectedMarkerIds?.length
     ? `Translate exactly these marker IDs and no others: ${expectedMarkerIds.map(id => `TRANSLATE_${id}`).join(', ')}.`
     : `Do NOT skip any numbers from 0 to ${count - 1}.`;
-  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Do not answer in English unless English is the selected target language.\n\n${content}`;
+  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Preserve the complete meaning of every line. Do not summarize, omit details, or move content between tags.\n6. Do not answer in English unless English is the selected target language.\n\n${content}`;
 };
 
 export const extractTranslatedLinesWithNumbers = (response: string, expectedCount: number, sourceLines: string[], contextLines: string[]): string[] => {
@@ -152,20 +188,55 @@ export const extractTranslatedLinesWithNumbers = (response: string, expectedCoun
 };
 
 export const extractTranslatedLinesByMarkerIds = (response: string, expectedMarkerIds: number[], sourceLines: string[], contextLines: string[]): string[] => {
-  const output = Array<string>(expectedMarkerIds.length).fill('');
-  const idToSlot = new Map(expectedMarkerIds.map((id, index) => [id, index]));
-  const pattern = /\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/(?:TRANSLATE|TRANSLTranslate)_\1\]/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(response))) {
-    const id = Number(match[1]);
-    const slot = idToSlot.get(id);
-    if (slot !== undefined && output[slot] === '') output[slot] = cleanTranslatedSlot(match[2]);
+  const readSlots = (markerIds: number[]): string[] => {
+    const slots = Array<string>(markerIds.length).fill('');
+    const idToSlot = new Map(markerIds.map((id, index) => [id, index]));
+    const pattern = /\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/(?:TRANSLATE|TRANSLTranslate)_\1\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(response))) {
+      const slot = idToSlot.get(Number(match[1]));
+      if (slot !== undefined && slots[slot] === '') slots[slot] = cleanTranslatedSlot(match[2]);
+    }
+    return slots;
+  };
+
+  let output = readSlots(expectedMarkerIds);
+  // Some otherwise capable models renumber tags from zero despite being given
+  // subtitle IDs. Accept that unambiguous response without issuing more API
+  // calls; App maps the ordered slots back to the original subtitle IDs.
+  if (!output.some(Boolean) && !expectedMarkerIds.every((id, index) => id === index)) {
+    output = readSlots(Array.from({ length: expectedMarkerIds.length }, (_, index) => index));
+  }
+
+  // Older provider configurations may still follow the former JSON contract.
+  // Decode that response locally instead of silently replacing every cue with
+  // its source text. Tagged output remains the primary, documented protocol.
+  if (!output.some(Boolean)) {
+    try {
+      const start = response.indexOf('[');
+      const end = response.lastIndexOf(']');
+      const parsed = JSON.parse(start >= 0 && end > start ? response.slice(start, end + 1) : response) as unknown;
+      if (Array.isArray(parsed)) {
+        const byId = new Map<number, string>();
+        for (const item of parsed) {
+          if (!item || typeof item !== 'object') continue;
+          const id = Number((item as { id?: unknown }).id);
+          const text = (item as { translatedText?: unknown }).translatedText;
+          if (Number.isInteger(id) && typeof text === 'string' && !byId.has(id)) byId.set(id, cleanTranslatedSlot(text));
+        }
+        output = expectedMarkerIds.map((id, index) => byId.get(id) || byId.get(index) || '');
+      }
+    } catch {
+      // This was neither a tagged response nor valid JSON; existing fallback
+      // behavior keeps the original cue rather than corrupting the subtitle.
+    }
   }
 
   const seen = new Map<string, number>();
   return output.map((value, index) => {
     if (!value) return '';
-    if (contextLines.some((context, contextIndex) => contextIndex !== index && normalizeForAlignment(context) === value)) return '';
+    const ownSource = normalizeForAlignment(sourceLines[index] || '');
+    if (contextLines.some(context => normalizeForAlignment(context) === value) && ownSource !== value) return '';
     const duplicateSource = seen.get(value);
     if (duplicateSource !== undefined && normalizeForAlignment(sourceLines[duplicateSource] || '') !== normalizeForAlignment(sourceLines[index] || '')) return '';
     seen.set(value, index);
@@ -207,6 +278,7 @@ export const restoreSkeleton = (split: SkeletonSplit, translatedLines: string[],
   split.contentIndices.forEach((physicalIndex, index) => {
     const source = split.contentLines[index];
     const translated = translatedLines[index];
+    // I3/I4: an empty response must preserve the original physical line.
     if (!translated || isBlankTarget(translated)) return;
     if (options.bilingual && split.fileType !== 'ass' && split.fileType !== 'lrc') {
       const group = findPreviousTimingLine(split.originalLines, physicalIndex, split.fileType);
