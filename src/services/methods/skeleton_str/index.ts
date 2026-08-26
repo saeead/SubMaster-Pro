@@ -92,6 +92,20 @@ const cleanTranslatedSlot = (value: string): string => value
   .replace(/\s+/g, ' ')
   .trim();
 
+export const getSkeletonTranslationIssue = (value: string, source: string, targetLanguage: string): string | null => {
+  const text = value.trim();
+  if (!text) return 'empty response';
+  if (/\[(?:\/?(?:TRANSLATE|CONTEXT)_?\d*|CONTEXT)\]|CRITICAL REQUIREMENTS|Return ONLY|system prompt|```/i.test(text)) return 'prompt or marker echo';
+  if (/^(?:#{1,6}\s*|(?:section|chapter|part)\s*\d+\b|(?:بخش|فصل)\s*\d+\b)/i.test(text)) return 'section heading';
+  if (text.length > Math.max(source.trim().length * 6, 180)) return 'abnormal length';
+  if (targetLanguage === 'fa') {
+    const latin = (text.match(/[A-Za-z]/g) || []).length;
+    const letters = (text.match(/[A-Za-zآ-ی]/g) || []).length;
+    if (letters >= 12 && latin / letters > 0.65) return 'unexpected source language';
+  }
+  return null;
+};
+
 export const buildContextPayload = (lines: string[], start: number, end: number, window = 40, options: SkeletonPayloadOptions = {}): string => {
   const padding = Math.min(80, Math.max(1, Math.floor(window / 2)));
   const from = Math.max(0, start - padding);

@@ -15,7 +15,7 @@ import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
-import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, normalizeSkeletonPersianHalfSpaces } from './services/methods/skeleton_str';
+import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, getSkeletonTranslationIssue } from './services/methods/skeleton_str';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
@@ -832,6 +832,8 @@ const App: React.FC = () => {
   // --- EXPORT LOGIC ---
 
   const handleOpenExportModal = () => {
+    const fallbackCount = getActiveFile()?.blocks.filter(block => block.translationStatus === 'soft_fallback').length || 0;
+    if (fallbackCount > 0) showToast(`${fallbackCount} بلوک با متن مبدأ باقی مانده است؛ پیش از خروجی آن‌ها را بازبینی کنید.`, 'warning');
     setIsExportModalOpen(true);
   };
 
@@ -889,7 +891,7 @@ const App: React.FC = () => {
      for (let i = 0; i < totalChunks; i++) {
         const chunk = chunks[i];
         const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
-        const isChunkComplete = targetBlocks.every(b => !!b.translatedText && b.translatedText.trim() !== '');
+        const isChunkComplete = targetBlocks.every(b => !!b.translatedText && b.translatedText.trim() !== '' && b.translationStatus !== 'soft_fallback');
         if (isChunkComplete) {
             completed += targetBlocks.length;
             startChunkIndex = i + 1;
@@ -976,7 +978,8 @@ const App: React.FC = () => {
                             // this guarantees Skeleton STR does not silently leave
                             // dialogue untranslated when the model drops a marker.
                             for (let index = 0; index < translatedLines.length; index++) {
-                              if (translatedLines[index]) continue;
+                              if (translatedLines[index] && !getSkeletonTranslationIssue(translatedLines[index], sourceLines[index], settingsRef.current.targetLanguage)) continue;
+                              translatedLines[index] = '';
                               const singleStart = chunk.targetStartIndex + index;
                               const singleMarkerId = markerIds[index];
                               const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 12, { markerBase: singleMarkerId });
@@ -987,19 +990,15 @@ const App: React.FC = () => {
                                   signal
                                 );
                                 const retry = extractTranslatedLinesByMarkerIds(retryResponse, [singleMarkerId], [sourceLines[index]], contextLines)[0];
-                                if (retry) translatedLines[index] = settingsRef.current.targetLanguage === 'fa'
-                                  ? normalizeSkeletonPersianHalfSpaces(retry)
-                                  : retry;
+                                if (retry && !getSkeletonTranslationIssue(retry, sourceLines[index], settingsRef.current.targetLanguage)) translatedLines[index] = retry;
                               }
                             }
 
                             return translatedLines.map((translatedText, index) => ({
                               id: targetBlocks[index].id,
-                              translatedText: translatedText
-                                ? (settingsRef.current.targetLanguage === 'fa'
-                                  ? normalizeSkeletonPersianHalfSpaces(translatedText)
-                                  : translatedText)
-                                : targetBlocks[index].originalText
+                              translatedText: translatedText || targetBlocks[index].originalText,
+                              translationStatus: translatedText ? 'translated' : 'soft_fallback',
+                              translationIssue: translatedText ? undefined : 'translation unavailable after retry'
                             }));
                           });
                       })()
@@ -1013,6 +1012,8 @@ const App: React.FC = () => {
                             const idx = newBlocks.findIndex(b => b.id === res.id);
                             if (idx !== -1) {
                                 newBlocks[idx].translatedText = formattedText;
+                                newBlocks[idx].translationStatus = res.translationStatus;
+                                newBlocks[idx].translationIssue = res.translationIssue;
                                 if (settingsRef.current.enableTranslationMemory) {
                                     addToMemory(newBlocks[idx].originalText, formattedText);
                                 }
