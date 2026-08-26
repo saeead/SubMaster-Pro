@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type, Schema, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { BatchRequest, BatchResponse, AppSettings, UserAPIKey, TargetLanguage, OpenAICompatibleService, TranslationDiagnostic } from "../types";
 import { APP_CONFIG, getSystemInstruction, LANGUAGE_PROMPTS } from "../constants";
+import { SKELETON_STR_PERSIAN_ORTHOGRAPHY_INSTRUCTION } from "./methods/skeleton_str";
 
 const responseSchema: Schema = {
   type: Type.ARRAY,
