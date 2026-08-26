@@ -14,13 +14,10 @@ const normalizeOpenAICompatibleEndpoint = (baseUrl?: string, endpointUrl?: strin
   const rawUrl = (endpointUrl || baseUrl || '').trim().replace(/\/+$/, '');
   if (!rawUrl) throw new Error('Missing endpointUrl');
 
-  const parsedBaseUrl = new URL(rawUrl);
-  const basePath = parsedBaseUrl.pathname.replace(/\/+$/, '');
-  const hasVersionedOpenAIPath = /(?:^|\/)v\d+(?:beta|alpha)?(?:\/|$)/i.test(basePath) || /(?:^|\/)openai(?:\/|$)/i.test(basePath);
-  const normalizedBaseUrl = rawUrl.endsWith('/chat/completions')
+  const targetUrl = rawUrl.endsWith('/chat/completions')
     ? rawUrl
-    : `${basePath || hasVersionedOpenAIPath ? rawUrl : `${rawUrl}/v1`}/chat/completions`;
-  const parsedUrl = new URL(normalizedBaseUrl);
+    : `${rawUrl.endsWith('/v1') ? rawUrl : `${rawUrl}/v1`}/chat/completions`;
+  const parsedUrl = new URL(targetUrl);
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Only http and https endpoints are supported');
   return parsedUrl.toString();
 };

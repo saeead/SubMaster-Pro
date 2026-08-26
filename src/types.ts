@@ -5,6 +5,8 @@ export interface SubtitleBlock {
   endTime: string;
   originalText: string;
   translatedText?: string;
+  translationStatus?: 'translated' | 'soft_fallback';
+  translationIssue?: string;
   index: number; // The visual index (1-based)
 }
 
@@ -68,6 +70,8 @@ export interface BatchRequest {
 export interface BatchResponse {
   id: number;
   translatedText: string;
+  translationStatus?: 'translated' | 'soft_fallback';
+  translationIssue?: string;
 }
 
 export type DiagnosticSeverity = 'info' | 'warning' | 'error';

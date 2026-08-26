@@ -15,11 +15,11 @@ import { Toast, ToastType } from './components/Toast';
 import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
-import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds } from './services/methods/skeleton_str';
+import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, getSkeletonTranslationIssue } from './services/methods/skeleton_str';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
-import { BATCH_SIZE, SKELETON_STR_BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_BATCHES_MS, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS } from './constants';
+import { BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS, getAdaptiveBatchDelay, getAdaptiveTranslationBatchSize } from './constants';
 import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
@@ -832,6 +832,8 @@ const App: React.FC = () => {
   // --- EXPORT LOGIC ---
 
   const handleOpenExportModal = () => {
+    const fallbackCount = getActiveFile()?.blocks.filter(block => block.translationStatus === 'soft_fallback').length || 0;
+    if (fallbackCount > 0) showToast(`${fallbackCount} بلوک با متن مبدأ باقی مانده است؛ پیش از خروجی آن‌ها را بازبینی کنید.`, 'warning');
     setIsExportModalOpen(true);
   };
 
@@ -879,7 +881,8 @@ const App: React.FC = () => {
 
      const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
      const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str';
-     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? SKELETON_STR_BATCH_SIZE : BATCH_SIZE);
+     const adaptiveBatchSize = getAdaptiveTranslationBatchSize(settingsRef.current.aiProvider, settingsRef.current.model, settingsRef.current.translationMethod);
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? adaptiveBatchSize : BATCH_SIZE);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
@@ -888,7 +891,7 @@ const App: React.FC = () => {
      for (let i = 0; i < totalChunks; i++) {
         const chunk = chunks[i];
         const targetBlocks = chunk.blocks.slice(chunk.targetStartIndex, chunk.targetEndIndex);
-        const isChunkComplete = targetBlocks.every(b => !!b.translatedText && b.translatedText.trim() !== '');
+        const isChunkComplete = targetBlocks.every(b => !!b.translatedText && b.translatedText.trim() !== '' && b.translationStatus !== 'soft_fallback');
         if (isChunkComplete) {
             completed += targetBlocks.length;
             startChunkIndex = i + 1;
@@ -975,7 +978,8 @@ const App: React.FC = () => {
                             // this guarantees Skeleton STR does not silently leave
                             // dialogue untranslated when the model drops a marker.
                             for (let index = 0; index < translatedLines.length; index++) {
-                              if (translatedLines[index]) continue;
+                              if (translatedLines[index] && !getSkeletonTranslationIssue(translatedLines[index], sourceLines[index], settingsRef.current.targetLanguage)) continue;
+                              translatedLines[index] = '';
                               const singleStart = chunk.targetStartIndex + index;
                               const singleMarkerId = markerIds[index];
                               const singlePayload = buildContextPayload(contextLines, singleStart, singleStart + 1, 12, { markerBase: singleMarkerId });
@@ -986,13 +990,15 @@ const App: React.FC = () => {
                                   signal
                                 );
                                 const retry = extractTranslatedLinesByMarkerIds(retryResponse, [singleMarkerId], [sourceLines[index]], contextLines)[0];
-                                if (retry) translatedLines[index] = retry;
+                                if (retry && !getSkeletonTranslationIssue(retry, sourceLines[index], settingsRef.current.targetLanguage)) translatedLines[index] = retry;
                               }
                             }
 
                             return translatedLines.map((translatedText, index) => ({
                               id: targetBlocks[index].id,
-                              translatedText: translatedText || targetBlocks[index].originalText
+                              translatedText: translatedText || targetBlocks[index].originalText,
+                              translationStatus: translatedText ? 'translated' : 'soft_fallback',
+                              translationIssue: translatedText ? undefined : 'translation unavailable after retry'
                             }));
                           });
                       })()
@@ -1006,6 +1012,8 @@ const App: React.FC = () => {
                             const idx = newBlocks.findIndex(b => b.id === res.id);
                             if (idx !== -1) {
                                 newBlocks[idx].translatedText = formattedText;
+                                newBlocks[idx].translationStatus = res.translationStatus;
+                                newBlocks[idx].translationIssue = res.translationIssue;
                                 if (settingsRef.current.enableTranslationMemory) {
                                     addToMemory(newBlocks[idx].originalText, formattedText);
                                 }
@@ -1016,7 +1024,8 @@ const App: React.FC = () => {
                     return f;
                 }));
 
-                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+                const delay = getAdaptiveBatchDelay(settingsRef.current.aiProvider, settingsRef.current.model);
+                if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);

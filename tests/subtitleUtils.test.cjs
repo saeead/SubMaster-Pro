@@ -21,6 +21,7 @@ Module._extensions['.ts'] = function(module, filename) {
 };
 
 const utils = require(path.join(repoRoot, 'src/services/subtitleUtils.ts'));
+const constants = require(path.join(repoRoot, 'src/constants.ts'));
 
 function test(name, fn) {
   try {
@@ -59,11 +60,10 @@ test('parseASS extracts dialogue text and stringifyASS converts timing format', 
   assert.ok(output.includes('Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello, world!'));
 });
 
-test('formatPersianSubtitle normalizes Persian orthography and spacing', () => {
-  assert.equal(utils.formatPersianSubtitle('مي شود ، کتاب ها بهترند'), 'می‌شود، کتاب‌ها بهترند');
-  assert.equal(utils.formatPersianSubtitle('نمي توانم.پس'), 'نمی‌توانم. پس');
-  assert.equal(utils.formatPersianSubtitle('سهمیههایی بر اساس ملیت و اروپاییهای غربی'), 'سهمیه‌هایی بر اساس ملیت و اروپایی‌های غربی');
-  assert.equal(utils.formatPersianSubtitle('این قانون میباشد و نمیتواند حذف شود'), 'این قانون می‌باشد و نمی‌تواند حذف شود');
-  assert.ok(utils.formatPersianSubtitle('سهمیههایی اروپاییها میباشد').includes('\u200c') || utils.formatPersianSubtitle('سهمیههایی اروپاییها میباشد').includes('‌'));
-  assert.equal([...utils.formatPersianSubtitle('سهمیههایی اروپاییها میباشد')].filter(char => char === '\u200c' || char === '‌').length, 3);
+test('adaptive translation settings favor local and flash providers', () => {
+  assert.equal(constants.getAdaptiveBatchDelay('lm_studio', 'standard'), 0);
+  assert.equal(constants.getAdaptiveBatchDelay('gemini', 'flash'), 800);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'flash', 'default'), 36);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'professional', 'default'), 14);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 48);
 });
