@@ -1,7 +1,7 @@
 {
-  "name": "subai---persian-subtitle-translator",
+  "name": "submaster-pro",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,5 +22,8 @@
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
-  }
+  },
+  "description": "Client-side subtitle processing app — upload, translate, edit, and export SRT/VTT/ASS",
+  "license": "MIT",
+  "author": "saeead"
 }
