@@ -83,10 +83,19 @@ test('Skeleton STR maps non-sequential marker IDs and rejects duplicate fill-ins
     skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_101]تکراری[/TRANSLATE_101][TRANSLATE_305]تکراری[/TRANSLATE_305]', [101, 305], ['first', 'second'], []),
     ['تکراری', '']
   );
+  assert.deepEqual(
+    skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_0]یک[/TRANSLATE_0][TRANSLATE_1]دو[/TRANSLATE_1]', [101, 305], ['first', 'second'], []),
+    ['یک', 'دو']
+  );
+  assert.deepEqual(
+    skeleton.extractTranslatedLinesByMarkerIds('[{"id":101,"translatedText":"یک"},{"id":305,"translatedText":"دو"}]', [101, 305], ['first', 'second'], []),
+    ['یک', 'دو']
+  );
 });
 test('echoing context is rejected, while an identical own source is allowed', () => {
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]next[/TRANSLATE_0]', 1, ['self'], ['self', 'next']), ['']);
   assert.deepEqual(skeleton.extractTranslatedLinesWithNumbers('[TRANSLATE_0]Tokyo[/TRANSLATE_0]', 1, ['Tokyo'], ['Tokyo']), ['Tokyo']);
+  assert.deepEqual(skeleton.extractTranslatedLinesByMarkerIds('[TRANSLATE_101]Tokyo[/TRANSLATE_101]', [101], ['Tokyo'], ['before', 'Tokyo', 'after']), ['Tokyo']);
 });
 test('LRC keeps multiple timestamps and skips instrumental anchors', () => {
   const split = skeleton.splitSkeleton('[00:01.00][00:02.00]Hello\n[00:03.00]'); assert.equal(split.fileType, 'lrc'); assert.deepEqual(split.contentLines, ['Hello']);

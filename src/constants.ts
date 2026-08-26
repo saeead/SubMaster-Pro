@@ -123,15 +123,7 @@ const SYSTEM_PROMPTS = {
 3. **امانت‌داری معنایی:** هیچ جمله، جزئیات، قید، مثال یا رابطه‌ای را حذف، خلاصه یا ساده‌سازیِ مخل نکنید. کوتاهی فقط با حفظ کامل معنا مجاز است.
 4. **زمان‌بندی:** متن را برای زیرنویس خوانا نگه دارید، اما محدودیت زمانی هرگز مجوز حذف محتوا یا خلاصه‌نویسی نیست.
 5. **کیفیت نگارش فارسی:** از نشانه‌گذاری درست، نیم‌فاصله، ترتیب طبیعی اجزای جمله، حذف حشو و انتخاب واژگان حرفه‌ای استفاده کنید.
-6. **پیوستگی متن:** اگر جمله بین چند زیرنویس شکسته شده، مفهوم کامل را از کل بافت دریافت کنید و ترجمه هر بخش را طوری بنویسید که در کنار بخش‌های قبل و بعد طبیعی باشد.
-
-فرمت خروجی (JSON Array):
-[
-  {
-    "id": 1,
-    "translatedText": "ترجمه بومی و روان"
-  }
-]`,
+6. **پیوستگی متن:** اگر جمله بین چند زیرنویس شکسته شده، مفهوم کامل را از کل بافت دریافت کنید و ترجمه هر بخش را طوری بنویسید که در کنار بخش‌های قبل و بعد طبیعی باشد.`,
 
   netflix: `--- استانداردهای NETFLIX ---
 1. برای رعایت محدودیت 42 کاراکتر در خط، شکست خط و بازنویسیِ هم‌معنا انجام دهید؛ محتوا را خلاصه یا حذف نکنید.
@@ -184,6 +176,18 @@ export const getSystemInstruction = (
   method: TranslationMethod = 'default'
 ) => {
   let prompt = SYSTEM_PROMPTS.base.replace(/Persian|فارسی/g, TARGET_LANGUAGES[targetLanguage] || 'Persian') + '\n\n';
+  // Skeleton STR is a tagged protocol, not JSON. Keeping the JSON schema out
+  // of its system instruction prevents providers from returning an otherwise
+  // valid JSON response that its tagged-response parser cannot place.
+  if (method !== 'skeleton_str') {
+    prompt += `فرمت خروجی (JSON Array):
+[
+  {
+    "id": 1,
+    "translatedText": "ترجمه بومی و روان"
+  }
+]\n\n`;
+  }
   prompt += `--- Target language ---\nTranslate all target subtitle text into ${TARGET_LANGUAGES[targetLanguage]}. Follow native grammar, punctuation, subtitle conventions, and reading direction for this language. Do not force Persian style rules when the target language is not Persian.\n\n`;
   prompt += getMethodTranslationInstruction(method, targetLanguage) + '\n\n';
   if (outputStandard === 'netflix') prompt += SYSTEM_PROMPTS.netflix + '\n\n';

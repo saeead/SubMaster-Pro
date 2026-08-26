@@ -78,3 +78,10 @@ test('translation method prompts preserve meaning and distinguish transport cont
   assert.match(skeleton, /requested tagged line/i);
   assert.match(paragraph, /original source term in parentheses/i);
 });
+
+test('Skeleton STR system instruction does not request JSON output', () => {
+  const skeletonInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'skeleton_str');
+  const standardInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'default');
+  assert.doesNotMatch(skeletonInstruction, /فرمت خروجی \(JSON Array\)/);
+  assert.match(standardInstruction, /فرمت خروجی \(JSON Array\)/);
+});

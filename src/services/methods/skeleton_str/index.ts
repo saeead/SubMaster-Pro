@@ -157,20 +157,55 @@ export const extractTranslatedLinesWithNumbers = (response: string, expectedCoun
 };
 
 export const extractTranslatedLinesByMarkerIds = (response: string, expectedMarkerIds: number[], sourceLines: string[], contextLines: string[]): string[] => {
-  const output = Array<string>(expectedMarkerIds.length).fill('');
-  const idToSlot = new Map(expectedMarkerIds.map((id, index) => [id, index]));
-  const pattern = /\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/(?:TRANSLATE|TRANSLTranslate)_\1\]/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(response))) {
-    const id = Number(match[1]);
-    const slot = idToSlot.get(id);
-    if (slot !== undefined && output[slot] === '') output[slot] = cleanTranslatedSlot(match[2]);
+  const readSlots = (markerIds: number[]): string[] => {
+    const slots = Array<string>(markerIds.length).fill('');
+    const idToSlot = new Map(markerIds.map((id, index) => [id, index]));
+    const pattern = /\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/(?:TRANSLATE|TRANSLTranslate)_\1\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(response))) {
+      const slot = idToSlot.get(Number(match[1]));
+      if (slot !== undefined && slots[slot] === '') slots[slot] = cleanTranslatedSlot(match[2]);
+    }
+    return slots;
+  };
+
+  let output = readSlots(expectedMarkerIds);
+  // Some otherwise capable models renumber tags from zero despite being given
+  // subtitle IDs. Accept that unambiguous response without issuing more API
+  // calls; App maps the ordered slots back to the original subtitle IDs.
+  if (!output.some(Boolean) && !expectedMarkerIds.every((id, index) => id === index)) {
+    output = readSlots(Array.from({ length: expectedMarkerIds.length }, (_, index) => index));
+  }
+
+  // Older provider configurations may still follow the former JSON contract.
+  // Decode that response locally instead of silently replacing every cue with
+  // its source text. Tagged output remains the primary, documented protocol.
+  if (!output.some(Boolean)) {
+    try {
+      const start = response.indexOf('[');
+      const end = response.lastIndexOf(']');
+      const parsed = JSON.parse(start >= 0 && end > start ? response.slice(start, end + 1) : response) as unknown;
+      if (Array.isArray(parsed)) {
+        const byId = new Map<number, string>();
+        for (const item of parsed) {
+          if (!item || typeof item !== 'object') continue;
+          const id = Number((item as { id?: unknown }).id);
+          const text = (item as { translatedText?: unknown }).translatedText;
+          if (Number.isInteger(id) && typeof text === 'string' && !byId.has(id)) byId.set(id, cleanTranslatedSlot(text));
+        }
+        output = expectedMarkerIds.map((id, index) => byId.get(id) || byId.get(index) || '');
+      }
+    } catch {
+      // This was neither a tagged response nor valid JSON; existing fallback
+      // behavior keeps the original cue rather than corrupting the subtitle.
+    }
   }
 
   const seen = new Map<string, number>();
   return output.map((value, index) => {
     if (!value) return '';
-    if (contextLines.some((context, contextIndex) => contextIndex !== index && normalizeForAlignment(context) === value)) return '';
+    const ownSource = normalizeForAlignment(sourceLines[index] || '');
+    if (contextLines.some(context => normalizeForAlignment(context) === value) && ownSource !== value) return '';
     const duplicateSource = seen.get(value);
     if (duplicateSource !== undefined && normalizeForAlignment(sourceLines[duplicateSource] || '') !== normalizeForAlignment(sourceLines[index] || '')) return '';
     seen.set(value, index);
