@@ -5,7 +5,7 @@ export interface SubtitleBlock {
   endTime: string;
   originalText: string;
   translatedText?: string;
-  index: number; // The visual index (1-based)
+  index: number;
 }
 
 export enum AppStatus {
@@ -19,20 +19,16 @@ export enum AppStatus {
   CANCELLED = 'CANCELLED'
 }
 
-// History tracking for Undo/Redo
 export interface Modification {
   blockId: number;
-  // Flexible state tracking (can track text, startTime, endTime, etc.)
   oldState: Partial<SubtitleBlock>;
   newState: Partial<SubtitleBlock>;
-  // Group ID allows undoing multiple block changes as one action (e.g. Find/Replace)
   groupId?: string; 
   timestamp: string;
 }
 
-// New Interface for Multi-File Support
 export interface SubtitleFile {
-  id: string; // Unique UUID
+  id: string;
   name: string;
   size: number;
   type: 'SRT' | 'VTT' | 'ASS';
@@ -45,8 +41,6 @@ export interface SubtitleFile {
   processingDuration?: string | null;
   netflixErrors?: NetflixError[];
   processedCount: number;
-  
-  // Undo/Redo History
   modificationsMade: Modification[];
   historyPointer: number;
 }
@@ -54,7 +48,7 @@ export interface SubtitleFile {
 export interface TranslationStats {
   totalBlocks: number;
   translatedBlocks: number;
-  estimatedTimeRemaining: number; // in seconds
+  estimatedTimeRemaining: number;
   startTime: number;
 }
 
@@ -102,6 +96,7 @@ export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
 export type TranslationMethod = 'default' | 'paragraph' | 'skeleton_str';
+export type TranslationSpeedMode = 'fast' | 'quality';
 
 export interface OpenAICompatibleService {
   id: string;
@@ -114,7 +109,7 @@ export interface OpenAICompatibleService {
 export interface AppSettings {
   tone: ToneType;
   topic: TopicType;
-  temperature: number; // New field for Translation Quality
+  temperature: number;
   outputFormat: 'srt' | 'vtt' | 'ass';
   outputStandard: OutputStandard;
   translationMethod: TranslationMethod;
@@ -127,6 +122,8 @@ export interface AppSettings {
   customPrompt: string;
   apiKeys: UserAPIKey[];
   enableTranslationMemory: boolean;
+  /** fast = skip critical review pass; quality = current two-pass behavior */
+  translationSpeedMode: TranslationSpeedMode;
   glossary: GlossaryItem[];
   doNotTranslateTerms: string;
   theme: 'dark' | 'light';
@@ -145,15 +142,12 @@ export interface TranslationJob {
   error?: string;
 }
 
-
-// --- NEW TYPES FOR TIMING & QC ---
-
 export type AdjustmentMode = 'seconds' | 'percent' | 'recalculate' | 'fixed';
 
 export interface AdjustmentConfig {
   mode: AdjustmentMode;
-  value: number; // Seconds (e.g. +/- 0.5), Percent (e.g. 110), or Fixed Seconds
-  target: 'start' | 'end' | 'both' | 'shift'; // Shift moves both, others resize
+  value: number;
+  target: 'start' | 'end' | 'both' | 'shift';
 }
 
 export interface NetflixError {
@@ -162,25 +156,22 @@ export interface NetflixError {
   message: string;
 }
 
-// --- NEW TYPES FOR STYLING & ASS ---
-
 export interface StyleConfig {
   useStyles: boolean;
   templateId?: string;
   fontFamily: string;
-  fontSize: number; // For ASS (e.g. 20)
-  primaryColor: string; // Hex
-  secondaryColor?: string; // Hex (Outline/Shadow)
-  backgroundColor: string; // Hex (Box)
-  backgroundOpacity: number; // 0-100 (0 = Transparent, 100 = Opaque)
+  fontSize: number;
+  primaryColor: string;
+  secondaryColor?: string;
+  backgroundColor: string;
+  backgroundOpacity: number;
   isBold: boolean;
   borderStyle: 'outline' | 'box' | 'none'; 
   outlineWidth: number;
   shadowDepth: number;
-  alignment: number; // ASS alignment (2 = Bottom Center)
+  alignment: number;
 }
 
-// VTT specific subset for compatibility
 export interface VttStyleConfig {
   useStyles: boolean;
   fontFamily: string;
