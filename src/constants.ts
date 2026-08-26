@@ -1,5 +1,5 @@
 
-import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage, OutputStandard } from "./types";
+import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage, OutputStandard, TranslationMethod } from "./types";
 
 export const APP_CONFIG = {
   version: "2.5.0", // Broadcast Standards Update
@@ -120,8 +120,8 @@ const SYSTEM_PROMPTS = {
 --- پروتکل بازبینی هوشمند (Self-Refinement) ---
 1. **حذف ترجمه ماشینی:** از ساختارهای سنگین مانند "توسط" (by) برای مفعول، یا "می‌باشد" به جای "است" پرهیز کنید.
 2. **روانی بومی:** متن باید طوری باشد که انگار یک فارسی‌زبان آن را از ابتدا نوشته است.
-3. **ساختار جمله:** اولویت با جملات کوتاه و تاثیرگذار است.
-4. **زمان‌بندی:** جملات را طوری ترجمه کنید که با محدودیت زمانی زیرنویس همخوانی داشته باشد.
+3. **امانت‌داری معنایی:** هیچ جمله، جزئیات، قید، مثال یا رابطه‌ای را حذف، خلاصه یا ساده‌سازیِ مخل نکنید. کوتاهی فقط با حفظ کامل معنا مجاز است.
+4. **زمان‌بندی:** متن را برای زیرنویس خوانا نگه دارید، اما محدودیت زمانی هرگز مجوز حذف محتوا یا خلاصه‌نویسی نیست.
 5. **کیفیت نگارش فارسی:** از نشانه‌گذاری درست، نیم‌فاصله، ترتیب طبیعی اجزای جمله، حذف حشو و انتخاب واژگان حرفه‌ای استفاده کنید.
 6. **پیوستگی متن:** اگر جمله بین چند زیرنویس شکسته شده، مفهوم کامل را از کل بافت دریافت کنید و ترجمه هر بخش را طوری بنویسید که در کنار بخش‌های قبل و بعد طبیعی باشد.
 
@@ -134,14 +134,14 @@ const SYSTEM_PROMPTS = {
 ]`,
 
   netflix: `--- استانداردهای NETFLIX ---
-1. خلاصه نویسی هوشمند برای رعایت محدودیت 42 کاراکتر در خط.
+1. برای رعایت محدودیت 42 کاراکتر در خط، شکست خط و بازنویسیِ هم‌معنا انجام دهید؛ محتوا را خلاصه یا حذف نکنید.
 2. حداکثر 2 خط در هر بلاک.
 3. سرعت خواندن (Reading Speed) نباید از 20 کاراکتر در ثانیه تجاوز کند.`,
 
   bbc: `--- استانداردهای BBC ---
 1. محدودیت شدید کاراکتر: حداکثر 37 کاراکتر در هر خط.
 2. خوانایی حداکثری: سرعت خواندن نباید از 17 کاراکتر در ثانیه تجاوز کند.
-3. جملات را کوتاه‌تر و ساده‌تر کنید تا در زمان محدود قابل خواندن باشند.`,
+3. جملات را با حفظ تمام اطلاعات به شکل خوانا تقسیم کنید؛ هیچ بخشی را حذف یا خلاصه نکنید.`,
 
   broadcast: `--- استانداردهای BROADCAST ---
 1. استاندارد پخش تلویزیونی: حداکثر 39 کاراکتر در هر خط.
@@ -163,7 +163,7 @@ const SYSTEM_PROMPTS = {
   topics: {
     educational: `--- پروتکل Tech-Term Preservation ---
 1. اصطلاحات تخصصی (مثل: Container, Backend, Layer) را شناسایی کنید. 
-2. اگر ترجمه فارسی رایج و "جا افتاده" ندارند، خود کلمه یا فینگلیش آن را استفاده کنید و معادل دقیق را در پرانتز بیاورید.
+2. برای اصطلاحات واقعاً تخصصی، ابتدا معادل طبیعی فارسی را بنویسید و سپس عبارت اصلی را داخل پرانتز بیاورید؛ مانند «کانتینرسازی (containerization)».
 3. کلمات فنی را در بافت محاوره‌ای طوری قرار دهید که ساختار فنی آموزش آسیب نبیند.`,
 
     entertainment: `تمرکز بر بومی‌سازی ضرب‌المثل‌ها و شوخی‌ها.`,
@@ -180,10 +180,12 @@ export const getSystemInstruction = (
   outputStandard: OutputStandard,
   glossary: GlossaryItem[] = [],
   doNotTranslateTerms: string = '',
-  targetLanguage: TargetLanguage = 'fa'
+  targetLanguage: TargetLanguage = 'fa',
+  method: TranslationMethod = 'default'
 ) => {
   let prompt = SYSTEM_PROMPTS.base.replace(/Persian|فارسی/g, TARGET_LANGUAGES[targetLanguage] || 'Persian') + '\n\n';
   prompt += `--- Target language ---\nTranslate all target subtitle text into ${TARGET_LANGUAGES[targetLanguage]}. Follow native grammar, punctuation, subtitle conventions, and reading direction for this language. Do not force Persian style rules when the target language is not Persian.\n\n`;
+  prompt += getMethodTranslationInstruction(method, targetLanguage) + '\n\n';
   if (outputStandard === 'netflix') prompt += SYSTEM_PROMPTS.netflix + '\n\n';
   if (outputStandard === 'bbc') prompt += SYSTEM_PROMPTS.bbc + '\n\n';
   if (outputStandard === 'broadcast') prompt += SYSTEM_PROMPTS.broadcast + '\n\n';
@@ -204,6 +206,25 @@ export const getSystemInstruction = (
   if (customPrompt) prompt += `--- دستورالعمل سفارشی ---\n${customPrompt}\n\n`;
   
   return prompt;
+};
+
+/**
+ * The transport format changes between the three translation methods, so each
+ * one gets its own contract while sharing the same quality requirements.
+ */
+export const getMethodTranslationInstruction = (method: TranslationMethod, targetLanguage: TargetLanguage): string => {
+  const persianWriting = targetLanguage === 'fa'
+    ? 'Use professional Persian orthography: correct punctuation, Persian ی and ک, natural word order, and نیم‌فاصله where required.'
+    : `Use the professional orthography, punctuation, and natural grammar of ${TARGET_LANGUAGES[targetLanguage]}.`;
+  const shared = `Translate completely, naturally, and professionally. Preserve every meaning, detail, qualifier, and relationship from the source; never summarize, omit, or replace a full cue with a short gist. Follow the selected tone, topic, glossary, protected terms, and custom instruction. ${persianWriting} For genuinely specialized terms, write the natural translation first and then the original source term in parentheses, for example «کانتینرسازی (containerization)»; do not add parentheses for ordinary words.`;
+
+  if (method === 'paragraph') {
+    return `--- PARAGRAPH METHOD CONTRACT ---\n${shared}\nRead the complete paragraph for context, then translate every marked cue independently and fully. Keep all meaning assigned to its own marker: do not move content to a neighboring cue, merge cues, or finish a later cue early. Subtitle line limits may guide line breaks, never content reduction.`;
+  }
+  if (method === 'skeleton_str') {
+    return `--- SKELETON STR METHOD CONTRACT ---\n${shared}\nUse context only to understand the passage. Translate every requested tagged line completely, keep exactly one translation per tag, and return no text outside the requested tags.`;
+  }
+  return `--- STANDARD BATCH METHOD CONTRACT ---\n${shared}\nTranslate every requested JSON item completely and return one faithful translation for each ID. Context is for comprehension only and must not cause content from one item to be moved into another.`;
 };
 
 export const LANGUAGE_PROMPTS: Record<TargetLanguage, string> = {
