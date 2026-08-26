@@ -63,6 +63,24 @@ export const OVERLAP_SIZE = 1;
 export const DELAY_BETWEEN_BATCHES_MS = 4200; 
 export const DELAY_BETWEEN_FILES_MS = 10000; 
 
+/** Select conservative throughput settings without penalising local providers. */
+export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: ModelType, method: TranslationMethod): number => {
+  if (method === 'skeleton_str') return provider === 'lm_studio' ? 48 : 40;
+  if (method === 'paragraph') return model === 'professional' ? 12 : 16;
+  if (provider === 'lm_studio') return 36;
+  if (model === 'professional') return 14;
+  if (model === 'flash' || model === 'flash_lite') return 36;
+  return BATCH_SIZE;
+};
+
+/** Local requests need no throttle; hosted providers retain a small safety gap. */
+export const getAdaptiveBatchDelay = (provider: AIProvider, model: ModelType): number => {
+  if (provider === 'lm_studio') return 0;
+  if (provider === 'openai_compatible') return 250;
+  if (model === 'flash' || model === 'flash_lite') return 800;
+  return 1200;
+};
+
 export const TONE_OPTIONS: Record<ToneType, string> = {
   conversational: 'محاوره‌ای مدرن (Tehrani Spoken)',
   formal: 'رسمی (Formal)',
