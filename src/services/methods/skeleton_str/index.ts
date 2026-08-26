@@ -89,6 +89,11 @@ const normalizeForAlignment = (value: string): string => value
 // the real U+200C character supplied by the model.
 const cleanTranslatedSlot = (value: string): string => value
   .replace(/[\u200B\u200D\u2060\uFEFF]/g, '')
+  // Some providers return an escaped line break in their raw tagged response.
+  // It is subtitle text, not JSON, so the escape is otherwise shown literally
+  // as "\\n" in the editor.
+  .replace(/\\[nNr]/g, ' ')
+  .replace(/[\r\n]+/g, ' ')
   .replace(/\s+/g, ' ')
   .trim();
 
@@ -207,6 +212,7 @@ export const restoreSkeleton = (split: SkeletonSplit, translatedLines: string[],
   split.contentIndices.forEach((physicalIndex, index) => {
     const source = split.contentLines[index];
     const translated = translatedLines[index];
+    // I3/I4: an empty response must preserve the original physical line.
     if (!translated || isBlankTarget(translated)) return;
     if (options.bilingual && split.fileType !== 'ass' && split.fileType !== 'lrc') {
       const group = findPreviousTimingLine(split.originalLines, physicalIndex, split.fileType);
