@@ -1118,6 +1118,15 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
+                // Aborting is an intentional pause/cancel action, never a translation error.
+                if (signal?.aborted || !isTranslatingRef.current) {
+                    updateFileStatus(fileId, {
+                        status: isPausedRef.current ? AppStatus.PAUSED : AppStatus.CANCELLED,
+                        progressMessage: isPausedRef.current ? 'توقف موقت (ذخیره شد)' : 'لغو شده',
+                        activeTranslationBlockIds: []
+                    });
+                    return;
+                }
                 const diagnostic = getTranslationDiagnostic(
                     err,
                     settingsRef.current,
@@ -1220,23 +1229,29 @@ const App: React.FC = () => {
   };
 
   const startBatchTranslation = async () => {
-    const isLocalProvider = settings.aiProvider === 'lm_studio' || settings.aiProvider === 'openai_compatible';
-    const hasAvailableKeys = settings.apiKeys.some(k => k.isValid && !k.isRateLimited);
+    if (jobRunnerRef.current) {
+      showToast('فرایند قبلی هنوز در حال توقف است؛ چند لحظه صبر کنید و دوباره ادامه را بزنید.', 'warning');
+      return;
+    }
+
+    const activeSettings = settingsRef.current;
+    const isKeylessProvider = activeSettings.aiProvider === 'lm_studio' || activeSettings.aiProvider === 'openai_compatible' || activeSettings.aiProvider === 'gtx' || activeSettings.aiProvider === 'edge' || activeSettings.aiProvider === 'deeplx';
+    const hasAvailableKeys = activeSettings.apiKeys.some(k => k.isValid && !k.isRateLimited);
     
-    if (!isLocalProvider && settings.apiKeys.length === 0) {
+    if (!isKeylessProvider && activeSettings.apiKeys.length === 0) {
       showToast("هیچ کلید API تعریف نشده است.", 'error');
       setIsSettingsOpen(true);
       return;
     }
     
-    if (!isLocalProvider && !hasAvailableKeys) {
+    if (!isKeylessProvider && !hasAvailableKeys) {
         setSettings(prev => ({
             ...prev,
             apiKeys: prev.apiKeys.map(k => ({...k, isRateLimited: false}))
         }));
     }
 
-    const pendingFiles = files.filter(f => 
+    const pendingFiles = filesRef.current.filter(f =>
         f.status === AppStatus.READY || 
         f.status === AppStatus.ERROR || 
         f.status === AppStatus.PAUSED
@@ -1250,16 +1265,16 @@ const App: React.FC = () => {
     const firstFileId = pendingFiles[0].id;
     updateFileStatus(firstFileId, {
         status: AppStatus.TRANSLATING, 
-        progressMessage: settings.aiProvider === 'lm_studio' ? 'در حال بررسی اتصال به LM Studio...' : settings.aiProvider === 'openai_compatible' ? 'در حال بررسی اتصال به سرویس OpenAI Compatible...' : 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
+        progressMessage: activeSettings.aiProvider === 'lm_studio' ? 'در حال بررسی اتصال به LM Studio...' : activeSettings.aiProvider === 'openai_compatible' ? 'در حال بررسی اتصال به سرویس OpenAI Compatible...' : isKeylessProvider ? 'در حال بررسی اتصال به سرویس ترجمه...' : 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
     });
 
-    const testKey = isLocalProvider ? undefined : settings.apiKeys.find(k => k.isValid)?.key;
-    if (isLocalProvider || testKey) {
-        const diagnosisError = await diagnoseConnection(testKey, settings);
+    const testKey = isKeylessProvider ? undefined : activeSettings.apiKeys.find(k => k.isValid)?.key;
+    if (isKeylessProvider || testKey) {
+        const diagnosisError = await diagnoseConnection(testKey, activeSettings);
         if (diagnosisError) {
              const diagnostic = getTranslationDiagnostic(
                 new Error(diagnosisError),
-                settings,
+                activeSettings,
                 'Pre-flight connection diagnosis before translation start'
              );
              updateFileStatus(firstFileId, { 
@@ -1311,8 +1326,7 @@ const App: React.FC = () => {
     
     setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت', activeTranslationBlockIds: [] } : f));
     
-    saveCurrentProjectState();
-    showToast('پروژه متوقف و ذخیره شد.', 'warning');
+    showToast('پروژه متوقف شد؛ وضعیت ترجمه به‌صورت خودکار ذخیره می‌شود.', 'warning');
   };
 
   const cancelTranslation = () => {

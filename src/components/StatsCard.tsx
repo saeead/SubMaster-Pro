@@ -217,9 +217,9 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         <p className="text-xs text-white/50 mt-1">قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.</p>
                     </div>
                     <div className="flex w-full flex-col gap-3 md:w-auto md:min-w-[560px]">
-                        <label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-xs text-white/70">
+                        <label className="flex w-fit items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-xs text-white/70">
                             <span className="font-bold text-white">زبان مقصد</span>
-                            <select value={targetLanguage} onChange={(event) => onTargetLanguageChange(event.target.value as TargetLanguage)} className="rounded-lg border border-white/10 bg-[#0a0e27] px-3 py-2 text-sm text-white outline-none focus:border-[#00f0ff]">
+                            <select value={targetLanguage} onChange={(event) => onTargetLanguageChange(event.target.value as TargetLanguage)} className="rounded-md border border-white/10 bg-[#0a0e27] px-2 py-1 text-xs text-white outline-none focus:border-[#00f0ff]">
                                 {Object.entries(TARGET_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
                             </select>
                         </label>

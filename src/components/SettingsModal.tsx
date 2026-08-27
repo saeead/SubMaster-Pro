@@ -305,12 +305,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   </div>
                 )}
 
-                {(['gtx', 'edge', 'deeplx'] as AIProvider[]).includes(settings.aiProvider) && (
-                  <div className="rounded-xl border border-amber-300/25 bg-amber-400/5 p-4 text-xs leading-relaxed text-amber-100">
-                    این ارائه‌دهندهٔ رایگان به API Key یا Base URL نیاز ندارد. ترجمه در درخواست‌های کوچک انجام می‌شود تا ساختار و صفحه‌بندی زیرنویس حفظ شود. در صورت محدودیت یا CORS سرویس، ارائه‌دهندهٔ رایگان دیگری را انتخاب کنید.
-                  </div>
-                )}
-
                 {settings.aiProvider === 'lm_studio' && (
                   <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-3">
                     <p className="text-xs text-white/60 leading-relaxed">

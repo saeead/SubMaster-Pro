@@ -612,6 +612,9 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
 
 export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings): Promise<string | null> => {
     try {
+        // These transports are intentionally keyless. Their actual request will
+        // surface provider-specific network/access diagnostics if unavailable.
+        if (settings && isFreeProvider(settings.aiProvider)) return null;
         if (settings?.aiProvider === 'lm_studio') {
             const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
             const response = await fetch(`${baseUrl}/models`);
@@ -745,6 +748,7 @@ export const translateBatch = async (
       return validateBatchResponse(targetIds, JSON.parse(response.text));
 
     } catch (error: any) {
+      if (signal?.aborted || error?.name === 'AbortError') throw error;
       const errorMessage = extractErrorDetails(error);
       if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
         throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
@@ -843,6 +847,7 @@ export const retranslateSelectedBlocks = async (
       if (!response.text) throw new Error("Empty selected retranslation response from Gemini");
       return validateBatchResponse(targetIds, JSON.parse(response.text));
     } catch (error: any) {
+      if (error?.name === 'AbortError') throw error;
       const errorMessage = extractErrorDetails(error);
       if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
         throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
