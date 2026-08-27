@@ -27,7 +27,10 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const normalizeOpenAIBaseUrl = (baseUrl: string, fallback = 'http://localhost:1234/v1'): string => {
   const trimmed = (baseUrl || fallback).trim().replace(/\/+$/, '');
-  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+  // LM Studio's field is a server base URL. Strip a pasted Chat Completions
+  // endpoint so switching providers can never produce .../chat/completions/v1.
+  const withoutEndpoint = trimmed.replace(/\/chat\/completions$/i, '');
+  return withoutEndpoint.endsWith('/v1') ? withoutEndpoint : `${withoutEndpoint}/v1`;
 };
 
 const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
@@ -71,6 +74,67 @@ const buildOpenAICompatibleHeaders = (service: OpenAICompatibleService): Record<
 };
 
 const normalizeLmStudioBaseUrl = (baseUrl: string): string => normalizeOpenAIBaseUrl(baseUrl);
+
+const isFreeProvider = (provider: AppSettings['aiProvider']): provider is 'gtx' | 'edge' | 'deeplx' => (
+  provider === 'gtx' || provider === 'edge' || provider === 'deeplx'
+);
+
+const getFreeProviderName = (provider: AppSettings['aiProvider']): string => ({
+  gtx: 'GTX API (Free)', edge: 'Edge API (Free)', deeplx: 'DeepLX (Free)'
+}[provider] || provider);
+
+const requestFreeProviderProxy = async (provider: 'edge' | 'deeplx', text: string, target: string, signal?: AbortSignal): Promise<string> => {
+  const response = await fetch('/api/free-translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, text, target }), signal });
+  const payload = await response.json().catch(() => ({})) as { text?: string; error?: string };
+  if (!response.ok) throw new Error(`${provider === 'edge' ? 'Edge' : 'DeepLX'} proxy ${response.status}: ${payload.error || response.statusText}`);
+  return payload.text?.trim() || '';
+};
+
+const translateWithFreeProvider = async (text: string, settings: AppSettings, signal?: AbortSignal): Promise<string> => {
+  const target = settings.targetLanguage;
+  if (settings.aiProvider === 'gtx') {
+    const url = new URL('https://translate.googleapis.com/translate_a/single');
+    url.search = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: target, dt: 't', q: text }).toString();
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`GTX ${response.status}: ${await response.text()}`);
+    const data = await response.json() as Array<Array<[string]>>;
+    return (data[0] || []).map(part => part[0]).join('').trim();
+  }
+  if (settings.aiProvider === 'edge' || settings.aiProvider === 'deeplx') {
+    // The Vite proxy performs the provider's server-side request. Browser calls
+    // to Edge auth/DeepLX are commonly rejected by CORS before translation.
+    return requestFreeProviderProxy(settings.aiProvider, text, target, signal);
+  }
+  throw new Error('No free translation provider is selected.');
+};
+
+const translateClassicMtBatch = async (batch: BatchRequest[], settings: AppSettings, signal?: AbortSignal): Promise<BatchResponse[]> => {
+  const delimiter = settings.aiProvider === 'deeplx' ? '<>' : '\n';
+  const source = batch.map(item => item.text.replace(/[\r\n]+/g, ' ').replaceAll('<>', '< >')).join(delimiter);
+  const translated = await translateWithFreeProvider(source, settings, signal);
+  const lines = translated.split(delimiter).map(line => line.trim());
+  if (lines.length === batch.length && lines.every(Boolean)) return batch.map((item, index) => ({ id: item.id, translatedText: lines[index] }));
+
+  // A provider may normalize separators; rescue only this small batch one cue
+  // at a time so subtitle alignment never shifts.
+  const recovered: BatchResponse[] = [];
+  for (const item of batch) {
+    signal?.throwIfAborted();
+    const text = await translateWithFreeProvider(item.text.replace(/[\r\n]+/g, ' '), settings, signal);
+    if (!text) throw new Error(`${getFreeProviderName(settings.aiProvider)} returned an empty translation for cue ${item.id}.`);
+    recovered.push({ id: item.id, translatedText: text });
+  }
+  return recovered;
+};
+
+const translateTaggedPayloadWithFreeProvider = async (content: string, settings: AppSettings, signal?: AbortSignal): Promise<string> => {
+  const tags = [...content.matchAll(/\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/TRANSLATE_\1\]/g)];
+  const translated = await Promise.all(tags.map(async ([, id, source]) => {
+    const text = await translateWithFreeProvider(source.trim(), settings, signal);
+    return `[TRANSLATE_${id}]${text}[/TRANSLATE_${id}]`;
+  }));
+  return translated.join('\n');
+};
 
 const extractJsonArray = (text: string): string => {
   const trimmed = text.trim();
@@ -425,7 +489,9 @@ export const getTranslationDiagnostic = (error: any, settings: AppSettings, cont
     ? 'LM Studio'
     : settings.aiProvider === 'openai_compatible'
       ? (settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)?.name || 'OpenAI Compatible')
-      : 'Gemini';
+      : isFreeProvider(settings.aiProvider)
+        ? getFreeProviderName(settings.aiProvider)
+        : 'Gemini';
 
   const details = [
     context,
@@ -467,6 +533,45 @@ export const getTranslationDiagnostic = (error: any, settings: AppSettings, cont
       title: 'مدل موقتاً شلوغ یا در دسترس نیست',
       cause: `سرویس ${providerName} با خطای ازدحام یا عدم دسترسی موقت پاسخ داده است.`,
       recovery: 'پروژه متوقف شده تا داده‌ها حفظ شوند. چند دقیقه صبر کنید، مدل سبک‌تر انتخاب کنید یا ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('tagged_translation_incomplete') || msg.includes('incomplete or low-quality tagged')) {
+    const ids = (error?.message || '').match(/ids:\s*([\d, ]+)/i)?.[1];
+    return {
+      code: 'tagged_translation_incomplete',
+      severity: 'warning',
+      title: 'پاسخ برچسب‌دار Subtitle Translator ناقص است',
+      cause: ids
+        ? `مدل برای بلوک‌های ${ids} تگ ترجمهٔ معتبر برنگرداند یا متن اصلی را بدون ترجمه تکرار کرد.`
+        : 'مدل همهٔ تگ‌های درخواست‌شده را با ترجمهٔ معتبر برنگرداند یا متن اصلی را بدون ترجمه تکرار کرد.',
+      recovery: 'برنامه همان بلوک‌ها را یک بار خودکار دوباره درخواست کرده است. اگر خطا باقی ماند، مدل محلی قوی‌تر/کم‌حجم‌تر انتخاب کنید یا همان بلوک‌ها را از ادیتور ترجمهٔ دوباره کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key') || msg.includes('authentication')) {
+    return {
+      code: 'authentication_failed',
+      severity: 'error',
+      title: 'احراز هویت سرویس ناموفق بود',
+      cause: `سرویس ${providerName} کلید API یا توکن دسترسی را نپذیرفت.`,
+      recovery: 'کلید API سرویس فعال را بررسی کنید. برای GTX، Edge و DeepLX کلیدی وارد نکنید و اتصال اینترنت را بررسی کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('403') || msg.includes('forbidden')) {
+    return {
+      code: 'access_forbidden',
+      severity: 'error',
+      title: 'دسترسی سرویس رد شد',
+      cause: `سرویس ${providerName} این درخواست را به دلیل سیاست دسترسی، منطقه، CORS یا محدودیت شبکه رد کرده است.`,
+      recovery: 'اتصال/VPN و دسترسی مرورگر را بررسی کنید؛ برای سرویس‌های رایگان می‌توانید یک ارائه‌دهندهٔ رایگان دیگر را امتحان کنید.',
       technicalDetails: details || msg,
       timestamp: new Date().toISOString()
     };
@@ -521,6 +626,9 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
 
 export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings): Promise<string | null> => {
     try {
+        // These transports are intentionally keyless. Their actual request will
+        // surface provider-specific network/access diagnostics if unavailable.
+        if (settings && isFreeProvider(settings.aiProvider)) return null;
         if (settings?.aiProvider === 'lm_studio') {
             const baseUrl = normalizeLmStudioBaseUrl(settings.lmStudioBaseUrl);
             const response = await fetch(`${baseUrl}/models`);
@@ -616,6 +724,11 @@ export const translateBatch = async (
         promptMethod
       );
 
+      if (isFreeProvider(settings.aiProvider)) {
+        const translations = await translateClassicMtBatch(targetBatch, settings, signal);
+        return validateBatchResponse(targetIds, translations);
+      }
+
       if (settings.aiProvider === 'lm_studio') {
         signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
@@ -649,6 +762,7 @@ export const translateBatch = async (
       return validateBatchResponse(targetIds, JSON.parse(response.text));
 
     } catch (error: any) {
+      if (signal?.aborted || error?.name === 'AbortError') throw error;
       const errorMessage = extractErrorDetails(error);
       if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
         throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
@@ -713,6 +827,11 @@ export const retranslateSelectedBlocks = async (
   while (attempt < totalAllowedAttempts) {
     let currentApiKey = '';
     try {
+      if (isFreeProvider(settings.aiProvider)) {
+        const translations = await Promise.all(targetBatch.map(async block => ({ id: block.id, translatedText: await translateWithFreeProvider(block.text, settings) })));
+        return validateBatchResponse(targetIds, translations);
+      }
+
       if (settings.aiProvider === 'lm_studio') {
         signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
@@ -742,6 +861,7 @@ export const retranslateSelectedBlocks = async (
       if (!response.text) throw new Error("Empty selected retranslation response from Gemini");
       return validateBatchResponse(targetIds, JSON.parse(response.text));
     } catch (error: any) {
+      if (error?.name === 'AbortError') throw error;
       const errorMessage = extractErrorDetails(error);
       if (settings.aiProvider === 'lm_studio' && (errorMessage.includes('fetch failed') || errorMessage.includes('failed to fetch') || errorMessage.includes('lm studio'))) {
         throw new Error('⚠️ اتصال به LM Studio برقرار نشد. Local Server را در LM Studio روشن کنید و آدرس/نام مدل را بررسی کنید.');
@@ -772,6 +892,7 @@ export const retranslateSelectedBlocks = async (
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';
+    if (isFreeProvider(settings.aiProvider)) return translateWithFreeProvider(text, settings);
     if (settings.aiProvider === 'lm_studio') {
         return callLmStudioChat(settings, `${LANGUAGE_PROMPTS[targetLang]}\n${targetLang === 'fa' ? 'Use natural Persian.' : 'Use natural target-language grammar and style.'}`, `${text}\n\nReturn only the translated text.`);
     }
@@ -810,6 +931,7 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
     ? '\nFor Persian output, preserve and use the real zero-width non-joiner (U+200C) wherever Persian orthography requires it. Write, for example, می‌رود, نمی‌دانم, کتاب‌ها, بهینه‌تر, and برنامه‌نویسی; never replace the half-space with a normal space, hyphen, tatweel, or nothing.'
     : '';
   const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing.${persianOrthographyInstruction}\nReturn ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
+  if (isFreeProvider(settings.aiProvider)) return translateTaggedPayloadWithFreeProvider(content, settings, signal);
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
