@@ -68,6 +68,7 @@ export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: Mod
   if (method === 'skeleton_str' || method === 'subtitle_translator') return provider === 'lm_studio' ? 48 : 40;
   if (method === 'paragraph') return model === 'professional' ? 12 : 16;
   if (provider === 'lm_studio') return 36;
+  if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 12;
   if (model === 'professional') return 14;
   if (model === 'flash' || model === 'flash_lite') return 36;
   return BATCH_SIZE;
@@ -76,6 +77,7 @@ export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: Mod
 /** Local requests need no throttle; hosted providers retain a small safety gap. */
 export const getAdaptiveBatchDelay = (provider: AIProvider, model: ModelType): number => {
   if (provider === 'lm_studio') return 0;
+  if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 350;
   if (provider === 'openai_compatible') return 250;
   if (model === 'flash' || model === 'flash_lite') return 800;
   return 1200;

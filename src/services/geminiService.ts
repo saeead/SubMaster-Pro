@@ -27,7 +27,10 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const normalizeOpenAIBaseUrl = (baseUrl: string, fallback = 'http://localhost:1234/v1'): string => {
   const trimmed = (baseUrl || fallback).trim().replace(/\/+$/, '');
-  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+  // LM Studio's field is a server base URL. Strip a pasted Chat Completions
+  // endpoint so switching providers can never produce .../chat/completions/v1.
+  const withoutEndpoint = trimmed.replace(/\/chat\/completions$/i, '');
+  return withoutEndpoint.endsWith('/v1') ? withoutEndpoint : `${withoutEndpoint}/v1`;
 };
 
 const resolveOpenAIChatCompletionsUrl = (baseUrl: string): string => {
@@ -71,6 +74,53 @@ const buildOpenAICompatibleHeaders = (service: OpenAICompatibleService): Record<
 };
 
 const normalizeLmStudioBaseUrl = (baseUrl: string): string => normalizeOpenAIBaseUrl(baseUrl);
+
+const isFreeProvider = (provider: AppSettings['aiProvider']): provider is 'gtx' | 'edge' | 'deeplx' => (
+  provider === 'gtx' || provider === 'edge' || provider === 'deeplx'
+);
+
+const getFreeProviderName = (provider: AppSettings['aiProvider']): string => ({
+  gtx: 'GTX API (Free)', edge: 'Edge API (Free)', deeplx: 'DeepLX (Free)'
+}[provider] || provider);
+
+const translateWithFreeProvider = async (text: string, settings: AppSettings, signal?: AbortSignal): Promise<string> => {
+  const target = settings.targetLanguage;
+  if (settings.aiProvider === 'gtx') {
+    const url = new URL('https://translate.googleapis.com/translate_a/single');
+    url.search = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: target, dt: 't', q: text }).toString();
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`GTX ${response.status}: ${await response.text()}`);
+    const data = await response.json() as Array<Array<[string]>>;
+    return (data[0] || []).map(part => part[0]).join('').trim();
+  }
+  if (settings.aiProvider === 'edge') {
+    // Microsoft Edge obtains a short-lived translator token itself; acquiring
+    // it here keeps this provider keyless while using its public web API.
+    const tokenResponse = await fetch('https://edge.microsoft.com/translate/auth', { signal });
+    if (!tokenResponse.ok) throw new Error(`Edge auth ${tokenResponse.status}: ${await tokenResponse.text()}`);
+    const token = (await tokenResponse.text()).trim();
+    const url = new URL('https://api-edge.cognitive.microsofttranslator.com/translate');
+    url.search = new URLSearchParams({ 'api-version': '3.0', to: target }).toString();
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-ClientTraceId': crypto.randomUUID() }, body: JSON.stringify([{ Text: text }]), signal });
+    if (!response.ok) throw new Error(`Edge ${response.status}: ${await response.text()}`);
+    const data = await response.json() as Array<{ translations?: Array<{ text?: string }> }>;
+    return data[0]?.translations?.[0]?.text?.trim() || '';
+  }
+  // DeepLX deliberately uses its public endpoint and does not require a user API key.
+  const response = await fetch('https://api.deeplx.org/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, source_lang: 'auto', target_lang: target.toUpperCase() }), signal });
+  if (!response.ok) throw new Error(`DeepLX ${response.status}: ${await response.text()}`);
+  const data = await response.json() as { data?: string; translations?: Array<{ text?: string }> };
+  return data.data?.trim() || data.translations?.[0]?.text?.trim() || '';
+};
+
+const translateTaggedPayloadWithFreeProvider = async (content: string, settings: AppSettings, signal?: AbortSignal): Promise<string> => {
+  const tags = [...content.matchAll(/\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/TRANSLATE_\1\]/g)];
+  const translated = await Promise.all(tags.map(async ([, id, source]) => {
+    const text = await translateWithFreeProvider(source.trim(), settings, signal);
+    return `[TRANSLATE_${id}]${text}[/TRANSLATE_${id}]`;
+  }));
+  return translated.join('\n');
+};
 
 const extractJsonArray = (text: string): string => {
   const trimmed = text.trim();
@@ -616,6 +666,11 @@ export const translateBatch = async (
         promptMethod
       );
 
+      if (isFreeProvider(settings.aiProvider)) {
+        const translations = await Promise.all(targetBatch.map(async block => ({ id: block.id, translatedText: await translateWithFreeProvider(block.text, settings, signal) })));
+        return validateBatchResponse(targetIds, translations);
+      }
+
       if (settings.aiProvider === 'lm_studio') {
         signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`, signal);
@@ -713,6 +768,11 @@ export const retranslateSelectedBlocks = async (
   while (attempt < totalAllowedAttempts) {
     let currentApiKey = '';
     try {
+      if (isFreeProvider(settings.aiProvider)) {
+        const translations = await Promise.all(targetBatch.map(async block => ({ id: block.id, translatedText: await translateWithFreeProvider(block.text, settings) })));
+        return validateBatchResponse(targetIds, translations);
+      }
+
       if (settings.aiProvider === 'lm_studio') {
         signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
@@ -772,6 +832,7 @@ export const retranslateSelectedBlocks = async (
 
 export const translateFreeText = async (text: string, settings: AppSettings, targetLang: TargetLanguage = 'fa'): Promise<string> => {
     if (!text || !text.trim()) return '';
+    if (isFreeProvider(settings.aiProvider)) return translateWithFreeProvider(text, settings);
     if (settings.aiProvider === 'lm_studio') {
         return callLmStudioChat(settings, `${LANGUAGE_PROMPTS[targetLang]}\n${targetLang === 'fa' ? 'Use natural Persian.' : 'Use natural target-language grammar and style.'}`, `${text}\n\nReturn only the translated text.`);
     }
@@ -810,6 +871,7 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
     ? '\nFor Persian output, preserve and use the real zero-width non-joiner (U+200C) wherever Persian orthography requires it. Write, for example, می‌رود, نمی‌دانم, کتاب‌ها, بهینه‌تر, and برنامه‌نویسی; never replace the half-space with a normal space, hyphen, tatweel, or nothing.'
     : '';
   const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing.${persianOrthographyInstruction}\nReturn ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
+  if (isFreeProvider(settings.aiProvider)) return translateTaggedPayloadWithFreeProvider(content, settings, signal);
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
