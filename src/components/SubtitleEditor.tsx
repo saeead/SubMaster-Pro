@@ -260,8 +260,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
               </button>
 
               {activeTranslationSet.has(block.id) && !selectedSet.has(block.id) && (
-                <div className="absolute top-0 right-20 -translate-y-1/2 rounded-full border border-orange-300/40 bg-orange-500/20 px-3 py-1 text-[10px] font-bold text-orange-100 shadow-lg z-10 whitespace-nowrap">
-                  در چانک فعلی
+                <div className="absolute top-0 right-20 -translate-y-1/2 rounded-full border border-orange-300/60 bg-[#2b1a13]/95 px-3 py-1 text-[10px] font-bold text-orange-50 shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-xl z-10 whitespace-nowrap">
+                  در حال ترجمه
                 </div>
               )}
 
