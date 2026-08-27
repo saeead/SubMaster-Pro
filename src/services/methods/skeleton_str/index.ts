@@ -146,7 +146,19 @@ export const buildSkeletonUserPrompt = (content: string, count: number, targetLa
   const markerRequirement = expectedMarkerIds?.length
     ? `Translate exactly these marker IDs and no others: ${expectedMarkerIds.map(id => `TRANSLATE_${id}`).join(', ')}.`
     : `Do NOT skip any numbers from 0 to ${count - 1}.`;
-  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Preserve the complete meaning of every line. Do not summarize, omit details, or move content between tags.\n6. Do not answer in English unless English is the selected target language.\n\n${content}`;
+  return `Context: This is part of a subtitle file. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, timestamps, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.
+
+CRITICAL REQUIREMENTS:
+1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}
+2. ${markerRequirement}
+3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]
+4. NEVER merge lines; retain one tag per source line.
+5. Preserve the complete meaning of every line. Do not summarize, omit details, or move content between tags.
+6. Perform translation and quality review in this single request: before responding, internally verify every tagged output for target-language fluency, timing-appropriate subtitle length, terminology consistency, and no source-text leakage. Do not make a second pass or ask for another request.
+7. If a source line includes a leading timestamp hint such as {00:00:01,000 --> 00:00:03,000}, use it only to fit subtitle length and context; do not include the timestamp hint in the translated text.
+8. Do not answer in English unless English is the selected target language.
+
+${content}`;
 };
 
 export const extractTranslatedLinesWithNumbers = (response: string, expectedCount: number, sourceLines: string[], contextLines: string[]): string[] => {
