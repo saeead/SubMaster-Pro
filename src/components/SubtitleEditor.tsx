@@ -45,11 +45,29 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const [scope, setScope] = useState<'current' | 'all'>('current');
   const [selectedBlockIds, setSelectedBlockIds] = useState<number[]>([]);
   const [selectionAnchorId, setSelectionAnchorId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const blocksPerPage = 50;
 
   useEffect(() => {
     const availableIds = new Set(blocks.map(block => block.id));
     setSelectedBlockIds(prev => prev.filter(id => availableIds.has(id)));
   }, [blocks]);
+
+  const totalPages = Math.max(1, Math.ceil(blocks.length / blocksPerPage));
+  const activePage = activeTranslationBlockIds.length > 0
+    ? Math.floor(Math.max(0, blocks.findIndex(block => block.id === activeTranslationBlockIds[0])) / blocksPerPage) + 1
+    : null;
+
+  useEffect(() => {
+    setCurrentPage(previous => Math.min(Math.max(1, previous), totalPages));
+  }, [totalPages]);
+
+  // Follow the translation worker so the currently processed chunk is visible.
+  useEffect(() => {
+    if (activePage) setCurrentPage(activePage);
+  }, [activePage]);
+
+  const visibleBlocks = blocks.slice((currentPage - 1) * blocksPerPage, currentPage * blocksPerPage);
 
   const selectedCount = selectedBlockIds.length;
   const selectedSet = new Set(selectedBlockIds);
@@ -227,7 +245,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
       {/* Blocks List */}
       <div className="space-y-4">
-        {blocks.map((block) => {
+        {visibleBlocks.map((block) => {
           const error = getErrorForBlock(block.id);
           const hasError = !!error;
           
@@ -331,6 +349,17 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
           );
         })}
       </div>
+
+      {totalPages > 1 && (
+        <nav className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#0a0e27]/50 p-4" aria-label="صفحه‌بندی زیرنویس">
+          <span className="ml-2 text-xs text-white/50">صفحه {currentPage} از {totalPages} (هر صفحه ۵۰ بلوک)</span>
+          {Array.from({ length: totalPages }, (_, index) => index + 1).map(page => (
+            <button key={page} type="button" onClick={() => setCurrentPage(page)} aria-current={page === currentPage ? 'page' : undefined} className={`min-w-9 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${page === currentPage ? 'border-[#00f0ff] bg-[#00f0ff]/15 text-[#00f0ff]' : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10'}`}>
+              {page}
+            </button>
+          ))}
+        </nav>
+      )}
 
       {selectedCount > 0 && (
         <div className="fixed bottom-8 left-1/2 z-[65] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in">

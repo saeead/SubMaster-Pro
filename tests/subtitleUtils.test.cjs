@@ -66,7 +66,7 @@ test('adaptive translation settings favor local and flash providers', () => {
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'flash', 'default'), 36);
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'professional', 'default'), 14);
   assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 48);
-  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'standard', 'subtitle_translator'), 40);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'standard', 'subtitle_translator'), 12);
 });
 
 test('translation method prompts preserve meaning and distinguish transport contracts', () => {

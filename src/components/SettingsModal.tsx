@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Cpu, Key, Plus, Trash2, CheckCircle, AlertTriangle, Loader2, Database, ToggleRight, ToggleLeft, ExternalLink, HelpCircle } from 'lucide-react';
-import { AppSettings, OpenAICompatibleService, UserAPIKey } from '../types';
+import { AIProvider, AppSettings, OpenAICompatibleService, UserAPIKey } from '../types';
 import { diagnoseConnection, validateAPIConnection } from '../services/geminiService';
 import { getMemorySize, clearMemory } from '../services/translationMemory';
 import { TARGET_LANGUAGES } from '../constants';
@@ -50,6 +50,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
   const activeOpenAIService = settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)
       || settings.openAICompatibleServices[0];
+
+  const selectProvider = (provider: AIProvider) => {
+      // Provider-specific credentials stay stored for later use, but only the
+      // selected provider is ever consulted by the translation transport.
+      updateSettings({ aiProvider: provider });
+      setConnectionTestMessage(null);
+      setOpenAIServiceMessage(null);
+  };
 
   if (!isOpen) return null;
 
@@ -257,43 +265,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
                 <div className="grid grid-cols-1 gap-3">
                   <button
-                    onClick={() => updateSettings({ aiProvider: 'gemini' })}
+                    onClick={() => selectProvider('gemini')}
                     className={`p-4 rounded-xl border text-right transition-all min-h-[86px] whitespace-normal ${settings.aiProvider === 'gemini' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
                   >
                     <span className="block text-sm font-bold">Gemini</span>
                     <span className="block text-xs mt-1 leading-5 text-white/70">ترجمه ابری با کلید API گوگل</span>
                   </button>
                   <button
-                    onClick={() => updateSettings({ aiProvider: 'lm_studio' })}
+                    onClick={() => selectProvider('lm_studio')}
                     className={`p-4 rounded-xl border text-right transition-all min-h-[86px] whitespace-normal ${settings.aiProvider === 'lm_studio' ? 'bg-[#ff00ea]/10 border-[#ff00ea] text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
                   >
                     <span className="block text-sm font-bold">LM Studio</span>
                     <span className="block text-xs mt-1 leading-5 text-white/70">مدل محلی بدون API Key</span>
                   </button>
                   <button
-                    onClick={() => updateSettings({ aiProvider: 'openai_compatible' })}
+                    onClick={() => selectProvider('openai_compatible')}
                     className={`p-4 rounded-xl border text-right transition-all min-h-[86px] whitespace-normal ${settings.aiProvider === 'openai_compatible' ? 'bg-green-400/10 border-green-400 text-white' : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'}`}
                   >
                     <span className="block text-sm font-bold">OpenAI Compatible</span>
                     <span className="block text-xs mt-1 leading-5 text-white/70">Chat Completions با Base URL و API Key</span>
                   </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                    {([
+                      ['gtx', 'GTX API (Free)', 'گوگل ترجمه، بدون API Key'],
+                      ['edge', 'Edge API (Free)', 'Microsoft Edge، بدون API Key'],
+                      ['deeplx', 'DeepLX (Free)', 'DeepL-compatible، بدون API Key']
+                    ] as const).map(([provider, name, description]) => (
+                      <button key={provider} type="button" onClick={() => selectProvider(provider)} className={`rounded-xl border p-3 text-right transition-all ${settings.aiProvider === provider ? 'border-amber-300 bg-amber-400/10 text-white' : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10'}`}>
+                        <span className="block text-xs font-bold">{name}</span>
+                        <span className="mt-1 block text-[10px] leading-4 text-white/55">{description}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-2">
-                  <label className="block text-xs text-white/50">زبان مقصد</label>
-                  <select
-                    value={settings.targetLanguage}
-                    onChange={(e) => updateSettings({ targetLanguage: e.target.value as keyof typeof TARGET_LANGUAGES })}
-                    className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none"
-                  >
-                    {Object.entries(TARGET_LANGUAGES).map(([code, name]) => (
-                      <option key={code} value={code}>{name}</option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-white/40 leading-relaxed">
-                    prompt، formatter و QC بر اساس زبان انتخاب‌شده تنظیم می‌شوند.
-                  </p>
-                </div>
+                {(['gtx', 'edge', 'deeplx'] as AIProvider[]).includes(settings.aiProvider) && (
+                  <div className="rounded-xl border border-amber-300/25 bg-amber-400/5 p-4 text-xs leading-relaxed text-amber-100">
+                    این ارائه‌دهندهٔ رایگان به API Key یا Base URL نیاز ندارد. ترجمه در درخواست‌های کوچک انجام می‌شود تا ساختار و صفحه‌بندی زیرنویس حفظ شود. در صورت محدودیت یا CORS سرویس، ارائه‌دهندهٔ رایگان دیگری را انتخاب کنید.
+                  </div>
+                )}
 
                 {settings.aiProvider === 'lm_studio' && (
                   <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-3">
@@ -448,6 +458,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
               )}
 
+              {/* Gemini-only credentials */}
+              {settings.aiProvider === 'gemini' && (<>
               {/* API Key Management */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -540,7 +552,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
               </div>
 
-              {/* Model Selection */}
+              {/* Gemini-only model selection */}
               <div className="space-y-4">
                  <div className="flex items-center gap-2">
                      <label className="text-sm text-white/70 block font-bold">انتخاب مدل پردازشی</label>
@@ -634,6 +646,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
                  </div>
               </div>
+              </>)}
 
               <button 
                   onClick={onClose}
