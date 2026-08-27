@@ -949,10 +949,53 @@ const App: React.FC = () => {
     };
 
     await requestGroup(targetBlocks, 0);
+    const balancedTranslations = balanceTaggedTranslations(targetBlocks, translatedById);
     return targetBlocks.map(block => ({
       id: block.id,
       translatedText: translatedById.get(block.id) || ''
     }));
+  };
+
+  const balanceTaggedTranslations = (targetBlocks: SubtitleBlock[], translatedById: Map<number, string>): Map<number, string> => {
+    const values = targetBlocks.map(block => translatedById.get(block.id)?.trim() || '');
+    const lengths = values.filter(Boolean).map(value => value.length);
+    const averageLength = lengths.length ? lengths.reduce((sum, value) => sum + value, 0) / lengths.length : 0;
+    const shouldRebalance = values.some(value => !value)
+      || (lengths.length > 1 && Math.max(...lengths) > averageLength * 1.9 && Math.min(...lengths) < averageLength * 0.55);
+    if (!shouldRebalance) return translatedById;
+
+    const combined = values.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    if (!combined) return translatedById;
+
+    const pieces = combined
+      .split(/(?<=[.!?؟،؛])\s+|\s+(?=(?:و|اما|ولی|که|تا|برای|چون)\s)/u)
+      .map(piece => piece.trim())
+      .filter(Boolean);
+    if (pieces.length < targetBlocks.length) return translatedById;
+
+    const sourceLengths = targetBlocks.map(block => Math.max(12, block.originalText.length));
+    const totalSourceLength = sourceLengths.reduce((sum, value) => sum + value, 0);
+    const totalChars = combined.length;
+    const rebalanced = new Map<number, string>();
+    let pieceIndex = 0;
+
+    targetBlocks.forEach((block, index) => {
+      const remainingBlocks = targetBlocks.length - index;
+      const targetChars = Math.max(24, Math.round(totalChars * (sourceLengths[index] / totalSourceLength)));
+      const bucket: string[] = [];
+
+      while (
+        pieceIndex < pieces.length
+        && (bucket.length === 0 || bucket.join(' ').length < targetChars)
+        && (pieces.length - pieceIndex) > remainingBlocks - 1
+      ) {
+        bucket.push(pieces[pieceIndex++]);
+      }
+
+      rebalanced.set(block.id, bucket.join(' ').trim());
+    });
+
+    return Array.from(rebalanced.values()).every(Boolean) ? rebalanced : translatedById;
   };
 
   const updateFileStatus = (id: string, updates: Partial<SubtitleFile>) => {
