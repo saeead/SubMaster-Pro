@@ -16,6 +16,7 @@ import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, 
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
 import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, normalizeSkeletonPersianHalfSpaces } from './services/methods/skeleton_str';
+import { buildContextPayload as buildSubtitleTranslatorContextPayload, buildSubtitleTranslatorUserPrompt, extractTranslatedLinesByMarkerIds as extractSubtitleTranslatorLinesByMarkerIds, normalizeSubtitleTranslatorPersianHalfSpaces } from './services/methods/subtitle_translator_strategy';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
@@ -878,7 +879,8 @@ const App: React.FC = () => {
      const startTime = Date.now();
 
      const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
-     const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str';
+     const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str' || settingsRef.current.translationMethod === 'subtitle_translator';
+     const isSubtitleTranslatorMethod = settingsRef.current.translationMethod === 'subtitle_translator';
      const adaptiveBatchSize = getAdaptiveTranslationBatchSize(settingsRef.current.aiProvider, settingsRef.current.model, settingsRef.current.translationMethod);
      const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? adaptiveBatchSize : BATCH_SIZE);
      const totalChunks = chunks.length;
@@ -965,17 +967,24 @@ const App: React.FC = () => {
                     ? (() => {
                         const contextLines = chunk.blocks.map(block => block.originalText);
                         const markerIds = targetBlocks.map(block => block.id);
-                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW, { targetMarkerIds: markerIds });
-                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage, markerIds), settingsRef.current, signal)
+                        const payload = isSubtitleTranslatorMethod
+                          ? buildSubtitleTranslatorContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW, { targetMarkerIds: markerIds })
+                          : buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW, { targetMarkerIds: markerIds });
+                        const prompt = isSubtitleTranslatorMethod
+                          ? buildSubtitleTranslatorUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage, markerIds)
+                          : buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage, markerIds);
+                        return translateSkeletonPayload(prompt, settingsRef.current, signal)
                           .then(async response => {
                             const sourceLines = targetBlocks.map(block => block.originalText);
-                            const translatedLines = extractTranslatedLinesByMarkerIds(response, markerIds, sourceLines, contextLines);
+                            const translatedLines = isSubtitleTranslatorMethod
+                              ? extractSubtitleTranslatorLinesByMarkerIds(response, markerIds, sourceLines, contextLines)
+                              : extractTranslatedLinesByMarkerIds(response, markerIds, sourceLines, contextLines);
 
                             return translatedLines.map((translatedText, index) => ({
                               id: targetBlocks[index].id,
                               translatedText: translatedText
                                 ? (settingsRef.current.targetLanguage === 'fa'
-                                  ? normalizeSkeletonPersianHalfSpaces(translatedText)
+                                  ? (isSubtitleTranslatorMethod ? normalizeSubtitleTranslatorPersianHalfSpaces(translatedText) : normalizeSkeletonPersianHalfSpaces(translatedText))
                                   : translatedText)
                                 : targetBlocks[index].originalText
                             }));

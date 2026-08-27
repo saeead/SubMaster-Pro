@@ -66,22 +66,28 @@ test('adaptive translation settings favor local and flash providers', () => {
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'flash', 'default'), 36);
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'professional', 'default'), 14);
   assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 48);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'standard', 'subtitle_translator'), 40);
 });
 
 test('translation method prompts preserve meaning and distinguish transport contracts', () => {
   const paragraph = constants.getMethodTranslationInstruction('paragraph', 'fa');
   const standard = constants.getMethodTranslationInstruction('default', 'fa');
   const skeleton = constants.getMethodTranslationInstruction('skeleton_str', 'fa');
+  const subtitleTranslator = constants.getMethodTranslationInstruction('subtitle_translator', 'fa');
   assert.match(paragraph, /never summarize, omit, or replace a full cue/i);
   assert.match(paragraph, /own marker/i);
   assert.match(standard, /JSON item/i);
   assert.match(skeleton, /requested tagged line/i);
+  assert.match(subtitleTranslator, /rockbenben\/subtitle-translator/i);
+  assert.match(subtitleTranslator, /professionally written native subtitles/i);
   assert.match(paragraph, /original source term in parentheses/i);
 });
 
 test('Skeleton STR system instruction does not request JSON output', () => {
   const skeletonInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'skeleton_str');
   const standardInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'default');
+  const subtitleTranslatorInstruction = constants.getSystemInstruction('conversational', 'podcast', '', 'netflix', [], '', 'fa', 'subtitle_translator');
   assert.doesNotMatch(skeletonInstruction, /فرمت خروجی \(JSON Array\)/);
+  assert.doesNotMatch(subtitleTranslatorInstruction, /فرمت خروجی \(JSON Array\)/);
   assert.match(standardInstruction, /فرمت خروجی \(JSON Array\)/);
 });
