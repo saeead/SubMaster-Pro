@@ -896,8 +896,9 @@ const App: React.FC = () => {
       return contextBlocks.slice(windowStart, windowEnd).map((block, offset) => {
         const absolute = windowStart + offset;
         const line = contextLines[absolute];
+        const timedSource = `{${block.startTime} --> ${block.endTime}} ${block.originalText}`;
         return targetIds.has(block.id)
-          ? `[TRANSLATE_${block.id}]${block.originalText}[/TRANSLATE_${block.id}]`
+          ? `[TRANSLATE_${block.id}]${timedSource}[/TRANSLATE_${block.id}]`
           : `[CONTEXT]${line}[/CONTEXT]`;
       }).join('\n');
     };
@@ -928,31 +929,60 @@ const App: React.FC = () => {
       });
 
       if (missing.length === 0) return;
-      if (attempt >= 2 && group.length === 1) {
-        const fallback = missing[0];
-        const focusedPrompt = `${prompt}\n\nRETRY SINGLE MISSING BLOCK: Translate TRANSLATE_${fallback.id} professionally into ${settingsRef.current.targetLanguage}. You must not return the source text unchanged unless it is a protected proper noun. Return only [TRANSLATE_${fallback.id}]...[/TRANSLATE_${fallback.id}].`;
-        const retryResponse = await translateSkeletonPayload(focusedPrompt, settingsRef.current, signal);
-        const retryValue = (isSubtitleTranslatorMethod
-          ? extractSubtitleTranslatorLinesByMarkerIds(retryResponse, [fallback.id], [fallback.originalText], contextLines)
-          : extractTranslatedLinesByMarkerIds(retryResponse, [fallback.id], [fallback.originalText], contextLines))[0];
-        const normalizedRetry = retryValue && settingsRef.current.targetLanguage === 'fa'
-          ? (isSubtitleTranslatorMethod ? normalizeSubtitleTranslatorPersianHalfSpaces(retryValue) : normalizeSkeletonPersianHalfSpaces(retryValue))
-          : retryValue;
-        if (normalizedRetry && normalizedRetry.trim()) translatedById.set(fallback.id, normalizedRetry);
-        return;
-      }
-
-      const nextSize = Math.max(1, Math.ceil(missing.length / 2));
-      for (let index = 0; index < missing.length; index += nextSize) {
-        await requestGroup(missing.slice(index, index + nextSize), attempt + 1);
-      }
+      // Skeleton STR v3 sends the main translation task and quality review in a
+      // single request. Avoid recursive follow-up calls for the same batch; any
+      // unresolved slots stay blank and can be picked up by a later resume.
+      void attempt;
     };
 
     await requestGroup(targetBlocks, 0);
+    const balancedTranslations = balanceTaggedTranslations(targetBlocks, translatedById);
     return targetBlocks.map(block => ({
       id: block.id,
-      translatedText: translatedById.get(block.id) || block.originalText
+      translatedText: balancedTranslations.get(block.id) || translatedById.get(block.id) || ''
     }));
+  };
+
+  const balanceTaggedTranslations = (targetBlocks: SubtitleBlock[], translatedById: Map<number, string>): Map<number, string> => {
+    const values = targetBlocks.map(block => translatedById.get(block.id)?.trim() || '');
+    const lengths = values.filter(Boolean).map(value => value.length);
+    const averageLength = lengths.length ? lengths.reduce((sum, value) => sum + value, 0) / lengths.length : 0;
+    const shouldRebalance = values.some(value => !value)
+      || (lengths.length > 1 && Math.max(...lengths) > averageLength * 1.9 && Math.min(...lengths) < averageLength * 0.55);
+    if (!shouldRebalance) return translatedById;
+
+    const combined = values.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    if (!combined) return translatedById;
+
+    const pieces = combined
+      .split(/(?<=[.!?؟،؛])\s+|\s+(?=(?:و|اما|ولی|که|تا|برای|چون)\s)/u)
+      .map(piece => piece.trim())
+      .filter(Boolean);
+    if (pieces.length < targetBlocks.length) return translatedById;
+
+    const sourceLengths = targetBlocks.map(block => Math.max(12, block.originalText.length));
+    const totalSourceLength = sourceLengths.reduce((sum, value) => sum + value, 0);
+    const totalChars = combined.length;
+    const rebalanced = new Map<number, string>();
+    let pieceIndex = 0;
+
+    targetBlocks.forEach((block, index) => {
+      const remainingBlocks = targetBlocks.length - index;
+      const targetChars = Math.max(24, Math.round(totalChars * (sourceLengths[index] / totalSourceLength)));
+      const bucket: string[] = [];
+
+      while (
+        pieceIndex < pieces.length
+        && (bucket.length === 0 || bucket.join(' ').length < targetChars)
+        && (pieces.length - pieceIndex) > remainingBlocks - 1
+      ) {
+        bucket.push(pieces[pieceIndex++]);
+      }
+
+      rebalanced.set(block.id, bucket.join(' ').trim());
+    });
+
+    return Array.from(rebalanced.values()).every(Boolean) ? rebalanced : translatedById;
   };
 
   const updateFileStatus = (id: string, updates: Partial<SubtitleFile>) => {
@@ -1041,6 +1071,7 @@ const App: React.FC = () => {
         }
 
         const effectiveTarget = targetBlocks.filter(b => !b.translatedText);
+        const successfulResultIds = new Set<number>();
         
         if (effectiveTarget.length > 0) {
             const targetRequest: BatchRequest[] = effectiveTarget.map(b => ({ id: b.id, text: b.originalText }));
@@ -1053,14 +1084,16 @@ const App: React.FC = () => {
                 // Promise here and `results.forEach` crashes the React flow.
                 const results = await (isSkeletonMethod
                     ? (() => {
-                        return translateTaggedBatchWithRecovery(targetBlocks, chunk.blocks, chunk.targetStartIndex, chunk.targetEndIndex, isSubtitleTranslatorMethod, signal);
+                        return translateTaggedBatchWithRecovery(effectiveTarget, chunk.blocks, chunk.targetStartIndex, chunk.targetEndIndex, isSubtitleTranslatorMethod, signal);
                       })()
                     : translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal));
 
+                results.filter(res => !!res.translatedText?.trim()).forEach(res => successfulResultIds.add(res.id));
                 setFiles(prev => prev.map(f => {
                     if (f.id === fileId) {
                         const newBlocks = [...f.blocks];
                         results.forEach(res => {
+                            if (!res.translatedText || !res.translatedText.trim()) return;
                             const formattedText = formatSubtitleForLanguage(res.translatedText, settingsRef.current.targetLanguage);
                             const idx = newBlocks.findIndex(b => b.id === res.id);
                             if (idx !== -1) {
@@ -1147,7 +1180,8 @@ const App: React.FC = () => {
             }
         }
 
-        completed += targetBlocks.length;
+        const translatedInChunk = targetBlocks.filter(block => !!block.translatedText?.trim() || successfulResultIds.has(block.id)).length;
+        completed += translatedInChunk;
         const progress = (completed / file.blocks.length) * 100;
         updateFileStatus(fileId, { progress, processedCount: completed });
      }
@@ -1244,6 +1278,9 @@ const App: React.FC = () => {
         if (!file) return;
         setActiveFileId(file.id);
         await processFile(file.id, signal);
+        const current = filesRef.current.find(item => item.id === job.fileId);
+        if (current?.status === AppStatus.PAUSED) job.status = 'paused';
+        if (current?.status === AppStatus.CANCELLED) job.status = 'cancelled';
     });
     jobRunnerRef.current = runner;
     pendingFiles.forEach(file => runner.enqueue(file.id));
