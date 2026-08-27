@@ -12,10 +12,11 @@ import { ExportModal } from './components/ExportModal';
 import { GlossaryModal } from './components/GlossaryModal';
 import { TextTranslatorModal } from './components/TextTranslatorModal';
 import { Toast, ToastType } from './components/Toast';
-import { SubtitleBlock, AppStatus, BatchRequest, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
+import { SubtitleBlock, AppStatus, BatchRequest, BatchResponse, AppSettings, AdjustmentConfig, StyleConfig, GlossaryItem, SubtitleFile, Modification, TranslationDiagnostic } from './types';
 import { generateSubtitleFile, downloadFile, smartChunking, getSmartContextWindow, formatSubtitleForLanguage, adjustBlockTiming, validateNetflixStandards, fixNetflixStandards, optimizePersianStructure, paragraphChunking } from './services/subtitleUtils';
 import { translateBatch, diagnoseConnection, retranslateSelectedBlocks, getTranslationDiagnostic, translateSkeletonPayload } from './services/geminiService';
-import { buildContextPayload, buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, normalizeSkeletonPersianHalfSpaces } from './services/methods/skeleton_str';
+import { buildSkeletonUserPrompt, extractTranslatedLinesByMarkerIds, normalizeSkeletonPersianHalfSpaces } from './services/methods/skeleton_str';
+import { buildSubtitleTranslatorUserPrompt, extractTranslatedLinesByMarkerIds as extractSubtitleTranslatorLinesByMarkerIds, normalizeSubtitleTranslatorPersianHalfSpaces } from './services/methods/subtitle_translator_strategy';
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
@@ -223,6 +224,7 @@ const App: React.FC = () => {
       progress: 0,
       diagnostic: null,
       processedCount: 0,
+      activeTranslationBlockIds: [],
       netflixErrors: [],
       // Initialize History
       modificationsMade: [],
@@ -866,6 +868,93 @@ const App: React.FC = () => {
 
   // --- TRANSLATION LOGIC ---
 
+
+  const translateTaggedBatchWithRecovery = async (
+    targetBlocks: SubtitleBlock[],
+    contextBlocks: SubtitleBlock[],
+    targetStartIndex: number,
+    targetEndIndex: number,
+    isSubtitleTranslatorMethod: boolean,
+    signal?: AbortSignal
+  ): Promise<BatchResponse[]> => {
+    const contextLines = contextBlocks.map(block =>
+      block.translatedText
+        ? `${block.originalText} (existing ${settingsRef.current.targetLanguage} translation: ${block.translatedText})`
+        : block.originalText
+    );
+    const sourceById = new Map(targetBlocks.map(block => [block.id, block.originalText]));
+    const translatedById = new Map<number, string>();
+
+    const buildSelectivePayload = (group: SubtitleBlock[]): string => {
+      const targetIds = new Set(group.map(block => block.id));
+      const relativeIndices = group.map(block => contextBlocks.findIndex(item => item.id === block.id)).filter(index => index >= 0);
+      const from = relativeIndices.length ? Math.min(...relativeIndices) : targetStartIndex;
+      const to = relativeIndices.length ? Math.max(...relativeIndices) + 1 : targetEndIndex;
+      const padding = Math.min(80, Math.max(1, Math.floor(SKELETON_STR_CONTEXT_WINDOW / 2)));
+      const windowStart = Math.max(0, from - padding);
+      const windowEnd = Math.min(contextBlocks.length, to + padding);
+      return contextBlocks.slice(windowStart, windowEnd).map((block, offset) => {
+        const absolute = windowStart + offset;
+        const line = contextLines[absolute];
+        return targetIds.has(block.id)
+          ? `[TRANSLATE_${block.id}]${block.originalText}[/TRANSLATE_${block.id}]`
+          : `[CONTEXT]${line}[/CONTEXT]`;
+      }).join('\n');
+    };
+
+    const requestGroup = async (group: SubtitleBlock[], attempt: number): Promise<void> => {
+      if (group.length === 0) return;
+      const groupIds = group.map(block => block.id);
+      const payload = buildSelectivePayload(group);
+      const prompt = isSubtitleTranslatorMethod
+        ? buildSubtitleTranslatorUserPrompt(payload, group.length, settingsRef.current.targetLanguage, groupIds)
+        : buildSkeletonUserPrompt(payload, group.length, settingsRef.current.targetLanguage, groupIds);
+      const response = await translateSkeletonPayload(prompt, settingsRef.current, signal);
+      const extracted = isSubtitleTranslatorMethod
+        ? extractSubtitleTranslatorLinesByMarkerIds(response, groupIds, group.map(block => block.originalText), contextLines)
+        : extractTranslatedLinesByMarkerIds(response, groupIds, group.map(block => block.originalText), contextLines);
+
+      const missing: SubtitleBlock[] = [];
+      extracted.forEach((value, index) => {
+        const block = group[index];
+        const normalized = value && settingsRef.current.targetLanguage === 'fa'
+          ? (isSubtitleTranslatorMethod ? normalizeSubtitleTranslatorPersianHalfSpaces(value) : normalizeSkeletonPersianHalfSpaces(value))
+          : value;
+        if (normalized && normalized.trim() && normalized.trim() !== sourceById.get(block.id)?.trim()) {
+          translatedById.set(block.id, normalized);
+        } else {
+          missing.push(block);
+        }
+      });
+
+      if (missing.length === 0) return;
+      if (attempt >= 2 && group.length === 1) {
+        const fallback = missing[0];
+        const focusedPrompt = `${prompt}\n\nRETRY SINGLE MISSING BLOCK: Translate TRANSLATE_${fallback.id} professionally into ${settingsRef.current.targetLanguage}. You must not return the source text unchanged unless it is a protected proper noun. Return only [TRANSLATE_${fallback.id}]...[/TRANSLATE_${fallback.id}].`;
+        const retryResponse = await translateSkeletonPayload(focusedPrompt, settingsRef.current, signal);
+        const retryValue = (isSubtitleTranslatorMethod
+          ? extractSubtitleTranslatorLinesByMarkerIds(retryResponse, [fallback.id], [fallback.originalText], contextLines)
+          : extractTranslatedLinesByMarkerIds(retryResponse, [fallback.id], [fallback.originalText], contextLines))[0];
+        const normalizedRetry = retryValue && settingsRef.current.targetLanguage === 'fa'
+          ? (isSubtitleTranslatorMethod ? normalizeSubtitleTranslatorPersianHalfSpaces(retryValue) : normalizeSkeletonPersianHalfSpaces(retryValue))
+          : retryValue;
+        if (normalizedRetry && normalizedRetry.trim()) translatedById.set(fallback.id, normalizedRetry);
+        return;
+      }
+
+      const nextSize = Math.max(1, Math.ceil(missing.length / 2));
+      for (let index = 0; index < missing.length; index += nextSize) {
+        await requestGroup(missing.slice(index, index + nextSize), attempt + 1);
+      }
+    };
+
+    await requestGroup(targetBlocks, 0);
+    return targetBlocks.map(block => ({
+      id: block.id,
+      translatedText: translatedById.get(block.id) || block.originalText
+    }));
+  };
+
   const updateFileStatus = (id: string, updates: Partial<SubtitleFile>) => {
       setFiles(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
   };
@@ -878,7 +967,8 @@ const App: React.FC = () => {
      const startTime = Date.now();
 
      const isParagraphMethod = settingsRef.current.translationMethod === 'paragraph';
-     const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str';
+     const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str' || settingsRef.current.translationMethod === 'subtitle_translator';
+     const isSubtitleTranslatorMethod = settingsRef.current.translationMethod === 'subtitle_translator';
      const adaptiveBatchSize = getAdaptiveTranslationBatchSize(settingsRef.current.aiProvider, settingsRef.current.model, settingsRef.current.translationMethod);
      const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? adaptiveBatchSize : BATCH_SIZE);
      const totalChunks = chunks.length;
@@ -916,7 +1006,7 @@ const App: React.FC = () => {
         if (!isTranslatingRef.current) {
             if (isPausedRef.current) {
                 // Stopped because of Pause
-                updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)' });
+                updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)', activeTranslationBlockIds: [] });
                 return;
             } else {
                 // Stopped because of Cancel
@@ -932,7 +1022,7 @@ const App: React.FC = () => {
         const blockRangeMessage = targetBlocks.length > 0
             ? `بلوک‌های ${targetBlocks[0].index} تا ${targetBlocks[targetBlocks.length - 1].index}`
             : 'بدون بلوک هدف';
-        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks} (${blockRangeMessage})...`, diagnostic: null });
+        updateFileStatus(fileId, { progressMessage: `پردازش بخش ${i + 1} از ${totalChunks} (${blockRangeMessage})...`, diagnostic: null, activeTranslationBlockIds: targetBlocks.map(block => block.id) });
 
         let cachedCount = 0;
         if (settingsRef.current.enableTranslationMemory) {
@@ -963,23 +1053,7 @@ const App: React.FC = () => {
                 // Promise here and `results.forEach` crashes the React flow.
                 const results = await (isSkeletonMethod
                     ? (() => {
-                        const contextLines = chunk.blocks.map(block => block.originalText);
-                        const markerIds = targetBlocks.map(block => block.id);
-                        const payload = buildContextPayload(contextLines, chunk.targetStartIndex, chunk.targetEndIndex, SKELETON_STR_CONTEXT_WINDOW, { targetMarkerIds: markerIds });
-                        return translateSkeletonPayload(buildSkeletonUserPrompt(payload, targetBlocks.length, settingsRef.current.targetLanguage, markerIds), settingsRef.current, signal)
-                          .then(async response => {
-                            const sourceLines = targetBlocks.map(block => block.originalText);
-                            const translatedLines = extractTranslatedLinesByMarkerIds(response, markerIds, sourceLines, contextLines);
-
-                            return translatedLines.map((translatedText, index) => ({
-                              id: targetBlocks[index].id,
-                              translatedText: translatedText
-                                ? (settingsRef.current.targetLanguage === 'fa'
-                                  ? normalizeSkeletonPersianHalfSpaces(translatedText)
-                                  : translatedText)
-                                : targetBlocks[index].originalText
-                            }));
-                          });
+                        return translateTaggedBatchWithRecovery(targetBlocks, chunk.blocks, chunk.targetStartIndex, chunk.targetEndIndex, isSubtitleTranslatorMethod, signal);
                       })()
                     : translateBatch(targetRequest, preContextReq, postContextReq, settingsRef.current, onKeyRateLimit, isParagraphMethod, signal));
 
@@ -1019,6 +1093,7 @@ const App: React.FC = () => {
                     updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
                          progressMessage: 'خطای اتصال (توقف)',
+                         activeTranslationBlockIds: [],
                          diagnostic
                     });
                     showDiagnosticToast(diagnostic);
@@ -1035,6 +1110,7 @@ const App: React.FC = () => {
                      updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
                          progressMessage: 'توقف خودکار (سرور/مدل شلوغ است)',
+                         activeTranslationBlockIds: [],
                          diagnostic
                      });
                      showDiagnosticToast(diagnostic);
@@ -1043,7 +1119,7 @@ const App: React.FC = () => {
                 }
 
                 if (!isTranslatingRef.current && isPausedRef.current) {
-                     updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)' });
+                     updateFileStatus(fileId, { status: AppStatus.PAUSED, progressMessage: 'توقف موقت (ذخیره شد)', activeTranslationBlockIds: [] });
                      return;
                 }
 
@@ -1057,6 +1133,7 @@ const App: React.FC = () => {
                      updateFileStatus(fileId, { 
                          status: AppStatus.PAUSED, 
                          progressMessage: 'توقف: پایان اعتبار یا سهمیه',
+                         activeTranslationBlockIds: [],
                          diagnostic
                      });
                      showDiagnosticToast(diagnostic);
@@ -1064,7 +1141,7 @@ const App: React.FC = () => {
                      return; 
                 }
 
-                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه', diagnostic });
+                updateFileStatus(fileId, { status: AppStatus.ERROR, progressMessage: 'خطا در ترجمه', activeTranslationBlockIds: [], diagnostic });
                 showDiagnosticToast(diagnostic);
                 throw err;
             }
@@ -1097,6 +1174,7 @@ const App: React.FC = () => {
          status: AppStatus.COMPLETED, 
          progress: 100, 
          progressMessage: 'تکمیل شد',
+         activeTranslationBlockIds: [],
          diagnostic: null,
          processingDuration: durationStr
      });
@@ -1189,7 +1267,7 @@ const App: React.FC = () => {
     isPausedRef.current = true; 
     jobRunnerRef.current?.pauseActive();
     
-    setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت' } : f));
+    setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت', activeTranslationBlockIds: [] } : f));
     
     saveCurrentProjectState();
     showToast('پروژه متوقف و ذخیره شد.', 'warning');
@@ -1201,7 +1279,7 @@ const App: React.FC = () => {
     jobRunnerRef.current?.cancelAll();
     setFiles(prev => prev.map(f => 
         (f.status === AppStatus.TRANSLATING || f.status === AppStatus.PAUSED) 
-        ? { ...f, status: AppStatus.CANCELLED, progressMessage: 'لغو شد' } 
+        ? { ...f, status: AppStatus.CANCELLED, progressMessage: 'لغو شد', activeTranslationBlockIds: [] } 
         : f
     ));
   };
@@ -1282,7 +1360,7 @@ const App: React.FC = () => {
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
                     </div>
-                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} onRetranslateSelected={handleRetranslateSelectedBlocks} onAutoFixSelected={handleAutoFixSelectedBlocks} onDeleteSelected={handleDeleteSelectedBlocks} isRetranslatingSelection={isRetranslatingSelection} />
+                    <SubtitleEditor blocks={getActiveFile().blocks} onUpdateBlock={(id, text) => activeFileId && updateBlock(activeFileId, id, text)} validationErrors={getActiveFile().netflixErrors} onFindReplace={handleFindReplace} hasMultipleFiles={files.length > 1} onCommitChange={handleCommitChange} onUndo={handleUndo} onRedo={handleRedo} canUndo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer > -1} canRedo={!!getActiveFile()?.modificationsMade && getActiveFile().historyPointer < getActiveFile().modificationsMade.length - 1} onRetranslateSelected={handleRetranslateSelectedBlocks} onAutoFixSelected={handleAutoFixSelectedBlocks} onDeleteSelected={handleDeleteSelectedBlocks} isRetranslatingSelection={isRetranslatingSelection} activeTranslationBlockIds={getActiveFile().activeTranslationBlockIds || []} />
                 </>
             )}
         </main>
