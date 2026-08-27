@@ -113,10 +113,14 @@ const translateWithFreeProvider = async (text: string, settings: AppSettings, si
   return data.data?.trim() || data.translations?.[0]?.text?.trim() || '';
 };
 
+const stripSubtitleTimingHint = (value: string): string => value
+  .replace(/^\s*\{\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*--?>\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\}\s*/, '')
+  .trim();
+
 const translateTaggedPayloadWithFreeProvider = async (content: string, settings: AppSettings, signal?: AbortSignal): Promise<string> => {
   const tags = [...content.matchAll(/\[TRANSLATE_(\d+)\]([\s\S]*?)\[\/TRANSLATE_\1\]/g)];
   const translated = await Promise.all(tags.map(async ([, id, source]) => {
-    const text = await translateWithFreeProvider(source.trim(), settings, signal);
+    const text = await translateWithFreeProvider(stripSubtitleTimingHint(source), settings, signal);
     return `[TRANSLATE_${id}]${text}[/TRANSLATE_${id}]`;
   }));
   return translated.join('\n');
@@ -916,7 +920,7 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
   const persianOrthographyInstruction = settings.targetLanguage === 'fa'
     ? '\nFor Persian output, preserve and use the real zero-width non-joiner (U+200C) wherever Persian orthography requires it. Write, for example, می‌رود, نمی‌دانم, کتاب‌ها, بهینه‌تر, and برنامه‌نویسی; never replace the half-space with a normal space, hyphen, tatweel, or nothing.'
     : '';
-  const systemInstruction = `${styleInstruction}\n\n--- Skeleton STR response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing.${persianOrthographyInstruction}\nReturn ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
+  const systemInstruction = `${styleInstruction}\n\n--- ${settings.translationMethod === 'subtitle_translator' ? 'Subtitle Translator' : 'Skeleton STR'} response contract ---\nTranslate into the configured target language with natural, human, professional subtitle writing. Preserve meaning, context, tone and speaker intent; avoid literal/word-for-word or machine-like phrasing.${persianOrthographyInstruction}\nReturn ONLY the numbered [TRANSLATE_X]...[/TRANSLATE_X] tags requested by the user. Do not return JSON, explanations, markdown, or any extra text.`;
   if (isFreeProvider(settings.aiProvider)) return translateTaggedPayloadWithFreeProvider(content, settings, signal);
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
