@@ -65,7 +65,10 @@ export const DELAY_BETWEEN_FILES_MS = 10000;
 
 /** Select conservative throughput settings without penalising local providers. */
 export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: ModelType, method: TranslationMethod): number => {
-  if (method === 'skeleton_str' || method === 'subtitle_translator') return provider === 'lm_studio' ? 48 : 40;
+  // Tagged subtitle translators are more reliable with short batches: every
+  // target needs a distinct closing tag, and a single omission blocks recovery.
+  if (method === 'subtitle_translator') return provider === 'lm_studio' ? 16 : 12;
+  if (method === 'skeleton_str') return provider === 'lm_studio' ? 48 : 40;
   if (method === 'paragraph') return model === 'professional' ? 12 : 16;
   if (provider === 'lm_studio') return 36;
   if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 12;

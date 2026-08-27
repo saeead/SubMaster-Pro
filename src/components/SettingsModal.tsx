@@ -299,21 +299,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   </div>
                 </div>
 
-                <div className="bg-[#0a0e27]/50 rounded-xl p-4 border border-white/10 space-y-2">
-                  <label className="block text-xs text-white/50">زبان مقصد</label>
-                  <select
-                    value={settings.targetLanguage}
-                    onChange={(e) => updateSettings({ targetLanguage: e.target.value as keyof typeof TARGET_LANGUAGES })}
-                    className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00f0ff] focus:outline-none"
-                  >
-                    {Object.entries(TARGET_LANGUAGES).map(([code, name]) => (
-                      <option key={code} value={code}>{name}</option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-white/40 leading-relaxed">
-                    prompt، formatter و QC بر اساس زبان انتخاب‌شده تنظیم می‌شوند.
-                  </p>
-                </div>
+                {(['gtx', 'edge', 'deeplx'] as AIProvider[]).includes(settings.aiProvider) && (
+                  <div className="rounded-xl border border-amber-300/25 bg-amber-400/5 p-4 text-xs leading-relaxed text-amber-100">
+                    این ارائه‌دهندهٔ رایگان به API Key یا Base URL نیاز ندارد. ترجمه در درخواست‌های کوچک انجام می‌شود تا ساختار و صفحه‌بندی زیرنویس حفظ شود. در صورت محدودیت یا CORS سرویس، ارائه‌دهندهٔ رایگان دیگری را انتخاب کنید.
+                  </div>
+                )}
 
                 {(['gtx', 'edge', 'deeplx'] as AIProvider[]).includes(settings.aiProvider) && (
                   <div className="rounded-xl border border-amber-300/25 bg-amber-400/5 p-4 text-xs leading-relaxed text-amber-100">
@@ -474,6 +464,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
               )}
 
+              {/* Gemini-only credentials */}
+              {settings.aiProvider === 'gemini' && (<>
               {/* API Key Management */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -566,7 +558,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
               </div>
 
-              {/* Model Selection */}
+              {/* Gemini-only model selection */}
               <div className="space-y-4">
                  <div className="flex items-center gap-2">
                      <label className="text-sm text-white/70 block font-bold">انتخاب مدل پردازشی</label>
@@ -660,6 +652,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
                  </div>
               </div>
+              </>)}
 
               <button 
                   onClick={onClose}

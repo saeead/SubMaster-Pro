@@ -475,7 +475,9 @@ export const getTranslationDiagnostic = (error: any, settings: AppSettings, cont
     ? 'LM Studio'
     : settings.aiProvider === 'openai_compatible'
       ? (settings.openAICompatibleServices.find(service => service.id === settings.activeOpenAICompatibleServiceId)?.name || 'OpenAI Compatible')
-      : 'Gemini';
+      : isFreeProvider(settings.aiProvider)
+        ? getFreeProviderName(settings.aiProvider)
+        : 'Gemini';
 
   const details = [
     context,
@@ -517,6 +519,45 @@ export const getTranslationDiagnostic = (error: any, settings: AppSettings, cont
       title: 'مدل موقتاً شلوغ یا در دسترس نیست',
       cause: `سرویس ${providerName} با خطای ازدحام یا عدم دسترسی موقت پاسخ داده است.`,
       recovery: 'پروژه متوقف شده تا داده‌ها حفظ شوند. چند دقیقه صبر کنید، مدل سبک‌تر انتخاب کنید یا ادامه ترجمه را بزنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('tagged_translation_incomplete') || msg.includes('incomplete or low-quality tagged')) {
+    const ids = (error?.message || '').match(/ids:\s*([\d, ]+)/i)?.[1];
+    return {
+      code: 'tagged_translation_incomplete',
+      severity: 'warning',
+      title: 'پاسخ برچسب‌دار Subtitle Translator ناقص است',
+      cause: ids
+        ? `مدل برای بلوک‌های ${ids} تگ ترجمهٔ معتبر برنگرداند یا متن اصلی را بدون ترجمه تکرار کرد.`
+        : 'مدل همهٔ تگ‌های درخواست‌شده را با ترجمهٔ معتبر برنگرداند یا متن اصلی را بدون ترجمه تکرار کرد.',
+      recovery: 'برنامه همان بلوک‌ها را یک بار خودکار دوباره درخواست کرده است. اگر خطا باقی ماند، مدل محلی قوی‌تر/کم‌حجم‌تر انتخاب کنید یا همان بلوک‌ها را از ادیتور ترجمهٔ دوباره کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key') || msg.includes('authentication')) {
+    return {
+      code: 'authentication_failed',
+      severity: 'error',
+      title: 'احراز هویت سرویس ناموفق بود',
+      cause: `سرویس ${providerName} کلید API یا توکن دسترسی را نپذیرفت.`,
+      recovery: 'کلید API سرویس فعال را بررسی کنید. برای GTX، Edge و DeepLX کلیدی وارد نکنید و اتصال اینترنت را بررسی کنید.',
+      technicalDetails: details || msg,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (msg.includes('403') || msg.includes('forbidden')) {
+    return {
+      code: 'access_forbidden',
+      severity: 'error',
+      title: 'دسترسی سرویس رد شد',
+      cause: `سرویس ${providerName} این درخواست را به دلیل سیاست دسترسی، منطقه، CORS یا محدودیت شبکه رد کرده است.`,
+      recovery: 'اتصال/VPN و دسترسی مرورگر را بررسی کنید؛ برای سرویس‌های رایگان می‌توانید یک ارائه‌دهندهٔ رایگان دیگر را امتحان کنید.',
       technicalDetails: details || msg,
       timestamp: new Date().toISOString()
     };
