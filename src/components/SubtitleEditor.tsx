@@ -20,6 +20,7 @@ interface SubtitleEditorProps {
   onAutoFixSelected: (ids: number[]) => void;
   onDeleteSelected: (ids: number[]) => void;
   isRetranslatingSelection?: boolean;
+  activeTranslationBlockIds?: number[];
 }
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ 
@@ -36,7 +37,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   onRetranslateSelected,
   onAutoFixSelected,
   onDeleteSelected,
-  isRetranslatingSelection = false
+  isRetranslatingSelection = false,
+  activeTranslationBlockIds = []
 }) => {
   const [findTerm, setFindTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
@@ -51,8 +53,19 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
   const selectedCount = selectedBlockIds.length;
   const selectedSet = new Set(selectedBlockIds);
+  const activeTranslationSet = new Set(activeTranslationBlockIds);
 
-  const toggleBlockSelection = (id: number) => {
+  const toggleBlockSelection = (id: number, shiftKey = false) => {
+    const currentIndex = blocks.findIndex(block => block.id === id);
+    const anchorIndex = selectionAnchorId === null ? -1 : blocks.findIndex(block => block.id === selectionAnchorId);
+
+    if (shiftKey && anchorIndex !== -1 && currentIndex !== -1) {
+      const [from, to] = anchorIndex < currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
+      const rangeIds = blocks.slice(from, to + 1).map(block => block.id);
+      setSelectedBlockIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+      return;
+    }
+
     setSelectionAnchorId(id);
     setSelectedBlockIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
@@ -225,6 +238,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 group relative glass rounded-2xl p-6 pr-16 transition-all duration-300
                 ${selectedSet.has(block.id)
                   ? 'border-[#ff00ea] bg-[#ff00ea]/10 shadow-[0_0_22px_rgba(255,0,234,0.16)]'
+                  : activeTranslationSet.has(block.id)
+                  ? 'border-orange-400 bg-orange-500/10 shadow-[0_0_24px_rgba(251,146,60,0.20)]'
                   : hasError 
                   ? 'border-[#E50914] bg-[#E50914]/5' 
                   : block.translatedText 
@@ -235,14 +250,20 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             >
               <button
                 type="button"
-                onClick={() => toggleBlockSelection(block.id)}
+                onClick={(event) => toggleBlockSelection(block.id, event.shiftKey)}
                 className={`absolute right-5 top-6 z-20 rounded-lg p-1.5 transition-all ${selectedSet.has(block.id) ? 'bg-[#ff00ea]/20 text-[#ff00ea]' : 'bg-[#0a0e27]/80 text-white/40 hover:text-[#ff00ea] hover:bg-[#ff00ea]/10'}`}
                 aria-pressed={selectedSet.has(block.id)}
                 aria-label={`انتخاب بلوک ${block.index}`}
-                title="انتخاب برای ترجمه دوباره"
+                title="انتخاب برای ترجمه دوباره؛ با Shift بازه بین دو بلوک انتخاب می‌شود"
               >
                 {selectedSet.has(block.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
               </button>
+
+              {activeTranslationSet.has(block.id) && !selectedSet.has(block.id) && (
+                <div className="absolute top-0 right-20 -translate-y-1/2 rounded-full border border-orange-300/40 bg-orange-500/20 px-3 py-1 text-[10px] font-bold text-orange-100 shadow-lg z-10 whitespace-nowrap">
+                  در چانک فعلی
+                </div>
+              )}
 
               {/* Error Message */}
               {hasError && (

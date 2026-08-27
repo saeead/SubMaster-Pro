@@ -65,7 +65,7 @@ export const DELAY_BETWEEN_FILES_MS = 10000;
 
 /** Select conservative throughput settings without penalising local providers. */
 export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: ModelType, method: TranslationMethod): number => {
-  if (method === 'skeleton_str') return provider === 'lm_studio' ? 48 : 40;
+  if (method === 'skeleton_str' || method === 'subtitle_translator') return provider === 'lm_studio' ? 48 : 40;
   if (method === 'paragraph') return model === 'professional' ? 12 : 16;
   if (provider === 'lm_studio') return 36;
   if (model === 'professional') return 14;
@@ -179,7 +179,7 @@ export const getSystemInstruction = (
   // Skeleton STR is a tagged protocol, not JSON. Keeping the JSON schema out
   // of its system instruction prevents providers from returning an otherwise
   // valid JSON response that its tagged-response parser cannot place.
-  if (method !== 'skeleton_str') {
+  if (method !== 'skeleton_str' && method !== 'subtitle_translator') {
     prompt += `فرمت خروجی (JSON Array):
 [
   {
@@ -227,6 +227,9 @@ export const getMethodTranslationInstruction = (method: TranslationMethod, targe
   }
   if (method === 'skeleton_str') {
     return `--- SKELETON STR METHOD CONTRACT ---\n${shared}\nUse context only to understand the passage. Translate every requested tagged line completely, keep exactly one translation per tag, and return no text outside the requested tags.`;
+  }
+  if (method === 'subtitle_translator') {
+    return `--- SUBTITLE TRANSLATOR METHOD CONTRACT ---\n${shared}\nMirror the extraction/translation/reinsertion strategy used by rockbenben/subtitle-translator: structural subtitle data stays local, only dialogue lines inside requested [TRANSLATE_X] tags are translated, surrounding [CONTEXT] lines are for comprehension only, and the response contains exactly one translated tag for each requested source line. Never expose, edit, invent, merge, renumber, or reorder timing, cue, VTT metadata, ASS header/style, or block-boundary data. Persian output must read like professionally written native subtitles: concise, idiomatic, emotionally accurate, and free of machine-translation phrasing.`;
   }
   return `--- STANDARD BATCH METHOD CONTRACT ---\n${shared}\nTranslate every requested JSON item completely and return one faithful translation for each ID. Context is for comprehension only and must not cause content from one item to be moved into another.`;
 };

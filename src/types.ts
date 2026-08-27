@@ -45,6 +45,7 @@ export interface SubtitleFile {
   processingDuration?: string | null;
   netflixErrors?: NetflixError[];
   processedCount: number;
+  activeTranslationBlockIds?: number[];
   
   // Undo/Redo History
   modificationsMade: Modification[];
@@ -101,7 +102,7 @@ export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
 export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
-export type TranslationMethod = 'default' | 'paragraph' | 'skeleton_str';
+export type TranslationMethod = 'default' | 'paragraph' | 'skeleton_str' | 'subtitle_translator';
 
 export interface OpenAICompatibleService {
   id: string;
