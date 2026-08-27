@@ -884,6 +884,12 @@ const App: React.FC = () => {
     );
     const sourceById = new Map(targetBlocks.map(block => [block.id, block.originalText]));
     const translatedById = new Map<number, string>();
+    const countReadableChars = (value: string): number => value.replace(/[\s\u200B\u200C\u200D\u2060\uFEFF()[\]{}«»"'.,،؛:!?؟…-]/g, '').length;
+    const looksTooShortForSource = (source: string, translated: string): boolean => {
+      const sourceChars = countReadableChars(source);
+      const translatedChars = countReadableChars(translated);
+      return sourceChars >= 36 && translatedChars < Math.max(10, Math.floor(sourceChars * 0.28));
+    };
 
     const buildSelectivePayload = (group: SubtitleBlock[]): string => {
       const targetIds = new Set(group.map(block => block.id));
@@ -921,7 +927,12 @@ const App: React.FC = () => {
         const normalized = value && settingsRef.current.targetLanguage === 'fa'
           ? (isSubtitleTranslatorMethod ? normalizeSubtitleTranslatorPersianHalfSpaces(value) : normalizeSkeletonPersianHalfSpaces(value))
           : value;
-        if (normalized && normalized.trim() && normalized.trim() !== sourceById.get(block.id)?.trim()) {
+        if (
+          normalized
+          && normalized.trim()
+          && normalized.trim() !== sourceById.get(block.id)?.trim()
+          && !looksTooShortForSource(block.originalText, normalized)
+        ) {
           translatedById.set(block.id, normalized);
         } else {
           missing.push(block);
@@ -929,17 +940,19 @@ const App: React.FC = () => {
       });
 
       if (missing.length === 0) return;
-      // Skeleton STR v3 sends the main translation task and quality review in a
-      // single request. Avoid recursive follow-up calls for the same batch; any
-      // unresolved slots stay blank and can be picked up by a later resume.
-      void attempt;
+      if (attempt === 0) {
+        await requestGroup(missing, 1);
+        return;
+      }
+
+      throw new Error(`Model returned incomplete or low-quality tagged translations for ids: ${missing.map(block => block.id).join(', ')}`);
     };
 
     await requestGroup(targetBlocks, 0);
     const balancedTranslations = balanceTaggedTranslations(targetBlocks, translatedById);
     return targetBlocks.map(block => ({
       id: block.id,
-      translatedText: balancedTranslations.get(block.id) || translatedById.get(block.id) || ''
+      translatedText: translatedById.get(block.id) || ''
     }));
   };
 

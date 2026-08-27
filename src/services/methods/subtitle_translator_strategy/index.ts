@@ -88,6 +88,9 @@ const normalizeForAlignment = (value: string): string => value
 // Alignment may ignore invisible characters, but subtitle output must retain
 // the real U+200C character supplied by the model.
 const cleanTranslatedSlot = (value: string): string => value
+  .replace(/\[\/?(?:TRANSLATE(?:_\d+)?|TRANSLTranslate_\d+|CONTEXT)\]/g, '')
+  .replace(/^\s*[\[({«"']*\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*(?:--?>|<--|←|→)\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*[\])}»"']*\s*/g, '')
+  .replace(/^\s*[\[({«"']+|[\])}»"']+\s*$/g, '')
   .replace(/[\u200B\u200D\u2060\uFEFF]/g, '')
   // Some providers return an escaped line break in their raw tagged response.
   // It is subtitle text, not JSON, so the escape is otherwise shown literally
@@ -146,7 +149,7 @@ export const buildSubtitleTranslatorUserPrompt = (content: string, count: number
   const markerRequirement = expectedMarkerIds?.length
     ? `Translate exactly these marker IDs and no others: ${expectedMarkerIds.map(id => `TRANSLATE_${id}`).join(', ')}.`
     : `Do NOT skip any numbers from 0 to ${count - 1}.`;
-  return `Context: You are acting as a professional subtitle translator using the Subtitle Translator structural-separation strategy. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Preserve the complete meaning of every line. Do not summarize, omit details, or move content between tags.\n6. Do not answer in English unless English is the selected target language.\n\n${content}`;
+  return `Context: You are acting as a professional subtitle translator using the Subtitle Translator structural-separation strategy. First read the whole marked passage as one coherent paragraph so you understand the topic, speaker intent, pronouns, references, emotional flow, timestamps, and the best natural word choices in ${language}. Then translate every marked line into ${language}. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags. Use [CONTEXT][/CONTEXT] lines only for understanding.\n\nCRITICAL REQUIREMENTS:\n1. You MUST translate ALL ${count} lines marked with [TRANSLATE_X] tags into ${language}; never return an empty tag and never leave a requested marker untranslated\n2. ${markerRequirement}\n3. Keep the exact same marker IDs in the exact format: [TRANSLATE_X]translation[/TRANSLATE_X]\n4. NEVER merge lines; retain one tag per source line.\n5. Preserve the complete meaning of every line, but keep each subtitle concise and balanced for its timestamp duration. Do not summarize, omit details, or move content between tags; also do not overfill one tag while leaving another too short or empty.\n6. If a source line includes a leading timestamp hint such as {00:00:01,000 --> 00:00:03,000}, use it only to fit subtitle length and context; do not include the timestamp hint in the translated text.\n7. Do not answer in English unless English is the selected target language.\n\n${content}`;
 };
 
 export const extractTranslatedLinesWithNumbers = (response: string, expectedCount: number, sourceLines: string[], contextLines: string[]): string[] => {

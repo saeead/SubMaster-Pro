@@ -15,6 +15,14 @@ interface SettingsModalProps {
   updateSettings: (newSettings: Partial<AppSettings>) => void;
 }
 
+const SUBTITLE_TRANSLATOR_SERVICE_PRESETS = [
+  { name: 'LM Studio TranslateGemma', baseUrl: 'http://127.0.0.1:1234/v1/chat/completions', model: 'translategemma-4b-it' },
+  { name: 'llama.cpp TranslateGemma', baseUrl: 'http://127.0.0.1:8080/v1/chat/completions', model: 'translategemma-4b-it' },
+  { name: 'koboldcpp MiLMMT', baseUrl: 'http://127.0.0.1:5001/v1/chat/completions', model: 'MiLMMT-46-4B-v1.0' },
+  { name: 'OpenRouter Free', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', model: 'google/gemma-3n-e4b-it:free' },
+  { name: 'LiteLLM Gateway', baseUrl: 'http://127.0.0.1:4000/v1/chat/completions', model: '' }
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, updateSettings }) => {
   const [newKeyInput, setNewKeyInput] = useState('');
   const [isValidating, setIsValidating] = useState(false);
@@ -134,14 +142,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
       const baseUrl = serviceBaseUrlInput.trim();
       const apiKey = serviceApiKeyInput.trim();
       const model = serviceModelInput.trim();
-      if (!name || !baseUrl || !apiKey || !model) return null;
+      if (!name || !baseUrl) return null;
       return { id: crypto.randomUUID(), name, baseUrl, apiKey, model };
   };
 
   const handleSaveOpenAIService = () => {
       const service = buildOpenAIServiceFromInputs();
       if (!service) {
-          setOpenAIServiceMessage('⚠️ نام سرویس، Base URL، API Key و نام مدل همگی الزامی هستند.');
+          setOpenAIServiceMessage('⚠️ نام سرویس و Base URL الزامی هستند. API Key و نام مدل برای سرویس‌های محلی/دروازه‌ای می‌توانند خالی باشند.');
           return;
       }
       updateSettings({
@@ -167,7 +175,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const handleTestOpenAIService = async (service?: OpenAICompatibleService) => {
       const serviceToTest = service || buildOpenAIServiceFromInputs();
       if (!serviceToTest) {
-          setOpenAIServiceMessage('⚠️ برای تست اتصال، نام سرویس، Base URL، API Key و نام مدل را وارد کنید.');
+          setOpenAIServiceMessage('⚠️ برای تست اتصال، حداقل نام سرویس و Base URL را وارد کنید.');
           return;
       }
       setIsTestingOpenAIService(true);
@@ -332,6 +340,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                     </p>
                   </div>
 
+                  <div className="space-y-2">
+                    <p className="text-xs text-white/50">پریست‌های سریع برای روش Subtitle Translator:</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {SUBTITLE_TRANSLATOR_SERVICE_PRESETS.map(preset => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => {
+                            setServiceNameInput(preset.name);
+                            setServiceBaseUrlInput(preset.baseUrl);
+                            setServiceModelInput(preset.model);
+                            setOpenAIServiceMessage(null);
+                          }}
+                          className="rounded-lg border border-green-400/20 bg-green-400/10 px-3 py-2 text-right text-[11px] text-green-100 transition-all hover:bg-green-400/20"
+                        >
+                          <span className="block font-bold">{preset.name}</span>
+                          <span className="block truncate font-mono text-[10px] text-white/45">{preset.model || 'server default model'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 gap-3">
                     <input
                       value={serviceNameInput}
@@ -349,7 +379,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                       value={serviceApiKeyInput}
                       onChange={(e) => { setServiceApiKeyInput(e.target.value); setOpenAIServiceMessage(null); }}
                       className="w-full bg-[#0a0e27] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-green-400 focus:outline-none font-mono"
-                      placeholder="API Key"
+                      placeholder="API Key (برای لوکال/دروازه بدون احراز هویت اختیاری است)"
                       type="password"
                     />
                     <input

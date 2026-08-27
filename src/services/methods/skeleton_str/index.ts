@@ -88,7 +88,9 @@ const normalizeForAlignment = (value: string): string => value
 // Alignment may ignore invisible characters, but subtitle output must retain
 // the real U+200C character supplied by the model.
 const cleanTranslatedSlot = (value: string): string => value
-  .replace(/^\s*\{?\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*--?>\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\}?\s*/g, '')
+  .replace(/\[\/?(?:TRANSLATE(?:_\d+)?|TRANSLTranslate_\d+|CONTEXT)\]/g, '')
+  .replace(/^\s*[\[({«"']*\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*(?:--?>|<--|←|→)\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*[\])}»"']*\s*/g, '')
+  .replace(/^\s*[\[({«"']+|[\])}»"']+\s*$/g, '')
   .replace(/[\u200B\u200D\u2060\uFEFF]/g, '')
   // Some providers return an escaped line break in their raw tagged response.
   // It is subtitle text, not JSON, so the escape is otherwise shown literally
