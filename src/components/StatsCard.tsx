@@ -1,7 +1,8 @@
 
 
 import React from 'react';
-import { SubtitleFile, AppStatus, NetflixError, TranslationMethod } from '../types';
+import { AIProvider, SubtitleFile, AppStatus, NetflixError, TargetLanguage, TranslationMethod } from '../types';
+import { TARGET_LANGUAGES } from '../constants';
 import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive, Save, FileJson, Sparkles } from 'lucide-react';
 import { HelpTooltip } from './HelpTooltip';
 
@@ -11,6 +12,9 @@ interface StatsCardProps {
   totalFiles: number;
   translationMethod: TranslationMethod;
   onTranslationMethodChange: (method: TranslationMethod) => void;
+  aiProvider: AIProvider;
+  targetLanguage: TargetLanguage;
+  onTargetLanguageChange: (language: TargetLanguage) => void;
   onStart: () => void;
   onPause: () => void;
   onCancel: () => void;
@@ -30,6 +34,9 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   totalFiles,
   translationMethod,
   onTranslationMethodChange,
+  aiProvider,
+  targetLanguage,
+  onTargetLanguageChange,
   onStart, 
   onPause, 
   onCancel,
@@ -75,6 +82,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
 
   // Tools should be available if we have blocks loaded, regardless of translation status (mostly)
   const showTools = blocks.length > 0 && !isProcessing;
+  const usesClassicMt = aiProvider === 'edge' || aiProvider === 'deeplx';
 
   return (
     <div className="glass rounded-3xl p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 relative overflow-visible group">
@@ -209,9 +217,16 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <div>
                         <h4 className="text-sm font-bold text-white">روش ترجمه</h4>
-                        <p className="text-xs text-white/50 mt-1">قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.</p>
+                        <p className="text-xs text-white/50 mt-1">{usesClassicMt ? `برای ${aiProvider === 'edge' ? 'Edge API' : 'DeepLX'} فقط مسیر ترجمهٔ استاندارد سرویس فعال است.` : 'قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.'}</p>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 min-w-full md:min-w-[560px]" role="radiogroup" aria-label="روش ترجمه">
+                    <div className="flex w-full flex-col gap-3 md:w-auto md:min-w-[560px]">
+                        <label className="flex w-fit items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-xs text-white/70">
+                            <span className="font-bold text-white">زبان مقصد</span>
+                            <select value={targetLanguage} onChange={(event) => onTargetLanguageChange(event.target.value as TargetLanguage)} className="rounded-md border border-white/10 bg-[#0a0e27] px-2 py-1 text-xs text-white outline-none focus:border-[#00f0ff]">
+                                {Object.entries(TARGET_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+                            </select>
+                        </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2" role="radiogroup" aria-label="روش ترجمه">
                         <button
                             type="button"
                             role="radio"
@@ -226,8 +241,8 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                             type="button"
                             role="radio"
                             aria-checked={translationMethod === 'paragraph'}
-                            onClick={() => onTranslationMethodChange('paragraph')}
-                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'paragraph' ? 'border-[#ff00ea] bg-[#ff00ea]/10 text-white shadow-[0_0_15px_rgba(255,0,234,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                            onClick={() => !usesClassicMt && onTranslationMethodChange('paragraph')} disabled={usesClassicMt} aria-disabled={usesClassicMt}
+                            className={`rounded-xl ${usesClassicMt ? 'cursor-not-allowed opacity-35' : ''} border px-4 py-3 text-right transition-all ${translationMethod === 'paragraph' ? 'border-[#ff00ea] bg-[#ff00ea]/10 text-white shadow-[0_0_15px_rgba(255,0,234,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
                         >
                             <span className="block text-sm font-bold">متد پاراگراف</span>
                             <span className="block text-[11px] mt-1">متن یک‌پارچه با نشانگر ID و بازگردانی به زمان‌بندی اصلی</span>
@@ -237,9 +252,9 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                             type="button"
                             role="radio"
                             aria-checked={translationMethod === 'subtitle_translator'}
-                            onClick={() => onTranslationMethodChange('subtitle_translator')}
+                            onClick={() => !usesClassicMt && onTranslationMethodChange('subtitle_translator')} disabled={usesClassicMt} aria-disabled={usesClassicMt}
                             title="بر اساس راهبرد rockbenben/subtitle-translator: استخراج محلی ساختار، ترجمهٔ فقط دیالوگ‌ها، و بازنشانی ترجمه در همان جایگاه‌های اصلی."
-                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'subtitle_translator' ? 'border-[#38bdf8] bg-[#38bdf8]/10 text-white shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                            className={`rounded-xl border px-4 py-3 text-right transition-all disabled:cursor-not-allowed disabled:opacity-35 ${translationMethod === 'subtitle_translator' ? 'border-[#38bdf8] bg-[#38bdf8]/10 text-white shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
                         >
                             <span className="block text-sm font-bold">Subtitle Translator</span>
                             <span className="block text-[11px] mt-1">گزینهٔ مستقل الهام‌گرفته از ریپوی NewZone: فقط متن گفتار ترجمه می‌شود و ساختار هر بلوک دست‌نخورده بازسازی می‌گردد.</span>
@@ -248,13 +263,14 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                             type="button"
                             role="radio"
                             aria-checked={translationMethod === 'skeleton_str'}
-                            onClick={() => onTranslationMethodChange('skeleton_str')}
+                            onClick={() => !usesClassicMt && onTranslationMethodChange('skeleton_str')} disabled={usesClassicMt} aria-disabled={usesClassicMt}
                             title="ساختار فایل در دستگاه شما می‌ماند؛ فقط دیالوگ‌ها با بافت پیرامونی ترجمه و سپس در زمان‌بندی اصلی بازگردانده می‌شوند."
-                            className={`rounded-xl border px-4 py-3 text-right transition-all ${translationMethod === 'skeleton_str' ? 'border-[#a3e635] bg-[#a3e635]/10 text-white shadow-[0_0_15px_rgba(163,230,53,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
+                            className={`rounded-xl border px-4 py-3 text-right transition-all disabled:cursor-not-allowed disabled:opacity-35 ${translationMethod === 'skeleton_str' ? 'border-[#a3e635] bg-[#a3e635]/10 text-white shadow-[0_0_15px_rgba(163,230,53,0.15)]' : 'border-white/10 bg-black/10 text-white/60 hover:bg-white/5'}`}
                         >
                             <span className="block text-sm font-bold">Skeleton STR <span className="text-xs font-normal">(اسکلت‌محور STR)</span></span>
                             <span className="block text-[11px] mt-1">فقط دیالوگ‌ها را با دسته‌های بافت‌دار و شماره‌گذاری‌شده ترجمه می‌کند و آن‌ها را در زمان‌بندی اصلی می‌نویسد. روش‌های دیگر تغییری نمی‌کنند.</span>
                         </button>
+                    </div>
                     </div>
                 </div>
             </div>

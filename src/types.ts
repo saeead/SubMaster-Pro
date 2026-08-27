@@ -99,7 +99,7 @@ export interface GlossaryItem {
 export type ToneType = 'conversational' | 'formal' | 'news' | 'movie' | 'podcast';
 export type TopicType = 'educational' | 'entertainment' | 'podcast' | 'news' | 'sports';
 export type ModelType = 'standard' | 'professional' | 'flash' | 'flash_lite';
-export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible';
+export type AIProvider = 'gemini' | 'lm_studio' | 'openai_compatible' | 'gtx' | 'edge' | 'deeplx';
 export type TargetLanguage = 'fa' | 'en' | 'ru' | 'zh' | 'de' | 'es';
 export type OutputStandard = 'normal' | 'netflix' | 'bbc' | 'broadcast';
 export type TranslationMethod = 'default' | 'paragraph' | 'skeleton_str' | 'subtitle_translator';

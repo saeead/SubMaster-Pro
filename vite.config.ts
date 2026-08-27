@@ -22,6 +22,33 @@ const normalizeOpenAICompatibleEndpoint = (baseUrl?: string, endpointUrl?: strin
   return parsedUrl.toString();
 };
 
+const freeTranslationProxy = (): Plugin => {
+  const handler = async (req: import('http').IncomingMessage, res: import('http').ServerResponse) => {
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method not allowed' })); return; }
+    try {
+      const { provider, text, target } = JSON.parse(await readRequestBody(req) || '{}') as { provider?: string; text?: string; target?: string };
+      if (!['edge', 'deeplx'].includes(provider || '') || !text || !target) throw new Error('Invalid free translation request');
+      let translated = '';
+      if (provider === 'edge') {
+        const auth = await fetch('https://edge.microsoft.com/translate/auth');
+        if (!auth.ok) throw new Error(`Edge auth ${auth.status}: ${await auth.text()}`);
+        const endpoint = new URL('https://api-edge.cognitive.microsofttranslator.com/translate');
+        endpoint.search = new URLSearchParams({ 'api-version': '3.0', to: target }).toString();
+        const upstream = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await auth.text()).trim()}`, 'X-ClientTraceId': crypto.randomUUID() }, body: JSON.stringify([{ Text: text }]) });
+        if (!upstream.ok) throw new Error(`Edge ${upstream.status}: ${await upstream.text()}`);
+        translated = ((await upstream.json()) as Array<{ translations?: Array<{ text?: string }> }>)[0]?.translations?.[0]?.text || '';
+      } else {
+        const upstream = await fetch('https://api.deeplx.org/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, source_lang: 'auto', target_lang: target.toUpperCase() }) });
+        if (!upstream.ok) throw new Error(`DeepLX ${upstream.status}: ${await upstream.text()}`);
+        const data = await upstream.json() as { data?: string; translations?: Array<{ text?: string }> };
+        translated = data.data || data.translations?.[0]?.text || '';
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ text: translated }));
+    } catch (error: any) { res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ error: error?.message || 'Free provider request failed' })); }
+  };
+  return { name: 'free-translation-proxy', configureServer: server => server.middlewares.use('/api/free-translate', handler), configurePreviewServer: server => server.middlewares.use('/api/free-translate', handler) };
+};
+
 const openAICompatibleProxy = (): Plugin => {
   const handler = async (req: import('http').IncomingMessage, res: import('http').ServerResponse) => {
     if (req.method === 'OPTIONS') {
@@ -99,7 +126,7 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
-      plugins: [react(), openAICompatibleProxy()],
+      plugins: [react(), openAICompatibleProxy(), freeTranslationProxy()],
       define: {
         // This is crucial for exposing the key to the client side
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)

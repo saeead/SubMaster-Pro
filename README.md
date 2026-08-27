@@ -483,3 +483,14 @@ Built with:
 * AI-powered translation services
 
 SubMaster Pro aims to provide a professional subtitle localization workflow directly inside the browser.
+
+## Edge API and DeepLX in production
+
+Edge Translator and the public DeepLX endpoint do not provide dependable browser CORS access. Build the app and run the included same-origin gateway instead of deploying `dist/` to a static-only host:
+
+```bash
+npm run build
+npm start
+```
+
+The process serves `dist/` and exposes `POST /api/free-translate` for the Edge and DeepLX providers. When deploying to another platform, deploy an equivalent serverless route at that exact same-origin path; a static-only deployment cannot reliably support these two keyless providers.
