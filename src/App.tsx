@@ -20,7 +20,7 @@ import { buildSubtitleTranslatorUserPrompt, extractTranslatedLinesByMarkerIds as
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
-import { BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS, getAdaptiveBatchDelay, getAdaptiveTranslationBatchSize } from './constants';
+import { SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS, getAdaptiveBatchDelay, getAdaptiveTranslationBatchSize } from './constants';
 import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
@@ -937,14 +937,33 @@ const App: React.FC = () => {
         return;
       }
 
-      throw new Error(`tagged_translation_incomplete: missing or unchanged translations for ids: ${missing.map(block => block.id).join(', ')}`);
+      const fallbackSettings = { ...settingsRef.current, translationMethod: 'default' as const };
+      const fallbackResults = await translateBatch(
+        missing.map(block => ({ id: block.id, text: block.originalText })),
+        contextBlocks.slice(0, targetStartIndex).map(block => ({ id: block.id, text: `${block.originalText} (${settingsRef.current.targetLanguage}: ${block.translatedText || 'N/A'})` })),
+        contextBlocks.slice(targetEndIndex).map(block => ({ id: block.id, text: block.originalText })),
+        fallbackSettings,
+        undefined,
+        settingsRef.current.aiProvider !== 'gemini',
+        signal
+      );
+      fallbackResults.forEach(result => {
+        if (result.translatedText?.trim() && result.translatedText.trim() !== sourceById.get(result.id)?.trim()) {
+          translatedById.set(result.id, result.translatedText.trim());
+        }
+      });
+
+      const stillMissing = missing.filter(block => !translatedById.get(block.id)?.trim());
+      if (stillMissing.length > 0) {
+        throw new Error(`tagged_translation_incomplete: missing or unchanged translations for ids: ${stillMissing.map(block => block.id).join(', ')}`);
+      }
     };
 
     await requestGroup(targetBlocks, 0);
     const balancedTranslations = balanceTaggedTranslations(targetBlocks, translatedById);
     return targetBlocks.map(block => ({
       id: block.id,
-      translatedText: translatedById.get(block.id) || ''
+      translatedText: balancedTranslations.get(block.id) || ''
     }));
   };
 
@@ -1005,7 +1024,7 @@ const App: React.FC = () => {
      const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str' || settingsRef.current.translationMethod === 'subtitle_translator';
      const isSubtitleTranslatorMethod = settingsRef.current.translationMethod === 'subtitle_translator';
      const adaptiveBatchSize = getAdaptiveTranslationBatchSize(settingsRef.current.aiProvider, settingsRef.current.model, settingsRef.current.translationMethod);
-     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? adaptiveBatchSize : BATCH_SIZE);
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, adaptiveBatchSize);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
