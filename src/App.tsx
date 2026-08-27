@@ -884,13 +884,6 @@ const App: React.FC = () => {
     );
     const sourceById = new Map(targetBlocks.map(block => [block.id, block.originalText]));
     const translatedById = new Map<number, string>();
-    const countReadableChars = (value: string): number => value.replace(/[\s\u200B\u200C\u200D\u2060\uFEFF()[\]{}«»"'.,،؛:!?؟…-]/g, '').length;
-    const looksTooShortForSource = (source: string, translated: string): boolean => {
-      const sourceChars = countReadableChars(source);
-      const translatedChars = countReadableChars(translated);
-      return sourceChars >= 36 && translatedChars < Math.max(10, Math.floor(sourceChars * 0.28));
-    };
-
     const buildSelectivePayload = (group: SubtitleBlock[]): string => {
       const targetIds = new Set(group.map(block => block.id));
       const relativeIndices = group.map(block => contextBlocks.findIndex(item => item.id === block.id)).filter(index => index >= 0);
@@ -931,7 +924,6 @@ const App: React.FC = () => {
           normalized
           && normalized.trim()
           && normalized.trim() !== sourceById.get(block.id)?.trim()
-          && !looksTooShortForSource(block.originalText, normalized)
         ) {
           translatedById.set(block.id, normalized);
         } else {
@@ -945,7 +937,7 @@ const App: React.FC = () => {
         return;
       }
 
-      throw new Error(`Model returned incomplete or low-quality tagged translations for ids: ${missing.map(block => block.id).join(', ')}`);
+      throw new Error(`tagged_translation_incomplete: missing or unchanged translations for ids: ${missing.map(block => block.id).join(', ')}`);
     };
 
     await requestGroup(targetBlocks, 0);
@@ -1126,6 +1118,15 @@ const App: React.FC = () => {
 
             } catch (err: any) {
                 console.error("Batch processing error:", err);
+                // Aborting is an intentional pause/cancel action, never a translation error.
+                if (signal?.aborted || !isTranslatingRef.current) {
+                    updateFileStatus(fileId, {
+                        status: isPausedRef.current ? AppStatus.PAUSED : AppStatus.CANCELLED,
+                        progressMessage: isPausedRef.current ? 'توقف موقت (ذخیره شد)' : 'لغو شده',
+                        activeTranslationBlockIds: []
+                    });
+                    return;
+                }
                 const diagnostic = getTranslationDiagnostic(
                     err,
                     settingsRef.current,
@@ -1228,23 +1229,29 @@ const App: React.FC = () => {
   };
 
   const startBatchTranslation = async () => {
-    const isLocalProvider = settings.aiProvider === 'lm_studio' || settings.aiProvider === 'openai_compatible';
-    const hasAvailableKeys = settings.apiKeys.some(k => k.isValid && !k.isRateLimited);
+    if (jobRunnerRef.current) {
+      showToast('فرایند قبلی هنوز در حال توقف است؛ چند لحظه صبر کنید و دوباره ادامه را بزنید.', 'warning');
+      return;
+    }
+
+    const activeSettings = settingsRef.current;
+    const isKeylessProvider = activeSettings.aiProvider === 'lm_studio' || activeSettings.aiProvider === 'openai_compatible' || activeSettings.aiProvider === 'gtx' || activeSettings.aiProvider === 'edge' || activeSettings.aiProvider === 'deeplx';
+    const hasAvailableKeys = activeSettings.apiKeys.some(k => k.isValid && !k.isRateLimited);
     
-    if (!isLocalProvider && settings.apiKeys.length === 0) {
+    if (!isKeylessProvider && activeSettings.apiKeys.length === 0) {
       showToast("هیچ کلید API تعریف نشده است.", 'error');
       setIsSettingsOpen(true);
       return;
     }
     
-    if (!isLocalProvider && !hasAvailableKeys) {
+    if (!isKeylessProvider && !hasAvailableKeys) {
         setSettings(prev => ({
             ...prev,
             apiKeys: prev.apiKeys.map(k => ({...k, isRateLimited: false}))
         }));
     }
 
-    const pendingFiles = files.filter(f => 
+    const pendingFiles = filesRef.current.filter(f =>
         f.status === AppStatus.READY || 
         f.status === AppStatus.ERROR || 
         f.status === AppStatus.PAUSED
@@ -1258,16 +1265,16 @@ const App: React.FC = () => {
     const firstFileId = pendingFiles[0].id;
     updateFileStatus(firstFileId, {
         status: AppStatus.TRANSLATING, 
-        progressMessage: settings.aiProvider === 'lm_studio' ? 'در حال بررسی اتصال به LM Studio...' : settings.aiProvider === 'openai_compatible' ? 'در حال بررسی اتصال به سرویس OpenAI Compatible...' : 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
+        progressMessage: activeSettings.aiProvider === 'lm_studio' ? 'در حال بررسی اتصال به LM Studio...' : activeSettings.aiProvider === 'openai_compatible' ? 'در حال بررسی اتصال به سرویس OpenAI Compatible...' : isKeylessProvider ? 'در حال بررسی اتصال به سرویس ترجمه...' : 'در حال بررسی اتصال به سرور گوگل (DNS/VPN)...'
     });
 
-    const testKey = isLocalProvider ? undefined : settings.apiKeys.find(k => k.isValid)?.key;
-    if (isLocalProvider || testKey) {
-        const diagnosisError = await diagnoseConnection(testKey, settings);
+    const testKey = isKeylessProvider ? undefined : activeSettings.apiKeys.find(k => k.isValid)?.key;
+    if (isKeylessProvider || testKey) {
+        const diagnosisError = await diagnoseConnection(testKey, activeSettings);
         if (diagnosisError) {
              const diagnostic = getTranslationDiagnostic(
                 new Error(diagnosisError),
-                settings,
+                activeSettings,
                 'Pre-flight connection diagnosis before translation start'
              );
              updateFileStatus(firstFileId, { 
@@ -1319,8 +1326,7 @@ const App: React.FC = () => {
     
     setFiles(prev => prev.map(f => f.status === AppStatus.TRANSLATING ? { ...f, status: AppStatus.PAUSED, progressMessage: 'توقف موقت', activeTranslationBlockIds: [] } : f));
     
-    saveCurrentProjectState();
-    showToast('پروژه متوقف و ذخیره شد.', 'warning');
+    showToast('پروژه متوقف شد؛ وضعیت ترجمه به‌صورت خودکار ذخیره می‌شود.', 'warning');
   };
 
   const cancelTranslation = () => {
@@ -1405,7 +1411,7 @@ const App: React.FC = () => {
                             </div>
                         ))}
                     </div>
-                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
+                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} targetLanguage={settings.targetLanguage} onTargetLanguageChange={(targetLanguage) => updateSettings({ targetLanguage })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
