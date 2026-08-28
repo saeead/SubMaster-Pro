@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { Ban, Settings, BookOpen, MessageSquareText, ShieldCheck, X } from 'lucide-react';
-import { AppSettings, ToneType, TopicType, OutputStandard } from '../types';
-import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
+import { Ban, Settings, BookOpen, MessageSquareText, ShieldCheck, X, Languages } from 'lucide-react';
+import { AppSettings, ToneType, TopicType, OutputStandard, TargetLanguage } from '../types';
+import { TONE_OPTIONS, TOPIC_OPTIONS, TARGET_LANGUAGES } from '../constants';
 import { TemperatureControl } from './TemperatureControl';
 
 interface SidebarProps {
@@ -121,21 +121,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
            </div>
         )}
 
-        {/* Standards Selection */}
-        <div className="space-y-3 bg-[#0a0e27]/40 p-3 rounded-xl border border-white/5">
-          <div className="flex items-center gap-2 mb-1"><ShieldCheck className="w-4 h-4 text-white/70" /><label className="text-xs text-white/70 font-bold uppercase">استاندارد خروجی</label></div>
-          <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => updateSettings({ outputStandard: 'normal' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'normal' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Normal</button>
-              <button onClick={() => updateSettings({ outputStandard: 'netflix' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914]/10 border-[#E50914] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Netflix</button>
-              <button onClick={() => updateSettings({ outputStandard: 'bbc' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'bbc' ? 'bg-orange-500/10 border-orange-500 text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>BBC</button>
-              <button onClick={() => updateSettings({ outputStandard: 'broadcast' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'broadcast' ? 'bg-blue-500/10 border-blue-500 text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Broadcast</button>
+        <div className="space-y-3 rounded-2xl border border-primary/15 bg-surface/70 p-4 shadow-sm">
+          <div className="flex items-center gap-2"><Languages className="h-4 w-4 text-primary" /><label className="text-xs font-bold uppercase tracking-wide text-text-muted">زبان مقصد</label></div>
+          <div className="relative">
+            <select value={settings.targetLanguage} onChange={(e) => updateSettings({ targetLanguage: e.target.value as TargetLanguage })} className="w-full cursor-pointer appearance-none rounded-xl border border-border bg-background/70 px-4 py-3 pl-10 text-sm font-bold text-text outline-none transition-all hover:bg-surfaceHighlight focus:border-primary focus:ring-2 focus:ring-primary/20">
+              {Object.entries(TARGET_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            </select>
+            <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
           </div>
-          
-          <div className="text-[9px] text-white/40 px-2 py-1 bg-white/5 rounded border border-white/5">
-              {settings.outputStandard === 'netflix' && "۴۲ کاراکتر | ۲۰ CPS | ۲ فریم فاصله"}
-              {settings.outputStandard === 'bbc' && "۳۷ کاراکتر | ۱۷ CPS | خوانایی بالا"}
-              {settings.outputStandard === 'broadcast' && "۳۹ کاراکتر | ۱۸ CPS | تلویزیونی"}
-              {settings.outputStandard === 'normal' && "بدون محدودیت خاص"}
+        </div>
+
+        {/* Standards Selection */}
+        <div className="space-y-3 rounded-2xl border border-secondary/15 bg-surface/70 p-4 shadow-sm">
+          <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-secondary" /><label className="text-xs font-bold uppercase tracking-wide text-text-muted">استاندارد خروجی</label></div>
+          <div className="relative">
+            <select value={settings.outputStandard} onChange={(e) => updateSettings({ outputStandard: e.target.value as OutputStandard })} className="w-full cursor-pointer appearance-none rounded-xl border border-border bg-background/70 px-4 py-3 pl-10 text-sm font-bold text-text outline-none transition-all hover:bg-surfaceHighlight focus:border-secondary focus:ring-2 focus:ring-secondary/20">
+              <option value="normal">Normal — بدون محدودیت خاص</option>
+              <option value="netflix">Netflix — ۴۲ کاراکتر | ۲۰ CPS</option>
+              <option value="bbc">BBC — ۳۷ کاراکتر | ۱۷ CPS</option>
+              <option value="broadcast">Broadcast — ۳۹ کاراکتر | ۱۸ CPS</option>
+            </select>
+            <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
           </div>
         </div>
 

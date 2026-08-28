@@ -20,7 +20,7 @@ import { buildSubtitleTranslatorUserPrompt, extractTranslatedLinesByMarkerIds as
 import { getFromMemory, addToMemory } from './services/translationMemory';
 import ProjectStateManager, { ProjectState, buildProjectStateFromFile } from './services/projectStateManager'; // Import Manager
 import { TranslationJobRunner } from './services/translationJobRunner';
-import { BATCH_SIZE, SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS, getAdaptiveBatchDelay, getAdaptiveTranslationBatchSize } from './constants';
+import { SKELETON_STR_CONTEXT_WINDOW, DELAY_BETWEEN_FILES_MS, APP_CONFIG, TOPIC_TEMPERATURE_DEFAULTS, getAdaptiveBatchDelay, getAdaptiveTranslationBatchSize } from './constants';
 import { Loader2, Check, Wand2, History, ArrowUp, X } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'submaster_pro_settings_v1';
@@ -937,14 +937,33 @@ const App: React.FC = () => {
         return;
       }
 
-      throw new Error(`tagged_translation_incomplete: missing or unchanged translations for ids: ${missing.map(block => block.id).join(', ')}`);
+      const fallbackSettings = { ...settingsRef.current, translationMethod: 'default' as const };
+      const fallbackResults = await translateBatch(
+        missing.map(block => ({ id: block.id, text: block.originalText })),
+        contextBlocks.slice(0, targetStartIndex).map(block => ({ id: block.id, text: `${block.originalText} (${settingsRef.current.targetLanguage}: ${block.translatedText || 'N/A'})` })),
+        contextBlocks.slice(targetEndIndex).map(block => ({ id: block.id, text: block.originalText })),
+        fallbackSettings,
+        undefined,
+        settingsRef.current.aiProvider !== 'gemini',
+        signal
+      );
+      fallbackResults.forEach(result => {
+        if (result.translatedText?.trim() && result.translatedText.trim() !== sourceById.get(result.id)?.trim()) {
+          translatedById.set(result.id, result.translatedText.trim());
+        }
+      });
+
+      const stillMissing = missing.filter(block => !translatedById.get(block.id)?.trim());
+      if (stillMissing.length > 0) {
+        throw new Error(`tagged_translation_incomplete: missing or unchanged translations for ids: ${stillMissing.map(block => block.id).join(', ')}`);
+      }
     };
 
     await requestGroup(targetBlocks, 0);
     const balancedTranslations = balanceTaggedTranslations(targetBlocks, translatedById);
     return targetBlocks.map(block => ({
       id: block.id,
-      translatedText: translatedById.get(block.id) || ''
+      translatedText: balancedTranslations.get(block.id) || ''
     }));
   };
 
@@ -1005,7 +1024,7 @@ const App: React.FC = () => {
      const isSkeletonMethod = settingsRef.current.translationMethod === 'skeleton_str' || settingsRef.current.translationMethod === 'subtitle_translator';
      const isSubtitleTranslatorMethod = settingsRef.current.translationMethod === 'subtitle_translator';
      const adaptiveBatchSize = getAdaptiveTranslationBatchSize(settingsRef.current.aiProvider, settingsRef.current.model, settingsRef.current.translationMethod);
-     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, isSkeletonMethod ? adaptiveBatchSize : BATCH_SIZE);
+     const chunks = isParagraphMethod ? paragraphChunking(file.blocks) : smartChunking(file.blocks, adaptiveBatchSize);
      const totalChunks = chunks.length;
 
      let startChunkIndex = 0;
@@ -1357,6 +1376,7 @@ const App: React.FC = () => {
         <Header 
             theme={settings.theme} 
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+            onToggleTheme={() => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
         />
 
         <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-7xl mx-auto pb-24">
@@ -1411,7 +1431,7 @@ const App: React.FC = () => {
                             </div>
                         ))}
                     </div>
-                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} targetLanguage={settings.targetLanguage} onTargetLanguageChange={(targetLanguage) => updateSettings({ targetLanguage })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
+                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />

@@ -62,11 +62,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     setCurrentPage(previous => Math.min(Math.max(1, previous), totalPages));
   }, [totalPages]);
 
-  // Follow the translation worker so the currently processed chunk is visible.
-  useEffect(() => {
-    if (activePage) setCurrentPage(activePage);
-  }, [activePage]);
-
   const visibleBlocks = blocks.slice((currentPage - 1) * blocksPerPage, currentPage * blocksPerPage);
 
   const selectedCount = selectedBlockIds.length;
@@ -126,6 +121,41 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     clearSelection();
   };
 
+
+  const renderPagination = (placement: 'top' | 'bottom') => {
+    if (totalPages <= 1) return null;
+    return (
+      <nav className={`flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-border bg-surface/80 p-3 shadow-sm ${placement === 'top' ? 'sticky top-24 z-20 mb-4 backdrop-blur-xl' : ''}`} aria-label={placement === 'top' ? 'صفحه‌بندی بالای زیرنویس' : 'صفحه‌بندی زیرنویس'}>
+        <span className="ml-2 text-xs font-medium text-text-muted">صفحه {currentPage} از {totalPages} (هر صفحه ۵۰ بلوک)</span>
+        {Array.from({ length: totalPages }, (_, index) => index + 1).map(page => {
+          const isCurrent = page === currentPage;
+          const isActiveTranslationPage = activePage === page;
+          const shouldBlink = isActiveTranslationPage && !isCurrent;
+          return (
+            <button
+              key={page}
+              type="button"
+              onClick={() => setCurrentPage(page)}
+              aria-current={isCurrent ? 'page' : undefined}
+              className={`min-w-9 rounded-lg border px-3 py-2 text-xs font-bold transition-all focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                isCurrent
+                  ? 'border-primary bg-primary/15 text-primary shadow-[0_0_14px_rgba(0,240,255,0.16)]'
+                  : shouldBlink
+                    ? 'animate-pulse border-orange-400 bg-orange-400/15 text-orange-300 shadow-[0_0_18px_rgba(251,146,60,0.32)]'
+                    : isActiveTranslationPage
+                      ? 'border-orange-400/70 bg-orange-400/10 text-orange-300'
+                      : 'border-border bg-surface text-text-muted hover:bg-surfaceHighlight hover:text-text'
+              }`}
+              title={shouldBlink ? 'صفحه‌ای که اکنون در حال ترجمه است' : undefined}
+            >
+              {page}
+            </button>
+          );
+        })}
+      </nav>
+    );
+  };
+
   const handleRetranslateSelection = async () => {
     if (selectedBlockIds.length === 0) return;
     await onRetranslateSelected(selectedBlockIds);
@@ -144,6 +174,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
   return (
     <div className="space-y-6 pb-20">
+      {renderPagination('top')}
       
       {/* Find & Replace Tool Bar */}
       <div className="glass rounded-2xl p-6 border border-[#00f0ff]/20 animate-in fade-in slide-in-from-top-4">
@@ -350,16 +381,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         })}
       </div>
 
-      {totalPages > 1 && (
-        <nav className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#0a0e27]/50 p-4" aria-label="صفحه‌بندی زیرنویس">
-          <span className="ml-2 text-xs text-white/50">صفحه {currentPage} از {totalPages} (هر صفحه ۵۰ بلوک)</span>
-          {Array.from({ length: totalPages }, (_, index) => index + 1).map(page => (
-            <button key={page} type="button" onClick={() => setCurrentPage(page)} aria-current={page === currentPage ? 'page' : undefined} className={`min-w-9 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${page === currentPage ? 'border-[#00f0ff] bg-[#00f0ff]/15 text-[#00f0ff]' : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10'}`}>
-              {page}
-            </button>
-          ))}
-        </nav>
-      )}
+      {renderPagination('bottom')}
 
       {selectedCount > 0 && (
         <div className="fixed bottom-8 left-1/2 z-[65] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in">
@@ -372,63 +394,63 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 type="button"
                 onClick={selectAllBlocks}
                 disabled={selectedCount === blocks.length || isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <CheckSquare className="h-4 w-4" />
+                <CheckSquare className="h-3.5 w-3.5" />
                 <span>همه</span>
               </button>
               <button
                 type="button"
                 onClick={selectBlocksBelow}
                 disabled={isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <ChevronsDown className="h-4 w-4" />
+                <ChevronsDown className="h-3.5 w-3.5" />
                 <span>انتخاب پایینی‌ها</span>
               </button>
               <button
                 type="button"
                 onClick={selectBlocksAbove}
                 disabled={isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <ChevronsUp className="h-4 w-4" />
+                <ChevronsUp className="h-3.5 w-3.5" />
                 <span>انتخاب بالایی‌ها</span>
               </button>
               <button
                 type="button"
                 onClick={handleAutoFixSelection}
                 disabled={isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-[#E50914]/30 bg-[#E50914]/10 px-2 py-2 text-[10px] font-bold leading-tight text-red-200 transition-all hover:bg-[#E50914]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-[#E50914]/30 bg-[#E50914]/10 px-2 py-1.5 text-[10px] font-bold leading-tight text-red-200 transition-all hover:bg-[#E50914]/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Wand2 className="h-4 w-4" />
+                <Wand2 className="h-3.5 w-3.5" />
                 <span>اصلاح خودکار</span>
               </button>
               <button
                 type="button"
                 onClick={handleRetranslateSelection}
                 disabled={isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-2 py-2 text-[10px] font-bold leading-tight text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-[#00f0ff]/30 bg-[#00f0ff]/10 px-2 py-1.5 text-[10px] font-bold leading-tight text-[#00f0ff] transition-all hover:bg-[#00f0ff]/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isRetranslatingSelection ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
+                {isRetranslatingSelection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Languages className="h-3.5 w-3.5" />}
                 <span>ترجمه دوباره</span>
               </button>
               <button
                 type="button"
                 onClick={handleDeleteSelection}
                 disabled={isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-red-500/20 bg-red-500/10 px-2 py-2 text-[10px] font-bold leading-tight text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1.5 text-[10px] font-bold leading-tight text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
                 <span>حذف</span>
               </button>
               <button
                 type="button"
                 onClick={clearSelection}
                 disabled={isRetranslatingSelection}
-                className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/60 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-[10px] font-bold leading-tight text-white/60 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
                 <span>لغو</span>
               </button>
             </div>

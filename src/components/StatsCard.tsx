@@ -1,8 +1,7 @@
 
 
 import React from 'react';
-import { SubtitleFile, AppStatus, NetflixError, TargetLanguage, TranslationMethod } from '../types';
-import { TARGET_LANGUAGES } from '../constants';
+import { SubtitleFile, AppStatus, NetflixError, TranslationMethod } from '../types';
 import { Play, Pause, Download, FileText, Clock, Hash, Timer, HardDrive, Trash2, XCircle, RefreshCw, Settings2, Wand2, Archive, Save, FileJson, Sparkles } from 'lucide-react';
 import { HelpTooltip } from './HelpTooltip';
 
@@ -12,8 +11,6 @@ interface StatsCardProps {
   totalFiles: number;
   translationMethod: TranslationMethod;
   onTranslationMethodChange: (method: TranslationMethod) => void;
-  targetLanguage: TargetLanguage;
-  onTargetLanguageChange: (language: TargetLanguage) => void;
   onStart: () => void;
   onPause: () => void;
   onCancel: () => void;
@@ -33,8 +30,6 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   totalFiles,
   translationMethod,
   onTranslationMethodChange,
-  targetLanguage,
-  onTargetLanguageChange,
   onStart, 
   onPause, 
   onCancel,
@@ -217,12 +212,6 @@ export const StatsCard: React.FC<StatsCardProps> = ({
                         <p className="text-xs text-white/50 mt-1">قبل از شروع ترجمه انتخاب کنید متن با روش پیش‌فرض ارسال شود یا به متن یک‌پارچه پاراگرافی تبدیل شود.</p>
                     </div>
                     <div className="flex w-full flex-col gap-3 md:w-auto md:min-w-[560px]">
-                        <label className="flex w-fit items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-xs text-white/70">
-                            <span className="font-bold text-white">زبان مقصد</span>
-                            <select value={targetLanguage} onChange={(event) => onTargetLanguageChange(event.target.value as TargetLanguage)} className="rounded-md border border-white/10 bg-[#0a0e27] px-2 py-1 text-xs text-white outline-none focus:border-[#00f0ff]">
-                                {Object.entries(TARGET_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-                            </select>
-                        </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2" role="radiogroup" aria-label="روش ترجمه">
                         <button
                             type="button"

@@ -51,18 +51,18 @@
 
       :root[data-theme="light"] {
         /* Light Mode */
-        --bg-main: #f0f4f8;
-        --bg-surface: #ffffff;
-        --bg-surface-highlight: #e2e8f0;
-        --border-color: #cbd5e0;
-        --text-main: #1a202c;
-        --text-muted: #718096;
+        --bg-main: #f7f9fc;
+        --bg-surface: rgba(255, 255, 255, 0.92);
+        --bg-surface-highlight: #eef4fb;
+        --border-color: rgba(15, 23, 42, 0.12);
+        --text-main: #142033;
+        --text-muted: #64748b;
         
-        --glass-bg: rgba(255, 255, 255, 0.8);
-        --glass-border: rgba(203, 213, 224, 0.5);
+        --glass-bg: rgba(255, 255, 255, 0.78);
+        --glass-border: rgba(148, 163, 184, 0.28);
         
-        --neon-primary: #007780;
-        --neon-secondary: #aa0099;
+        --neon-primary: #027b8a;
+        --neon-secondary: #9d2bb3;
       }
 
       body {
@@ -99,7 +99,19 @@
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border: 1px solid var(--border-color);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+      }
+
+      :root[data-theme="light"] body::before {
+        background-image:
+          radial-gradient(circle at 8% 18%, rgba(2, 123, 138, 0.22) 0%, transparent 26%),
+          radial-gradient(circle at 92% 78%, rgba(157, 43, 179, 0.16) 0%, transparent 24%),
+          linear-gradient(135deg, rgba(255,255,255,0.9), rgba(226,238,249,0.72));
+        opacity: 1;
+      }
+
+      :root[data-theme="light"] .glass {
+        box-shadow: 0 18px 55px rgba(15, 23, 42, 0.10);
       }
       
       /* Scrollbar */

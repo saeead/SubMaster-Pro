@@ -65,8 +65,9 @@ test('adaptive translation settings favor local and flash providers', () => {
   assert.equal(constants.getAdaptiveBatchDelay('gemini', 'flash'), 800);
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'flash', 'default'), 36);
   assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'professional', 'default'), 14);
-  assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 48);
-  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'standard', 'subtitle_translator'), 12);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('lm_studio', 'standard', 'skeleton_str'), 24);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gemini', 'standard', 'subtitle_translator'), 8);
+  assert.equal(constants.getAdaptiveTranslationBatchSize('gtx', 'standard', 'subtitle_translator'), 6);
 });
 
 test('translation method prompts preserve meaning and distinguish transport contracts', () => {

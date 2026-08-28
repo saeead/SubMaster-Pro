@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { X, Copy, Languages, Sparkles, ArrowLeft, Loader2, Trash2, CheckCircle, ChevronDown, ClipboardPaste } from 'lucide-react';
-import { AppSettings, TargetLanguage } from '../types';
+import { X, Copy, Languages, Sparkles, ArrowLeft, Loader2, Trash2, CheckCircle, ClipboardPaste } from 'lucide-react';
+import { AppSettings } from '../types';
 import { translateFreeText } from '../services/geminiService';
 import { TONE_OPTIONS, TOPIC_OPTIONS, TARGET_LANGUAGES } from '../constants';
 
@@ -14,7 +14,6 @@ interface TextTranslatorModalProps {
 export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen, onClose, settings }) => {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
-  const [targetLang, setTargetLang] = useState<TargetLanguage>('fa');
   const [isTranslating, setIsTranslating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +34,7 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
     setOutputText('');
 
     try {
-        const result = await translateFreeText(inputText, settings, targetLang);
+        const result = await translateFreeText(inputText, settings, settings.targetLanguage);
         setOutputText(result);
     } catch (err: any) {
         setError(err.message || "خطا در برقراری ارتباط با هوش مصنوعی");
@@ -101,23 +100,9 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
                 {/* Arrow */}
                 <ArrowLeft className="w-4 h-4 text-white/20" />
 
-                {/* Target Selector */}
-                <div className="relative group">
-                    <select 
-                        value={targetLang} 
-                        onChange={(e) => setTargetLang(e.target.value as TargetLanguage)}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    >
-                        {Object.entries(TARGET_LANGUAGES).map(([code, name]) => (
-                            <option key={code} value={code} className="bg-[#0a0e27] text-white">
-                                {name}
-                            </option>
-                        ))}
-                    </select>
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#ff00ea]/10 text-[#ff00ea] text-xs font-bold border border-[#ff00ea]/30 group-hover:bg-[#ff00ea]/20 group-hover:border-[#ff00ea]/50 transition-all cursor-pointer min-w-[140px] justify-between shadow-[0_0_10px_rgba(255,0,234,0.1)]">
-                        <span>{TARGET_LANGUAGES[targetLang]}</span>
-                        <ChevronDown className="w-3 h-3 opacity-70 group-hover:translate-y-0.5 transition-transform" />
-                    </div>
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#ff00ea]/10 text-[#ff00ea] text-xs font-bold border border-[#ff00ea]/30 min-w-[140px] justify-between shadow-[0_0_10px_rgba(255,0,234,0.1)]">
+                    <span>{TARGET_LANGUAGES[settings.targetLanguage]}</span>
+                    <span className="text-[10px] text-white/40">از سایدبار</span>
                 </div>
             </div>
 
@@ -215,7 +200,7 @@ export const TextTranslatorModal: React.FC<TextTranslatorModalProps> = ({ isOpen
                     <textarea 
                         readOnly
                         value={outputText}
-                        className={`flex-1 w-full bg-transparent p-5 text-sm text-white focus:outline-none resize-none leading-8 custom-scrollbar ${targetLang === 'fa' ? 'dir-rtl' : 'dir-ltr'}`}
+                        className={`flex-1 w-full bg-transparent p-5 text-sm text-white focus:outline-none resize-none leading-8 custom-scrollbar ${settings.targetLanguage === 'fa' ? 'dir-rtl' : 'dir-ltr'}`}
                     />
                 )}
 

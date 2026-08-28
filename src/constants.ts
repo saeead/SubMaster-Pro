@@ -67,8 +67,16 @@ export const DELAY_BETWEEN_FILES_MS = 10000;
 export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: ModelType, method: TranslationMethod): number => {
   // Tagged subtitle translators are more reliable with short batches: every
   // target needs a distinct closing tag, and a single omission blocks recovery.
-  if (method === 'subtitle_translator') return provider === 'lm_studio' ? 16 : 12;
-  if (method === 'skeleton_str') return provider === 'lm_studio' ? 48 : 40;
+  if (method === 'subtitle_translator') {
+    if (provider === 'lm_studio') return 10;
+    if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 6;
+    return 8;
+  }
+  if (method === 'skeleton_str') {
+    if (provider === 'lm_studio') return 24;
+    if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 10;
+    return 20;
+  }
   if (method === 'paragraph') return model === 'professional' ? 12 : 16;
   if (provider === 'lm_studio') return 36;
   if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 12;
