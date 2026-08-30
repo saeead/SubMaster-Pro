@@ -26,6 +26,7 @@ const SUBTITLE_TRANSLATOR_SERVICE_PRESETS = [
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, updateSettings }) => {
   const [newKeyInput, setNewKeyInput] = useState('');
   const [isValidating, setIsValidating] = useState(false);
+  const [isRevalidatingKeys, setIsRevalidatingKeys] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
@@ -127,6 +128,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
   const removeKey = (keyToRemove: string) => {
     updateSettings({ apiKeys: settings.apiKeys.filter(k => k.key !== keyToRemove) });
+  };
+
+  const revalidateKeys = async () => {
+    if (!settings.apiKeys.length) return;
+    setIsRevalidatingKeys(true);
+    const checked = await Promise.all(settings.apiKeys.map(async key => {
+      const isValid = await validateAPIConnection(key.key);
+      return { ...key, isValid, isRateLimited: !isValid ? key.isRateLimited : false };
+    }));
+    // Unavailable/rate-limited keys stay at the bottom; healthy keys are ready for random rotation.
+    updateSettings({ apiKeys: [...checked.filter(key => key.isValid && !key.isRateLimited), ...checked.filter(key => !key.isValid || key.isRateLimited)] });
+    setIsRevalidatingKeys(false);
+    setSuccessMessage('اعتبار کلیدها دوباره بررسی شد.');
   };
 
   const handleClearMemory = () => {
@@ -525,17 +539,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                     </p>
                   )}
 
+                  <button onClick={revalidateKeys} disabled={!settings.apiKeys.length || isRevalidatingKeys} className="w-full rounded-lg border border-blue-400/30 bg-blue-500/10 py-2 text-xs font-bold text-blue-300 transition hover:bg-blue-500/20 disabled:opacity-40">
+                    {isRevalidatingKeys ? 'در حال بررسی مجدد کلیدها...' : 'بررسی مجدد اعتبار همهٔ کلیدها'}
+                  </button>
+
                   <div className="space-y-2 mt-4 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
                     {settings.apiKeys.map((k, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-[#0a0e27] rounded-lg border border-white/10 group hover:border-white/20 transition-all">
+                      <div key={idx} className={`flex items-center justify-between rounded-lg border p-3 transition-all ${k.isRateLimited ? 'border-red-500/50 bg-red-500/10' : k.isValid ? 'border-blue-400/40 bg-blue-500/10' : 'border-white/10 bg-[#0a0e27]'}`}>
                         <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${k.isValid ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div>
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${k.isRateLimited ? 'bg-red-500' : k.isValid ? 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.7)]' : 'bg-red-500'}`}></div>
                           <div className="flex flex-col min-w-0">
                              <span className="text-xs text-white font-mono truncate">
                                {k.key.slice(0, 8)}...{k.key.slice(-6)}
                              </span>
                              <span className="text-[10px] text-white/40 truncate">
-                               {k.label} {k.isRateLimited && <span className="text-yellow-500 font-bold ml-1">(Rate Limited)</span>}
+                               {k.label} {k.isRateLimited ? <span className="font-bold text-red-400 ml-1">(محدود شده)</span> : k.isValid ? <span className="font-bold text-blue-300 ml-1">(آمادهٔ استفاده)</span> : <span className="font-bold text-red-400 ml-1">(نامعتبر)</span>}
                              </span>
                           </div>
                         </div>
@@ -552,8 +570,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
               </div>
 
-              {/* Gemini-only model selection */}
-              <div className="space-y-4">
+              {/* Gemini model selection is deliberately retired: the service always uses the public Flash model. */}
+              {false && <div className="space-y-4">
                  <div className="flex items-center gap-2">
                      <label className="text-sm text-white/70 block font-bold">انتخاب مدل پردازشی</label>
                      <HelpTooltip 
@@ -645,7 +663,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                     </div>
 
                  </div>
-              </div>
+              </div>}
               </>)}
 
               <button 

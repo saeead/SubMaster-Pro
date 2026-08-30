@@ -66,7 +66,9 @@ export class TranslationJobRunner {
         this.controller = null;
       }
 
-      if (job.status === 'paused' || job.status === 'cancelled') break;
+      // The active job may have been paused/cancelled by abortActive while its
+      // handler was settling; inspect the current state after that handler.
+      if (this.activeJob?.status === 'paused' || this.activeJob?.status === 'cancelled') break;
     }
   }
 
