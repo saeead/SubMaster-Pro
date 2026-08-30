@@ -1,11 +1,12 @@
 
 
 import React from 'react';
-import { Languages, Menu } from 'lucide-react';
+import { Languages, Menu, Moon, Sun } from 'lucide-react';
 import { APP_CONFIG } from '../constants';
 
 interface HeaderProps {
     onToggleSidebar: () => void;
+    onToggleTheme: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
@@ -38,6 +39,16 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
             <div className="hidden md:flex items-center gap-4">
                 <span className="px-3 py-1 rounded-full border border-border bg-surface text-xs text-text-muted font-mono">v{APP_CONFIG.version}</span>
             </div>
+
+            <button
+                type="button"
+                onClick={onToggleTheme}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-text-muted transition hover:bg-surfaceHighlight hover:text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+                aria-label={theme === 'dark' ? 'فعال‌سازی حالت روشن' : 'فعال‌سازی حالت تیره'}
+                title={theme === 'dark' ? 'حالت روشن' : 'حالت تیره'}
+            >
+                {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
 
             {/* Mobile Menu Button */}
             <button 
