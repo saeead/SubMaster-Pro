@@ -606,7 +606,7 @@ export const validateAPIConnection = async (apiKey: string, strictMode: boolean 
   if (!apiKey) return false;
   try {
      const ai = new GoogleGenAI({ apiKey: apiKey });
-     await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'Hi' });
+     await ai.models.generateContent({ model: APP_CONFIG.geminiFlashModel, contents: 'Hi' });
      return true;
   } catch (e: any) {
      const errorMessage = extractErrorDetails(e);
@@ -633,7 +633,7 @@ export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings
         }
         if (!apiKey) return 'هیچ کلید API معتبری یافت نشد.';
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' });
+        await ai.models.generateContent({ model: APP_CONFIG.geminiFlashModel, contents: 'ping' });
         return null; 
     } catch (e: any) {
         if (settings?.aiProvider === 'lm_studio') {
@@ -644,7 +644,7 @@ export const diagnoseConnection = async (apiKey?: string, settings?: AppSettings
                 || settings.openAICompatibleServices[0]?.name;
             return getOpenAICompatibleFriendlyError(e, serviceName);
         }
-        return getFriendlyErrorMessage(e, 'gemini-2.5-flash');
+        return getFriendlyErrorMessage(e, APP_CONFIG.geminiFlashModel);
     }
 };
 
@@ -655,9 +655,10 @@ class APIKeyManager {
     userKeys.forEach(k => { if (k.isValid) this.keys.push({ key: k.key, isRateLimited: k.isRateLimited }); });
   }
   public getActiveKey(): string {
-    const availableKeyIndex = this.keys.findIndex(k => !k.isRateLimited);
-    if (availableKeyIndex === -1) throw new Error("429: All API Keys are Rate Limited.");
-    this.currentIndex = availableKeyIndex;
+    const available = this.keys.map((key, index) => ({ key, index })).filter(item => !item.key.isRateLimited);
+    if (available.length === 0) throw new Error("429: All API Keys are Rate Limited.");
+    // Random distribution prevents a single key from absorbing every batch.
+    this.currentIndex = available[Math.floor(Math.random() * available.length)].index;
     return this.keys[this.currentIndex].key;
   }
   public markCurrentAsRateLimited() { if (this.keys[this.currentIndex]) this.keys[this.currentIndex].isRateLimited = true; }
@@ -677,10 +678,7 @@ export const translateBatch = async (
   let overloadRetries = 0; 
   const { maxRetries, baseDelay, overloadWaitMs } = APP_CONFIG.retryConfig;
 
-  let modelName = APP_CONFIG.geminiModels.standard;
-  if (settings.model === 'professional') modelName = APP_CONFIG.geminiModels.professional;
-  else if (settings.model === 'flash') modelName = APP_CONFIG.geminiModels.flash;
-  else if (settings.model === 'flash_lite') modelName = APP_CONFIG.geminiModels.flash_lite;
+  const modelName = APP_CONFIG.geminiFlashModel;
 
   const keyManager = new APIKeyManager(settings.apiKeys);
   const totalAllowedAttempts = maxRetries + settings.apiKeys.length * 2;
@@ -774,7 +772,7 @@ export const translateBatch = async (
         keyManager.markCurrentAsRateLimited();
         if (onKeyRateLimit && currentApiKey) onKeyRateLimit(currentApiKey);
         if (!keyManager.hasAvailableKeys()) throw new Error("429 Quota Exhausted");
-        await delay(1000); 
+        // Immediately continue with another available key.
       } else {
         attempt++;
         await delay(baseDelay * Math.pow(1.5, attempt));
@@ -806,10 +804,7 @@ export const retranslateSelectedBlocks = async (
     settings.targetLanguage
   );
 
-  let modelName = APP_CONFIG.geminiModels.standard;
-  if (settings.model === 'professional') modelName = APP_CONFIG.geminiModels.professional;
-  else if (settings.model === 'flash') modelName = APP_CONFIG.geminiModels.flash;
-  else if (settings.model === 'flash_lite') modelName = APP_CONFIG.geminiModels.flash_lite;
+  const modelName = APP_CONFIG.geminiFlashModel;
 
   const keyManager = new APIKeyManager(settings.apiKeys);
   const totalAllowedAttempts = maxRetries + settings.apiKeys.length * 2;
@@ -869,7 +864,7 @@ export const retranslateSelectedBlocks = async (
         keyManager.markCurrentAsRateLimited();
         if (onKeyRateLimit && currentApiKey) onKeyRateLimit(currentApiKey);
         if (!keyManager.hasAvailableKeys()) throw new Error("429 Quota Exhausted");
-        await delay(1000);
+        // Immediately continue with another available key.
       } else {
         attempt++;
         await delay(baseDelay * Math.pow(1.5, attempt));
@@ -892,7 +887,7 @@ export const translateFreeText = async (text: string, settings: AppSettings, tar
     }
     const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
     const response = await ai.models.generateContent({
-        model: APP_CONFIG.geminiModels.standard,
+        model: APP_CONFIG.geminiFlashModel,
         contents: text,
         config: {
             systemInstruction: `${LANGUAGE_PROMPTS[targetLang]}\nTone: ${settings.tone}. Native flow, no translationese.`,
@@ -925,6 +920,6 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
-  const response = await ai.models.generateContent({ model: APP_CONFIG.geminiModels.standard, contents: content, config: { systemInstruction, temperature: settings.temperature, safetySettings: SAFETY_SETTINGS }, abortSignal: signal });
+  const response = await ai.models.generateContent({ model: APP_CONFIG.geminiFlashModel, contents: content, config: { systemInstruction, temperature: settings.temperature, safetySettings: SAFETY_SETTINGS }, abortSignal: signal });
   return response.text || '';
 };

@@ -2,18 +2,14 @@
 import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage, OutputStandard, TranslationMethod } from "./types";
 
 export const APP_CONFIG = {
-  version: "2.5.0", // Broadcast Standards Update
+  version: "3.0.0",
   maxWordsPerBlock: 24, 
   minWordsPerBlock: 1, 
   maxFileSize: 100 * 1024 * 1024, 
   maxFilesPerUpload: 50,
   supportedFormats: ['srt', 'vtt', 'ass'],
-  geminiModels: {
-    standard: 'gemini-3-flash-preview',       
-    professional: 'gemini-3-pro-preview',    
-    flash: 'gemini-2.5-flash-latest',       
-    flash_lite: 'gemini-flash-lite-latest' 
-  },
+  // Gemini requests intentionally use the public free-tier Flash model only.
+  geminiFlashModel: 'gemini-2.5-flash',
   retryConfig: {
     maxRetries: 5, 
     baseDelay: 6000, 
@@ -81,7 +77,7 @@ export const getAdaptiveTranslationBatchSize = (provider: AIProvider, model: Mod
   if (provider === 'lm_studio') return 36;
   if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 12;
   if (model === 'professional') return 14;
-  if (model === 'flash' || model === 'flash_lite') return 36;
+  if (model === 'flash' || model === 'flash_lite' || provider === 'gemini') return 36;
   return BATCH_SIZE;
 };
 
@@ -90,7 +86,7 @@ export const getAdaptiveBatchDelay = (provider: AIProvider, model: ModelType): n
   if (provider === 'lm_studio') return 0;
   if (provider === 'gtx' || provider === 'edge' || provider === 'deeplx') return 350;
   if (provider === 'openai_compatible') return 250;
-  if (model === 'flash' || model === 'flash_lite') return 800;
+  if (model === 'flash' || model === 'flash_lite' || provider === 'gemini') return 800;
   return 1200;
 };
 
@@ -166,10 +162,12 @@ const SYSTEM_PROMPTS = {
   },
 
   topics: {
-    educational: `--- پروتکل Tech-Term Preservation ---
-1. اصطلاحات تخصصی (مثل: Container, Backend, Layer) را شناسایی کنید. 
-2. برای اصطلاحات واقعاً تخصصی، ابتدا معادل طبیعی فارسی را بنویسید و سپس عبارت اصلی را داخل پرانتز بیاورید؛ مانند «کانتینرسازی (containerization)».
-3. کلمات فنی را در بافت محاوره‌ای طوری قرار دهید که ساختار فنی آموزش آسیب نبیند.`,
+    educational: `--- پروتکل ترجمهٔ آموزشی و علمی ---
+1. پیش از نوشتن، موضوع، رابطهٔ علّی، تعریف‌ها، مراحل و قیدهای علمی را از بافت کامل تشخیص بده؛ هیچ‌کدام را مبهم، عامیانه یا ناقص نکن.
+2. از معادل جاافتاده و دقیق فارسی در منابع آموزشی استفاده کن؛ از ترجمهٔ تحت‌اللفظی، واژه‌سازی بی‌دلیل و برگردانِ کلمه‌به‌کلمه پرهیز کن.
+3. اصطلاح انگلیسی را فقط وقتی در پرانتز بیاور که برای یادگیری یا رفع ابهام ضروری است؛ برای واژه‌های رایج، متن فارسی روان و مستقل بنویس.
+4. نام متغیرها، کد، برندها، فرمول‌ها و اصطلاحاتی که در واژه‌نامه یا فهرست اصطلاحات محافظت‌شده آمده‌اند را دقیقاً حفظ کن.
+5. یک بازبینی نهایی انجام بده: آیا دانشجو بدون دیدن متن مبدأ، مفهوم، هدف و نتیجهٔ هر جمله را دقیق و طبیعی دریافت می‌کند؟`,
 
     entertainment: `تمرکز بر بومی‌سازی ضرب‌المثل‌ها و شوخی‌ها.`,
     podcast: `حفظ اسامی برندها و اشخاص به صورت دقیق.`,
@@ -233,7 +231,7 @@ export const getMethodTranslationInstruction = (method: TranslationMethod, targe
   const persianWriting = targetLanguage === 'fa'
     ? 'Use professional Persian orthography: correct punctuation, Persian ی and ک, natural word order, and نیم‌فاصله where required.'
     : `Use the professional orthography, punctuation, and natural grammar of ${TARGET_LANGUAGES[targetLanguage]}.`;
-  const shared = `Translate completely, naturally, and professionally. Preserve every meaning, detail, qualifier, and relationship from the source; never summarize, omit, or replace a full cue with a short gist. Follow the selected tone, topic, glossary, protected terms, and custom instruction. ${persianWriting} For genuinely specialized terms, write the natural translation first and then the original source term in parentheses, for example «کانتینرسازی (containerization)»; do not add parentheses for ordinary words.`;
+  const shared = `Translate completely, naturally, and professionally. Preserve every meaning, detail, qualifier, and relationship from the source; never summarize, omit, or replace a full cue with a short gist. Follow the selected tone, topic, glossary, protected terms, and custom instruction. ${persianWriting} For genuinely specialized terms only, write the natural translation followed by the original source term in parentheses when it improves precision; never add parentheses for ordinary words.`;
 
   if (method === 'paragraph') {
     return `--- PARAGRAPH METHOD CONTRACT ---\n${shared}\nRead the complete paragraph for context, then translate every marked cue independently and fully. Keep all meaning assigned to its own marker: do not move content to a neighboring cue, merge cues, or finish a later cue early. Subtitle line limits may guide line breaks, never content reduction.`;

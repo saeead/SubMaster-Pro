@@ -1,9 +1,9 @@
-
 import React from 'react';
-import { Ban, Settings, BookOpen, MessageSquareText, ShieldCheck, X } from 'lucide-react';
-import { AppSettings, ToneType, TopicType, OutputStandard } from '../types';
-import { TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
+import { Ban, Settings, BookOpen, MessageSquareText, X } from 'lucide-react';
+import { AppSettings, OutputStandard, TargetLanguage, ToneType, TopicType } from '../types';
+import { TARGET_LANGUAGES, TONE_OPTIONS, TOPIC_OPTIONS } from '../constants';
 import { TemperatureControl } from './TemperatureControl';
+import { SettingsCombobox } from './SettingsCombobox';
 
 interface SidebarProps {
   settings: AppSettings;
@@ -15,142 +15,43 @@ interface SidebarProps {
   onOpenTextTranslator: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ 
-  settings, 
-  updateSettings, 
-  isOpen,
-  onClose,
-  onOpenSettings, 
-  onOpenGlossary, 
-  onOpenTextTranslator 
-}) => {
-  return (
-    <>
-      {/* Mobile Overlay */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden animate-in fade-in"
-          onClick={onClose}
-        />
-      )}
+const standards: Array<{ value: OutputStandard; label: string; description: string }> = [
+  { value: 'normal', label: 'استاندارد عمومی', description: 'بدون محدودیت اختصاصی پخش' },
+  { value: 'netflix', label: 'Netflix', description: '۴۲ کاراکتر، ۲۰ CPS' },
+  { value: 'bbc', label: 'BBC', description: '۳۷ کاراکتر، خوانایی بالا' },
+  { value: 'broadcast', label: 'تلویزیونی', description: '۳۹ کاراکتر، ۱۸ CPS' },
+];
 
-      {/* Sidebar Drawer - Widened to w-80 */}
-      <aside 
-        className={`
-          fixed inset-y-0 right-0 z-40 w-80 bg-[#0a0e27] md:bg-transparent glass md:glass-none 
-          flex flex-col h-full border-l border-white/10 overflow-y-auto custom-scrollbar 
-          transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:h-screen p-6 gap-6
-          ${isOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
-        `}
-      >
-        <div className="flex items-center justify-between md:hidden mb-2">
-            <h3 className="text-lg font-bold text-white">منوی تنظیمات</h3>
-            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
-                <X className="w-5 h-5 text-white" />
-            </button>
-        </div>
-      
-        <div className="space-y-2">
-          <label className="text-xs text-[#00f0ff] font-bold tracking-wide uppercase">لحن ترجمه</label>
-          <div className="relative">
-            <select 
-              value={settings.tone}
-              onChange={(e) => updateSettings({ tone: e.target.value as ToneType })}
-              className="w-full bg-[#0a0e27]/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-[#00f0ff] focus:outline-none appearance-none cursor-pointer transition-colors hover:bg-white/5"
-            >
-              {Object.entries(TONE_OPTIONS).map(([key, label]) => (
-                <option key={key} value={key} className="bg-[#0a0e27]">{label}</option>
-              ))}
-            </select>
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-            </div>
-          </div>
-        </div>
+export const Sidebar: React.FC<SidebarProps> = ({ settings, updateSettings, isOpen, onClose, onOpenSettings, onOpenGlossary, onOpenTextTranslator }) => (
+  <>
+    {isOpen && <div className="fixed inset-0 z-30 bg-slate-950/40 backdrop-blur-sm md:hidden" onClick={onClose} />}
+    <aside className={`fixed inset-y-0 right-0 z-40 flex h-full w-[22rem] flex-col overflow-y-auto border-l border-border bg-[var(--bg-elevated)] p-5 shadow-2xl transition-transform duration-300 md:static md:h-screen md:w-80 md:translate-x-0 md:bg-transparent md:shadow-none ${isOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
+      <div className="mb-6 flex items-center justify-between md:hidden">
+        <p className="text-base font-bold text-text">تنظیمات ترجمه</p>
+        <button onClick={onClose} className="rounded-lg p-2 text-text-muted hover:bg-surfaceHighlight hover:text-text" aria-label="بستن منوی تنظیمات"><X className="h-5 w-5" /></button>
+      </div>
 
-        <div className="space-y-2">
-          <label className="text-xs text-[#ff00ea] font-bold tracking-wide uppercase">موضوع محتوا</label>
-          <div className="relative">
-            <select 
-              value={settings.topic}
-              onChange={(e) => updateSettings({ topic: e.target.value as TopicType })}
-              className="w-full bg-[#0a0e27]/50 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-[#ff00ea] focus:outline-none appearance-none cursor-pointer transition-colors hover:bg-white/5"
-            >
-              {Object.entries(TOPIC_OPTIONS).map(([key, label]) => (
-                <option key={key} value={key} className="bg-[#0a0e27]">{label}</option>
-              ))}
-            </select>
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-            </div>
-          </div>
-        </div>
+      <div className="space-y-5">
+        <SettingsCombobox label="لحن ترجمه" value={settings.tone} onChange={(tone) => updateSettings({ tone: tone as ToneType })} options={Object.entries(TONE_OPTIONS).map(([value, label]) => ({ value: value as ToneType, label }))} />
+        <SettingsCombobox label="زبان خروجی" value={settings.targetLanguage} onChange={(targetLanguage) => updateSettings({ targetLanguage: targetLanguage as TargetLanguage })} options={Object.entries(TARGET_LANGUAGES).map(([value, label]) => ({ value: value as TargetLanguage, label }))} description="این انتخاب برای ترجمه، ویرایش و نام فایل خروجی اعمال می‌شود." />
+        <SettingsCombobox label="استاندارد خروجی" value={settings.outputStandard} onChange={(outputStandard) => updateSettings({ outputStandard: outputStandard as OutputStandard })} options={standards} description="محدودیت‌های خوانایی و شکست خط را در کل فرایند اعمال می‌کند." />
+        <SettingsCombobox label="موضوع محتوا" value={settings.topic} onChange={(topic) => updateSettings({ topic: topic as TopicType })} options={Object.entries(TOPIC_OPTIONS).map(([value, label]) => ({ value: value as TopicType, label }))} />
 
+        <section className="rounded-xl border border-border bg-surface p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-text"><Ban className="h-4 w-4 text-primary" /> اصطلاحات محافظت‌شده</div>
+          <textarea id="do-not-translate-terms" value={settings.doNotTranslateTerms} onChange={(e) => updateSettings({ doNotTranslateTerms: e.target.value })} placeholder="مثال: React, API, SubMaster" className="min-h-24 w-full resize-y rounded-lg border border-border bg-background p-3 text-sm leading-6 text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" dir="auto" />
+          <p className="mt-2 text-xs leading-5 text-text-muted">اصطلاح‌ها را با ویرگول انگلیسی جدا کنید تا بدون ترجمه حفظ شوند.</p>
+        </section>
 
-        <div className="space-y-3 rounded-xl border border-[#00f0ff]/15 bg-[#00f0ff]/5 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <label htmlFor="do-not-translate-terms" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#00f0ff]">
-              <Ban className="h-4 w-4" />
-              استثناعات ترجمه
-            </label>
-            {settings.doNotTranslateTerms.trim() && (
-              <span className="rounded-full bg-[#00f0ff]/15 px-2 py-0.5 text-[10px] font-bold text-[#00f0ff]">
-                {settings.doNotTranslateTerms.split(',').map(term => term.trim()).filter(Boolean).length} مورد
-              </span>
-            )}
-          </div>
-          <textarea
-            id="do-not-translate-terms"
-            value={settings.doNotTranslateTerms}
-            onChange={(e) => updateSettings({ doNotTranslateTerms: e.target.value })}
-            placeholder="مثلاً: React, API, SubMaster"
-            className="min-h-24 w-full resize-y rounded-xl border border-white/10 bg-[#0a0e27]/60 p-3 text-sm leading-6 text-white placeholder:text-white/35 transition-all focus:border-[#00f0ff]/60 focus:outline-none"
-            dir="auto"
-          />
-          <p className="text-[10px] leading-5 text-white/45">
-            کلمات را با ویرگول انگلیسی (,) جدا کنید تا مدل آن‌ها را عیناً حفظ کند و ترجمه نکند.
-          </p>
-        </div>
+        {settings.topic === 'educational' && <button onClick={onOpenGlossary} className="flex min-h-11 w-full items-center justify-between rounded-lg border border-secondary/30 bg-secondary/10 px-3 text-sm font-semibold text-text transition hover:bg-secondary/15"><span className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-secondary" />واژه‌نامه تخصصی</span><span className="rounded-full bg-secondary/20 px-2 py-0.5 text-xs text-text">{settings.glossary.length}</span></button>}
 
-        {settings.topic === 'educational' && (
-           <div className="animate-in fade-in">
-               <button onClick={onOpenGlossary} className="w-full py-3 px-4 rounded-xl border border-[#ff00ea]/30 bg-[#ff00ea]/10 hover:bg-[#ff00ea]/20 text-white font-medium flex items-center justify-between transition-all">
-                  <div className="flex items-center gap-2"><BookOpen className="w-5 h-5 text-[#ff00ea]" /><span className="text-sm">واژه‌نامه اختصاصی</span></div>
-                  {settings.glossary.length > 0 && <span className="bg-[#ff00ea] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{settings.glossary.length}</span>}
-               </button>
-           </div>
-        )}
+        <TemperatureControl temperature={settings.temperature} topic={settings.topic} onChange={(temperature) => updateSettings({ temperature })} />
+      </div>
 
-        {/* Standards Selection */}
-        <div className="space-y-3 bg-[#0a0e27]/40 p-3 rounded-xl border border-white/5">
-          <div className="flex items-center gap-2 mb-1"><ShieldCheck className="w-4 h-4 text-white/70" /><label className="text-xs text-white/70 font-bold uppercase">استاندارد خروجی</label></div>
-          <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => updateSettings({ outputStandard: 'normal' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'normal' ? 'bg-[#00f0ff]/10 border-[#00f0ff] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Normal</button>
-              <button onClick={() => updateSettings({ outputStandard: 'netflix' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'netflix' ? 'bg-[#E50914]/10 border-[#E50914] text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Netflix</button>
-              <button onClick={() => updateSettings({ outputStandard: 'bbc' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'bbc' ? 'bg-orange-500/10 border-orange-500 text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>BBC</button>
-              <button onClick={() => updateSettings({ outputStandard: 'broadcast' })} className={`relative p-2.5 rounded-lg border text-[10px] font-bold transition-all ${settings.outputStandard === 'broadcast' ? 'bg-blue-500/10 border-blue-500 text-white' : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'}`}>Broadcast</button>
-          </div>
-          
-          <div className="text-[9px] text-white/40 px-2 py-1 bg-white/5 rounded border border-white/5">
-              {settings.outputStandard === 'netflix' && "۴۲ کاراکتر | ۲۰ CPS | ۲ فریم فاصله"}
-              {settings.outputStandard === 'bbc' && "۳۷ کاراکتر | ۱۷ CPS | خوانایی بالا"}
-              {settings.outputStandard === 'broadcast' && "۳۹ کاراکتر | ۱۸ CPS | تلویزیونی"}
-              {settings.outputStandard === 'normal' && "بدون محدودیت خاص"}
-          </div>
-        </div>
-
-        <TemperatureControl temperature={settings.temperature} topic={settings.topic} onChange={(val) => updateSettings({ temperature: val })} />
-
-        <div className="flex-1"></div>
-
-        <button onClick={onOpenTextTranslator} className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-gradient-to-r from-[#00f0ff]/10 to-[#00f0ff]/5 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/20 transition-all font-bold shadow-[0_0_10px_rgba(0,240,255,0.1)]">
-          <MessageSquareText className="w-5 h-5" />ترجمه متن
-        </button>
-
-        <button onClick={onOpenSettings} className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-white/80 hover:text-white hover:border-[#ff00ea]/50 group">
-          <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-500" />تنظیمات پیشرفته
-        </button>
-      </aside>
-    </>
-  );
-};
+      <div className="mt-auto space-y-3 pt-6">
+        <button onClick={onOpenTextTranslator} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-slate-950 shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/50"><MessageSquareText className="h-4 w-4" />ترجمه متن</button>
+        <button onClick={onOpenSettings} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-text transition hover:bg-surfaceHighlight"><Settings className="h-4 w-4" />تنظیمات پیشرفته</button>
+      </div>
+    </aside>
+  </>
+);
