@@ -1,15 +1,16 @@
 
 
 import React from 'react';
-import { Languages, Menu } from 'lucide-react';
+import { Languages, Menu, Moon, Sun } from 'lucide-react';
 import { APP_CONFIG } from '../constants';
 
 interface HeaderProps {
     theme: 'dark' | 'light';
     onToggleSidebar: () => void;
+    onToggleTheme: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ theme, onToggleSidebar }) => {
+export const Header: React.FC<HeaderProps> = ({ theme, onToggleSidebar, onToggleTheme }) => {
   return (
     <header className="w-full py-6 px-6 border-b border-border glass sticky top-0 z-30 mb-8 md:mb-0 transition-colors duration-300">
       <div className="flex items-center justify-between">
@@ -39,6 +40,16 @@ export const Header: React.FC<HeaderProps> = ({ theme, onToggleSidebar }) => {
             <div className="hidden md:flex items-center gap-4">
                 <span className="px-3 py-1 rounded-full border border-border bg-surface text-xs text-text-muted font-mono">v{APP_CONFIG.version}</span>
             </div>
+
+            <button
+                type="button"
+                onClick={onToggleTheme}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-text-muted transition hover:bg-surfaceHighlight hover:text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+                aria-label={theme === 'dark' ? 'فعال‌سازی حالت روشن' : 'فعال‌سازی حالت تیره'}
+                title={theme === 'dark' ? 'حالت روشن' : 'حالت تیره'}
+            >
+                {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
 
             {/* Mobile Menu Button */}
             <button 
