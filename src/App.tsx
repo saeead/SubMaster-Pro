@@ -63,7 +63,7 @@ const App: React.FC = () => {
     activeOpenAICompatibleServiceId: undefined,
     customPrompt: '',
     apiKeys: [],
-    enableTranslationMemory: true,
+    enableTranslationMemory: false,
     glossary: [],
     doNotTranslateTerms: '',
     theme: 'dark',
@@ -113,7 +113,7 @@ const App: React.FC = () => {
         if (!parsed.apiKeys) parsed.apiKeys = [];
         if (!parsed.outputStandard) parsed.outputStandard = 'normal';
         if (!parsed.translationMethod) parsed.translationMethod = 'default';
-        if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = true;
+        if (parsed.enableTranslationMemory === undefined) parsed.enableTranslationMemory = false;
         if (!parsed.glossary) parsed.glossary = [];
         if (!parsed.doNotTranslateTerms) parsed.doNotTranslateTerms = '';
         if (!parsed.aiProvider) parsed.aiProvider = 'gemini';
@@ -445,7 +445,7 @@ const App: React.FC = () => {
           showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
           setSettings(prev => ({
               ...prev,
-              apiKeys: prev.apiKeys.map(k => k.key === failedKey ? { ...k, isRateLimited: true } : k)
+              apiKeys: [...prev.apiKeys.filter(k => k.key !== failedKey), ...prev.apiKeys.filter(k => k.key === failedKey).map(k => ({ ...k, isRateLimited: true }))]
           }));
       };
 
@@ -1051,7 +1051,7 @@ const App: React.FC = () => {
         showToast(`کلید API (...${failedKey.slice(-4)}) به محدودیت رسید. جایگزینی با کلید بعدی...`, 'warning');
         setSettings(prev => ({
             ...prev,
-            apiKeys: prev.apiKeys.map(k => k.key === failedKey ? { ...k, isRateLimited: true } : k)
+            apiKeys: [...prev.apiKeys.filter(k => k.key !== failedKey), ...prev.apiKeys.filter(k => k.key === failedKey).map(k => ({ ...k, isRateLimited: true }))]
         }));
      };
 
@@ -1373,10 +1373,7 @@ const App: React.FC = () => {
       />
 
       <div ref={scrollContainerRef} onScroll={handleMainScroll} className="flex-1 flex flex-col relative overflow-hidden h-screen overflow-y-auto">
-        <Header 
-            theme={settings.theme} 
-            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        />
+            <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
 
         <main className="flex-1 px-4 md:px-8 py-8 w-full max-w-7xl mx-auto pb-24">
             
@@ -1430,7 +1427,7 @@ const App: React.FC = () => {
                             </div>
                         ))}
                     </div>
-                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} targetLanguage={settings.targetLanguage} onTargetLanguageChange={(targetLanguage) => updateSettings({ targetLanguage })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
+                    <StatsCard activeFile={getActiveFile()} activeFileIndex={getActiveFileIndex()} totalFiles={files.length} translationMethod={settings.translationMethod} onTranslationMethodChange={(translationMethod) => updateSettings({ translationMethod })} onStart={startBatchTranslation} onPause={pauseTranslation} onCancel={cancelTranslation} onDownload={handleOpenExportModal} onDownloadZip={handleDownloadZip} onNewProject={resetProject} onOpenTimingTools={() => setIsTimingModalOpen(true)} onFixErrors={handleFixNetflixErrors} onSave={handleManualSave} onExportBackup={handleExportProjectFile} onOptimizeStructure={handleOptimizePersianStructure} />
                     <div className="mb-6 glass p-6 rounded-2xl border border-border space-y-3">
                          <label className="text-sm font-bold text-white/70 flex items-center gap-2"><Wand2 className="w-4 h-4 text-[#ff00ea]" />پرامپت اختصاصی (Custom Prompt)</label>
                          <textarea value={settings.customPrompt} onChange={(e) => updateSettings({ customPrompt: e.target.value })} placeholder="دستورالعمل خاصی دارید؟ اینجا بنویسید..." className="w-full bg-[#0a0e27]/50 text-sm text-text placeholder-text-muted focus:outline-none resize-none h-24 rounded-xl p-4 border border-white/10 focus:border-[#ff00ea]/50 transition-all" />
@@ -1456,7 +1453,7 @@ const App: React.FC = () => {
       </div>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} />
       <TimingModal isOpen={isTimingModalOpen} onClose={() => setIsTimingModalOpen(false)} onApply={handleTimingAdjustment} onNetflixCheck={handleNetflixCheck} hasMultipleFiles={files.length > 1} />
-      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} onConfirm={handleConfirmDownload} defaultFormat={settings.outputFormat} />
+      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} onConfirm={(format, styles) => { updateSettings({ outputFormat: format }); handleConfirmDownload(format, styles); }} defaultFormat={settings.outputFormat} />
       <GlossaryModal isOpen={isGlossaryModalOpen} onClose={() => setIsGlossaryModalOpen(false)} glossary={settings.glossary} onUpdate={handleUpdateGlossary} />
       <TextTranslatorModal isOpen={isTranslatorOpen} onClose={() => setIsTranslatorOpen(false)} settings={settings} />
        {files.some(f => f.status === AppStatus.TRANSLATING) && (

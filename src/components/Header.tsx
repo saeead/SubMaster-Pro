@@ -5,11 +5,10 @@ import { Languages, Menu } from 'lucide-react';
 import { APP_CONFIG } from '../constants';
 
 interface HeaderProps {
-    theme: 'dark' | 'light';
     onToggleSidebar: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ theme, onToggleSidebar }) => {
+export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   return (
     <header className="w-full py-6 px-6 border-b border-border glass sticky top-0 z-30 mb-8 md:mb-0 transition-colors duration-300">
       <div className="flex items-center justify-between">
@@ -17,7 +16,7 @@ export const Header: React.FC<HeaderProps> = ({ theme, onToggleSidebar }) => {
         {/* Logo/Title - Placed first in DOM to appear on Right in RTL */}
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className={`absolute inset-0 ${theme === 'dark' ? 'bg-primary' : 'bg-primary'} blur-lg opacity-40 rounded-full`}></div>
+            <div className="absolute inset-0 bg-primary blur-lg opacity-40 rounded-full"></div>
             <div className="relative bg-gradient-to-br from-background to-surface p-3 rounded-2xl border border-border">
                <Languages className="w-6 h-6 text-primary" />
             </div>

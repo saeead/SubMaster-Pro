@@ -245,6 +245,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
       {/* Blocks List */}
       <div className="space-y-4">
+        {totalPages > 1 && <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70"><span>فهرست بلوک‌ها</span><span>صفحه {currentPage} از {totalPages}</span></div>}
         {visibleBlocks.map((block) => {
           const error = getErrorForBlock(block.id);
           const hasError = !!error;
@@ -384,7 +385,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ChevronsDown className="h-4 w-4" />
-                <span>انتخاب پایینی‌ها</span>
+                <span>تا انتها</span>
               </button>
               <button
                 type="button"
@@ -393,7 +394,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 className="flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-bold leading-tight text-white/80 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ChevronsUp className="h-4 w-4" />
-                <span>انتخاب بالایی‌ها</span>
+                <span>تا ابتدا</span>
               </button>
               <button
                 type="button"
