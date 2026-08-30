@@ -823,7 +823,6 @@ export const retranslateSelectedBlocks = async (
       }
 
       if (settings.aiProvider === 'lm_studio') {
-        signal?.throwIfAborted();
         const text = await callLmStudioChat(settings, systemInstruction, `${userPrompt}\n\nReturn ONLY a JSON array, with no markdown.`);
         return validateBatchResponse(targetIds, JSON.parse(extractJsonArray(text)));
       }
@@ -925,6 +924,7 @@ export const translateSkeletonPayload = async (content: string, settings: AppSet
   if (settings.aiProvider === 'lm_studio') return callLmStudioChat(settings, systemInstruction, content, signal);
   if (settings.aiProvider === 'openai_compatible') return callOpenAICompatibleChat(getActiveOpenAICompatibleService(settings), settings.temperature, systemInstruction, content, signal);
   const ai = new GoogleGenAI({ apiKey: new APIKeyManager(settings.apiKeys).getActiveKey() });
-  const response = await ai.models.generateContent({ model: APP_CONFIG.geminiModels.standard, contents: content, config: { systemInstruction, temperature: settings.temperature, safetySettings: SAFETY_SETTINGS }, abortSignal: signal });
+  signal?.throwIfAborted();
+  const response = await ai.models.generateContent({ model: APP_CONFIG.geminiModels.standard, contents: content, config: { systemInstruction, temperature: settings.temperature, safetySettings: SAFETY_SETTINGS } });
   return response.text || '';
 };

@@ -1,5 +1,5 @@
 
-import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage, OutputStandard, TranslationMethod } from "./types";
+import { ToneType, TopicType, GlossaryItem, StyleTemplate, TargetLanguage, OutputStandard, TranslationMethod, AIProvider, ModelType } from "./types";
 
 export const APP_CONFIG = {
   version: "2.5.0", // Broadcast Standards Update

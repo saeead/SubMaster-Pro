@@ -66,7 +66,7 @@ export class TranslationJobRunner {
         this.controller = null;
       }
 
-      if (job.status === 'paused' || job.status === 'cancelled') break;
+      if (this.activeJob?.status === 'paused' || this.activeJob?.status === 'cancelled') break;
     }
   }
 
